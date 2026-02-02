@@ -1,8 +1,6 @@
 import re
 from datetime import datetime
 import httpx
-import numpy as np
-from scipy import optimize
 
 def clean_currency_to_float(text: str) -> float:
     """Removes currency symbols and commas to return a clean float."""
@@ -70,7 +68,7 @@ async def fetch_nav_history(amfi_code: str) -> dict:
 
 def calculate_xirr(dates, amounts):
     """
-    Calculates XIRR for a schedule of transactions.
+    Calculates XIRR for a schedule of transactions (pure Python, no scipy).
     :param dates: List of datetime objects
     :param amounts: List of floats (negative for investment, positive for value)
     :return: XIRR as a percentage (float), or 0.0 if calculation fails.
@@ -78,36 +76,36 @@ def calculate_xirr(dates, amounts):
     if len(dates) != len(amounts) or not dates:
         return 0.0
 
-    # Ensure amounts and dates are paired and sorted by date
     transactions = sorted(zip(dates, amounts), key=lambda x: x[0])
     dates, amounts = zip(*transactions)
     
     if amounts[0] >= 0:
-        # First transaction must be an investment (negative)
         return 0.0
 
-    # Normalization: XIRR equation
-    # 0 = sum( amount_i / (1 + rate) ^ ((date_i - date_0) / 365) )
-    
     start_date = dates[0]
-    
-    def xnpv(rate):
-        # Prevent division by zero or negative base issues if rate is too low
-        if rate <= -1.0:
-            return float('inf')
-        
-        val = 0.0
-        for d, a in zip(dates, amounts):
-            days_diff = (d - start_date).days
-            val += a / ((1 + rate) ** (days_diff / 365.0))
-        return val
+    # Time in years from start for each cashflow
+    times = [(d - start_date).days / 365.0 for d in dates]
 
-    try:
-        # Newton-Raphson method
-        # Guess 0.1 (10%)
-        result = optimize.newton(xnpv, 0.1, maxiter=50)
-        return result * 100
-    except (RuntimeError, ValueError) as e:
-        # Fallback or failure
-        # print("XIRR convergene failed:", e)
-        return 0.0
+    def xnpv(rate):
+        if rate <= -1.0:
+            return float("inf")
+        return sum(a / ((1 + rate) ** t) for a, t in zip(amounts, times))
+
+    def xnpv_prime(rate):
+        if rate <= -1.0:
+            return 1.0
+        return sum(-a * t / ((1 + rate) ** (t + 1)) for a, t in zip(amounts, times))
+
+    # Newton-Raphson
+    rate = 0.1
+    for _ in range(50):
+        f = xnpv(rate)
+        if abs(f) < 1e-9:
+            return rate * 100
+        fp = xnpv_prime(rate)
+        if abs(fp) < 1e-12:
+            break
+        rate = rate - f / fp
+        if rate <= -1.0:
+            rate = -0.99
+    return rate * 100

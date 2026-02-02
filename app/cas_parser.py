@@ -1,9 +1,8 @@
 from casparser import read_cas_pdf
 from typing import Dict, Any, Union
-import pandas as pd
 import io
-import json
 import datetime
+from openpyxl import Workbook
 
 def recursive_to_dict(obj):
     if hasattr(obj, "to_dict"):
@@ -60,53 +59,47 @@ def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: s
 
 def convert_to_excel(json_data: Dict[str, Any]) -> io.BytesIO:
     """
-    Converts parsed JSON data to an Excel file buffer.
-    
-    Args:
-        json_data: The data dictionary from casparser
-        
-    Returns:
-        io.BytesIO buffer containing the Excel file
+    Converts parsed JSON data to an Excel file buffer (openpyxl only, no pandas).
     """
-    output = io.BytesIO()
-    
-    # casparser structure: data['folios'] -> list of folios -> 'schemes' -> list of schemes
-    folios = json_data.get('folios', [])
-    flattened_data = []
-    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Transactions"
+
+    headers = [
+        "AMC", "Folio", "Scheme", "Advisor", "Date", "Description",
+        "Amount", "Units", "NAV", "Balance", "Type"
+    ]
+    ws.append(headers)
+
+    folios = json_data.get("folios", [])
     for folio_data in folios:
-        schemes = folio_data.get('schemes', [])
+        schemes = folio_data.get("schemes", [])
         for scheme in schemes:
-            scheme_name = scheme.get('scheme', 'Unknown')
-            folio_num = folio_data.get('folio', scheme.get('folio', 'Unknown'))
-            advisor = scheme.get('advisor', '')
-            amc = folio_data.get('amc', scheme.get('amc', ''))
-            
-            for txn in scheme.get('transactions', []):
-                row = {
-                    "AMC": amc,
-                    "Folio": folio_num,
-                    "Scheme": scheme_name,
-                    "Advisor": advisor,
-                    "Date": txn.get("date"),
-                    "Description": txn.get("description"),
-                    "Amount": txn.get("amount"),
-                    "Units": txn.get("units"),
-                    "NAV": txn.get("nav"),
-                    "Balance": txn.get("balance"),
-                    "Type": txn.get("type")
-                }
-                flattened_data.append(row)
-    
-    if not flattened_data:
-        # Create empty df if no data
-        df = pd.DataFrame(columns=["Message"])
-        df.loc[0] = ["No transactions found"]
-    else:
-        df = pd.DataFrame(flattened_data)
-        
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Transactions')
-        
+            scheme_name = scheme.get("scheme", "Unknown")
+            folio_num = folio_data.get("folio", scheme.get("folio", "Unknown"))
+            advisor = scheme.get("advisor", "")
+            amc = folio_data.get("amc", scheme.get("amc", ""))
+
+            for txn in scheme.get("transactions", []):
+                row = [
+                    amc,
+                    folio_num,
+                    scheme_name,
+                    advisor,
+                    txn.get("date"),
+                    txn.get("description"),
+                    txn.get("amount"),
+                    txn.get("units"),
+                    txn.get("nav"),
+                    txn.get("balance"),
+                    txn.get("type"),
+                ]
+                ws.append(row)
+
+    if ws.max_row == 1:
+        ws.append(["No transactions found"])
+
+    output = io.BytesIO()
+    wb.save(output)
     output.seek(0)
     return output
