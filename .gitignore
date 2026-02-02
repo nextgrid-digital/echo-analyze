@@ -15,6 +15,9 @@ debug_cas_output.json
 test_results_debug.json
 test_results.json
 
+# Frontend
+frontend/node_modules/
+
 # IDE / OS
 .idea/
 .DS_Store
