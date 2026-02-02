@@ -1,0 +1,48 @@
+{
+    "folios": [
+        {
+            "amc": "HDFC Mutual Fund",
+            "folio": "12345/67",
+            "schemes": [
+                {
+                    "scheme": "HDFC Top 100 Fund - Direct Plan - Growth",
+                    "amfi": "100033",
+                    "type": "EQUITY",
+                    "close": 100.5,
+                    "valuation": {
+                        "nav": 950.2,
+                        "value": 95495.1,
+                        "date": "2024-01-01"
+                    },
+                    "transactions": [
+                        {"date": "2023-01-01", "amount": 80000.0, "type": "PURCHASE", "description": "SIP Purchase"}
+                    ]
+                }
+            ]
+        },
+        {
+            "amc": "ICICI Prudential Mutual Fund",
+            "folio": "98765/43",
+            "schemes": [
+                {
+                    "scheme": "ICICI Prudential Bluechip Fund - Regular Plan - Growth",
+                    "amfi": "100355",
+                    "type": "EQUITY",
+                    "close": 500.0,
+                    "valuation": {
+                        "nav": 85.5,
+                        "value": 42750.0,
+                        "date": "2024-01-01"
+                    },
+                    "transactions": [
+                        {"date": "2023-01-01", "amount": 40000.0, "type": "PURCHASE", "description": "Lump sum Purchase"}
+                    ]
+                }
+            ]
+        }
+    ],
+    "statement_period": {
+        "from": "01-Jan-2023",
+        "to": "01-Jan-2024"
+    }
+}

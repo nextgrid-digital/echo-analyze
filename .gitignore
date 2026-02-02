@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.venv
+venv/
+ENV/
+
+# Project
+backend.log
+debug_cas_output.json
+test_results_debug.json
+test_results.json
+
+# IDE / OS
+.idea/
+.DS_Store
+*.swp
+*.swo

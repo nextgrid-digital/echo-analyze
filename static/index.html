@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portfolio Overview</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Uncut+Sans:wght@400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Uncut Sans', sans-serif;
+            background-color: #fcfcfc;
+        }
+    </style>
+</head>
+
+<body class="bg-[#fbfcff] text-slate-800 min-h-screen pb-20">
+
+    <div class="max-w-7xl mx-auto px-6 pt-10">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-12">
+            <div>
+                <h1 class="text-4xl font-bold tracking-tight text-slate-900">Portfolio <span
+                        class="text-indigo-600">Overview</span></h1>
+                <p id="stmtDate" class="text-slate-400 font-medium mt-1">Upload CAS PDF or JSON to view insights</p>
+            </div>
+
+            <div class="flex items-center gap-4">
+                <div
+                    class="flex flex-col md:flex-row items-center gap-3 bg-white p-2 rounded-2xl shadow-sm border border-slate-100">
+                    <div class="flex flex-col px-3">
+                        <label for="jsonFile"
+                            class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Select
+                            Statement</label>
+                        <input type="file" id="jsonFile" accept=".pdf,.json" onchange="updateFileInfo()"
+                            class="text-xs w-64 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-all cursor-pointer">
+                        <p id="fileNameDisplay" class="text-[10px] text-indigo-500 font-bold mt-1 h-3"></p>
+                    </div>
+                    <div class="flex flex-col px-3 border-l border-slate-100">
+                        <label for="pdfPassword"
+                            class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Password</label>
+                        <input type="password" id="pdfPassword" placeholder="Required for PDFs"
+                            class="text-xs px-4 py-2 rounded-xl border border-slate-50 focus:outline-none focus:border-indigo-300 w-40">
+                    </div>
+                    <button onclick="processData()"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-bold text-sm shadow-lg shadow-indigo-100 transition-all hover:-translate-y-0.5 active:translate-y-0">
+                        Analyze Portfolio
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+        <div id="dashboard" class="hidden">
+            <!-- Top Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                <div
+                    class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">Total Invested</p>
+                        <h2 id="costVal" class="text-4xl font-bold text-slate-900">₹0</h2>
+                    </div>
+                </div>
+                <div
+                    class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">Current Value</p>
+                        <h2 id="mktVal" class="text-4xl font-bold text-slate-900">₹0</h2>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-emerald-500 font-bold text-lg" id="absReturn">+0%</p>
+                        <p class="text-slate-400 text-xs">Absolute Return</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Portfolio Concentration -->
+            <div class="mb-12">
+                <h2 class="text-2xl font-bold text-slate-900 mb-6">Portfolio Concentration</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <!-- Your Funds -->
+                    <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
+                        <div class="flex justify-between items-start mb-6">
+                            <h3 class="font-bold text-lg text-slate-800">Your Funds:</h3>
+                            <span id="fundStatus"
+                                class="bg-red-50 text-red-500 text-[10px] font-bold uppercase px-3 py-1 rounded-full">Over-diversified</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4 mb-8">
+                            <div class="p-6 bg-red-50/50 rounded-2xl border border-red-50">
+                                <p class="text-slate-500 text-[10px] font-bold uppercase mb-1">Current funds</p>
+                                <h4 id="fundCount" class="text-3xl font-bold text-red-600">0</h4>
+                            </div>
+                            <div class="p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                                <p class="text-slate-500 text-[10px] font-bold uppercase mb-1">Recommended funds</p>
+                                <h4 class="text-3xl font-bold text-slate-800">7-10</h4>
+                            </div>
+                        </div>
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-slate-50 text-slate-400 text-[10px] font-bold uppercase">
+                                <tr>
+                                    <th class="px-4 py-3 rounded-l-xl">Top Funds</th>
+                                    <th class="px-4 py-3 text-right">Value (Lakhs)</th>
+                                    <th class="px-4 py-3 text-right rounded-r-xl">Allocation %</th>
+                                </tr>
+                            </thead>
+                            <tbody id="topFundsBody" class="divide-y divide-slate-50"></tbody>
+                        </table>
+                    </div>
+
+                    <!-- Your AMCs -->
+                    <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
+                        <div class="flex justify-between items-start mb-6">
+                            <h3 class="font-bold text-lg text-slate-800">Your AMCs:</h3>
+                            <span id="amcStatus"
+                                class="bg-red-50 text-red-500 text-[10px] font-bold uppercase px-3 py-1 rounded-full">Over-diversified</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4 mb-8">
+                            <div class="p-6 bg-red-50/50 rounded-2xl border border-red-50">
+                                <p class="text-slate-500 text-[10px] font-bold uppercase mb-1">Current AMCs</p>
+                                <h4 id="amcCount" class="text-3xl font-bold text-red-600">0</h4>
+                            </div>
+                            <div class="p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                                <p class="text-slate-500 text-[10px] font-bold uppercase mb-1">Recommended AMCs</p>
+                                <h4 class="text-3xl font-bold text-slate-800">5-7</h4>
+                            </div>
+                        </div>
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-slate-50 text-slate-400 text-[10px] font-bold uppercase">
+                                <tr>
+                                    <th class="px-4 py-3 rounded-l-xl">Top AMCs</th>
+                                    <th class="px-4 py-3 text-right">Value (Lakhs)</th>
+                                    <th class="px-4 py-3 text-right rounded-r-xl">Allocation %</th>
+                                </tr>
+                            </thead>
+                            <tbody id="topAmcsBody" class="divide-y divide-slate-50"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Portfolio Cost -->
+            <div class="mb-12">
+                <h2 class="text-2xl font-bold text-slate-900 mb-6">Portfolio Cost</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm p-8">
+                        <h3 class="font-bold text-lg text-slate-800 mb-6">Fund Types</h3>
+                        <div class="flex justify-between text-xs font-bold uppercase mb-2">
+                            <span class="text-emerald-500">Direct funds <span id="directPct">32.9%</span></span>
+                            <span class="text-indigo-500">Regular funds <span id="regularPct">67.1%</span></span>
+                        </div>
+                        <div class="w-full h-8 bg-slate-100 rounded-full overflow-hidden flex mb-8">
+                            <div id="directBar" class="h-full bg-emerald-400" style="width: 32.9%"></div>
+                            <div id="regularBar" class="h-full bg-indigo-400" style="width: 67.1%"></div>
+                        </div>
+
+                        <div class="bg-red-50/50 p-6 rounded-2xl border border-red-100">
+                            <div class="flex items-center gap-2 mb-4">
+                                <span class="text-red-500 text-lg">⚠️</span>
+                                <span class="font-bold text-slate-800 text-sm">High Portfolio Cost</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-8">
+                                <div>
+                                    <p class="text-slate-500 text-[10px] font-bold uppercase mb-1">Your Portfolio Cost
+                                    </p>
+                                    <h4 id="costPct" class="text-xl font-bold text-slate-800">1.39%</h4>
+                                    <p id="annualCost" class="text-[10px] text-slate-400 font-bold mt-1">₹0.66 Lakhs
+                                        Annual</p>
+                                </div>
+                                <div class="text-red-600">
+                                    <p class="text-red-400 text-[10px] font-bold uppercase mb-1">Total Cost paid</p>
+                                    <h4 id="totalCostPaid" class="text-2xl font-bold">₹3.01 Lakhs</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm p-8">
+                        <h3 class="font-bold text-lg text-slate-800 mb-6">Historical Cost Estimate:</h3>
+                        <div class="space-y-4">
+                            <div class="flex justify-between text-sm py-2 border-b border-slate-50">
+                                <span class="text-slate-500 font-bold">Additional Cost Savings</span>
+                                <span id="savingsValue" class="text-emerald-500 font-bold">₹2.05 Lakhs</span>
+                            </div>
+                            <p class="text-[10px] text-slate-400 leading-relaxed uppercase tracking-wider font-bold">
+                                Calculating savings by moving regular funds to direct funds or low-cost index funds.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Equity Deep Dive -->
+            <div class="mb-12">
+                <h2 class="text-2xl font-bold text-slate-900 mb-2">Equity Portfolio <span
+                        class="text-indigo-400 font-medium">Deep Dive</span></h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div class="col-span-2 space-y-8">
+                        <div class="grid grid-cols-2 gap-8">
+                            <div class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+                                <p class="text-slate-400 text-[10px] font-bold uppercase mb-1">Invested Equity Value</p>
+                                <h4 id="equityCost" class="text-2xl font-bold text-slate-900">₹0</h4>
+                            </div>
+                            <div class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+                                <p class="text-slate-400 text-[10px] font-bold uppercase mb-1">Current Equity Value</p>
+                                <h4 id="equityMkt" class="text-2xl font-bold text-slate-900">₹0</h4>
+                            </div>
+                        </div>
+
+                        <!-- Benchmark Alert -->
+                        <div id="benchmarkAlert" class="p-8 rounded-[2rem] border">
+                            <div class="flex items-center gap-3 mb-6">
+                                <div id="alertDot" class="w-2 h-2 rounded-full"></div>
+                                <h3 id="alertTitle" class="font-bold text-lg text-slate-800">Underperforming the
+                                    Benchmark</h3>
+                            </div>
+                            <div class="grid grid-cols-2 gap-y-8 gap-x-12">
+                                <div>
+                                    <p class="text-slate-500 text-[10px] font-bold uppercase mb-1">Your Portfolio XIRR
+                                    </p>
+                                    <h4 id="finalXirr" class="text-2xl font-bold text-slate-900">0%</h4>
+                                </div>
+                                <div>
+                                    <p class="text-slate-500 text-[10px] font-bold uppercase mb-1">Your Gains</p>
+                                    <h4 id="finalGains" class="text-2xl font-bold text-slate-900">₹0</h4>
+                                </div>
+                                <div>
+                                    <p class="text-slate-500 text-[10px] font-bold uppercase mb-1">Benchmark XIRR</p>
+                                    <h4 id="labelBmXirr" class="text-xl font-bold text-slate-600">0%</h4>
+                                </div>
+                                <div>
+                                    <p class="text-slate-500 text-[10px] font-bold uppercase mb-1">Benchmark Gains</p>
+                                    <h4 id="labelBmGains" class="text-xl font-bold text-slate-600">₹0</h4>
+                                </div>
+                            </div>
+                            <div class="mt-8 pt-6 border-t border-slate-100">
+                                <p class="text-slate-500 text-[10px] font-bold uppercase mb-1" id="missedLabel">Total
+                                    Missed Gains</p>
+                                <h4 id="labelMissedValue" class="text-2xl font-bold">₹0</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Market Cap -->
+                    <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
+                        <h3 class="font-bold text-lg text-slate-800 mb-6">Market Cap Allocation</h3>
+                        <div class="flex items-center gap-12 mb-8">
+                            <div class="space-y-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-2 h-2 rounded-full bg-emerald-600"></div>
+                                    <span class="text-xs text-slate-500 font-bold">Large Cap <span id="largePct"
+                                            class="text-slate-800">0%</span></span>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <div class="w-2 h-2 rounded-full bg-emerald-300"></div>
+                                    <span class="text-xs text-slate-500 font-bold">Mid Cap <span id="midPct"
+                                            class="text-slate-800">0%</span></span>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <div class="w-2 h-2 rounded-full bg-slate-200"></div>
+                                    <span class="text-xs text-slate-500 font-bold">Small Cap <span id="smallPct"
+                                            class="text-slate-800">0%</span></span>
+                                </div>
+                            </div>
+                            <div class="w-32 h-32 relative">
+                                <canvas id="mcChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fixed Income Deep Dive -->
+            <div id="fixedIncomeSection" class="mb-12 hidden">
+                <h2 class="text-2xl font-bold text-slate-900 mb-6">Fixed Income Portfolio <span
+                        class="text-indigo-400 font-medium">Deep Dive</span></h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div class="col-span-2 space-y-8">
+                        <div class="grid grid-cols-4 gap-4">
+                            <div class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+                                <p class="text-slate-400 text-[10px] font-bold uppercase mb-1">Invested Value</p>
+                                <h4 id="fiCost" class="text-xl font-bold text-slate-900">₹0</h4>
+                            </div>
+                            <div class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+                                <p class="text-slate-400 text-[10px] font-bold uppercase mb-1">Current Value</p>
+                                <h4 id="fiMkt" class="text-xl font-bold text-slate-900">₹0</h4>
+                            </div>
+                            <div class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+                                <p class="text-slate-400 text-[10px] font-bold uppercase mb-1">FI IRR</p>
+                                <h4 id="fiIrr" class="text-xl font-bold text-slate-900">0%</h4>
+                            </div>
+                            <div class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+                                <p class="text-slate-400 text-[10px] font-bold uppercase mb-1">Net YTM</p>
+                                <h4 id="fiYtm" class="text-xl font-bold text-slate-900">0%</h4>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                            <h3 class="font-bold text-lg text-slate-800 mb-8">Credit Quality</h3>
+                            <div class="flex items-center justify-between">
+                                <div class="space-y-6 w-1/3">
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-3 h-3 rounded-full bg-[#75b9be]"></div>
+                                            <span
+                                                class="text-sm text-slate-500 font-bold uppercase tracking-wider">AAA</span>
+                                        </div>
+                                        <span id="aaaPct" class="text-lg font-bold">0%</span>
+                                    </div>
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-3 h-3 rounded-full bg-[#b2d393]"></div>
+                                            <span
+                                                class="text-sm text-slate-500 font-bold uppercase tracking-wider">AA</span>
+                                        </div>
+                                        <span id="aaPct" class="text-lg font-bold">0%</span>
+                                    </div>
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-3 h-3 rounded-full bg-[#efc88d]"></div>
+                                            <span
+                                                class="text-sm text-slate-500 font-bold uppercase tracking-wider">Below
+                                                AA</span>
+                                        </div>
+                                        <span id="belowAaPct" class="text-lg font-bold">0%</span>
+                                    </div>
+                                </div>
+                                <div class="w-48 h-24 relative">
+                                    <canvas id="creditChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                            <h3 class="font-bold text-lg text-slate-800 mb-8">Category wise allocation</h3>
+                            <div id="fiAllocBars" class="space-y-6">
+                                <!-- Bars will be injected here -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-8">
+                        <div class="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                            <h3 class="font-bold text-lg text-slate-800 mb-6">Top holdings:</h3>
+                            <div class="space-y-6">
+                                <div>
+                                    <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">
+                                        Funds
+                                    </h4>
+                                    <table class="w-full text-sm">
+                                        <tbody id="fiTopFundsBody" class="divide-y divide-slate-50"></tbody>
+                                    </table>
+                                </div>
+                                <div>
+                                    <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">AMCs
+                                    </h4>
+                                    <table class="w-full text-sm">
+                                        <tbody id="fiTopAmcsBody" class="divide-y divide-slate-50"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Performance Summary -->
+            <div id="performanceSection" class="mb-12 hidden">
+                <h2 class="text-2xl font-bold text-slate-900 mb-2">Performance Summary</h2>
+                <p class="text-slate-400 text-sm font-medium mb-8">Active portfolio performance against respective
+                    benchmark indexes</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <!-- 1 Year -->
+                    <div class="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                        <h3 class="font-bold text-lg text-slate-800 border-b border-slate-100 pb-4 mb-4">1 YEAR PERIOD
+                        </h3>
+                        <div class="mb-8">
+                            <span
+                                class="bg-red-50 text-red-500 text-[10px] font-bold uppercase px-3 py-1 rounded-full mb-3 inline-block">Critical
+                                underperformance</span>
+                            <h4 class="text-3xl font-bold text-slate-900 leading-tight"><span id="perf1yUnder">0</span>%
+                                of active portfolio under-performed the respective
+                                benchmarks</h4>
+                        </div>
+                        <div class="bg-slate-50 rounded-2xl p-6">
+                            <h5 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6">Under
+                                Performance</h5>
+                            <div class="space-y-6">
+                                <div>
+                                    <div class="flex justify-between text-xs font-bold mb-2">
+                                        <span class="text-slate-500">Upto 3% <br><span
+                                                class="font-normal text-[10px]">Underperformance</span></span>
+                                        <span id="perf1yUpto3" class="text-slate-900 text-base">0%</span>
+                                    </div>
+                                    <div class="w-full h-8 bg-white rounded-lg overflow-hidden border border-slate-200">
+                                        <div id="bar1yUpto3" class="h-full bg-red-100" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-xs font-bold mb-2">
+                                        <span class="text-slate-500">More than 3% <br><span
+                                                class="font-normal text-[10px]">Underperformance</span></span>
+                                        <span id="perf1yMore3" class="text-slate-900 text-base">0%</span>
+                                    </div>
+                                    <div class="w-full h-8 bg-white rounded-lg overflow-hidden border border-slate-200">
+                                        <div id="bar1yMore3" class="h-full bg-red-400" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3 Year -->
+                    <div class="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                        <h3 class="font-bold text-lg text-slate-800 border-b border-slate-100 pb-4 mb-4">3 YEAR PERIOD
+                        </h3>
+                        <div class="mb-8">
+                            <span
+                                class="bg-red-50 text-red-500 text-[10px] font-bold uppercase px-3 py-1 rounded-full mb-3 inline-block">Critical
+                                underperformance</span>
+                            <h4 class="text-3xl font-bold text-slate-900 leading-tight"><span id="perf3yUnder">0</span>%
+                                of active portfolio under-performed the respective
+                                benchmarks</h4>
+                        </div>
+                        <div class="bg-slate-50 rounded-2xl p-6">
+                            <h5 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6">Under
+                                Performance</h5>
+                            <div class="space-y-6">
+                                <div>
+                                    <div class="flex justify-between text-xs font-bold mb-2">
+                                        <span class="text-slate-500">Upto 3% <br><span
+                                                class="font-normal text-[10px]">Underperformance</span></span>
+                                        <span id="perf3yUpto3" class="text-slate-900 text-base">0%</span>
+                                    </div>
+                                    <div class="w-full h-8 bg-white rounded-lg overflow-hidden border border-slate-200">
+                                        <div id="bar3yUpto3" class="h-full bg-red-100" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-xs font-bold mb-2">
+                                        <span class="text-slate-500">More than 3% <br><span
+                                                class="font-normal text-[10px]">Underperformance</span></span>
+                                        <span id="perf3yMore3" class="text-slate-900 text-base">0%</span>
+                                    </div>
+                                    <div class="w-full h-8 bg-white rounded-lg overflow-hidden border border-slate-200">
+                                        <div id="bar3yMore3" class="h-full bg-red-400" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Expert Feedback / Wealth Manager Notes -->
+            <div class="mb-12">
+                <div
+                    class="bg-indigo-900 p-10 rounded-[2.5rem] shadow-2xl shadow-indigo-200 text-white relative overflow-hidden">
+                    <div class="absolute -top-24 -right-24 w-64 h-64 bg-indigo-500/20 rounded-full blur-3xl"></div>
+                    <div class="absolute -bottom-24 -left-24 w-64 h-64 bg-emerald-500/20 rounded-full blur-3xl"></div>
+
+                    <div class="relative z-10">
+                        <h2 class="text-3xl font-bold mb-2">Expert <span class="text-emerald-400">Feedback</span></h2>
+                        <p class="text-indigo-200 text-sm font-medium mb-8">Personalized observations and
+                            recommendations based on the portfolio analysis.</p>
+
+                        <div class="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20">
+                            <textarea id="expertNotes" rows="6"
+                                class="w-full bg-transparent border-none text-white placeholder-indigo-300 focus:ring-0 text-lg leading-relaxed"
+                                placeholder="Write your professional feedback here... (e.g., 'Consider shifting some debt allocation to large cap for better long-term growth.')"></textarea>
+                        </div>
+
+                        <div class="flex items-center gap-4 mt-8">
+                            <div class="flex -space-x-2">
+                                <div
+                                    class="w-8 h-8 rounded-full bg-emerald-400 border-2 border-indigo-900 flex items-center justify-center text-[10px] font-bold text-indigo-900">
+                                    WM</div>
+                            </div>
+                            <div>
+                                <p class="text-[10px] font-bold uppercase tracking-widest text-indigo-300">Analysis
+                                    conducted by</p>
+                                <p class="text-sm font-bold">Wealth Manager Pro</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Investment Guidelines Section -->
+            <div id="guidelinesSection" class="mb-12 hidden">
+                <div class="flex justify-between items-center mb-8">
+                    <h2 class="text-3xl font-bold text-slate-900">Investment Guidelines</h2>
+                    <span
+                        class="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full uppercase tracking-widest"
+                        id="guidelineDate">Portfolio as on --</span>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <!-- Current Portfolio -->
+                    <div class="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                        <h3 class="font-bold text-xl text-slate-800 mb-6">Current Portfolio</h3>
+                        <div class="bg-slate-50/50 rounded-2xl p-6 mb-8">
+                            <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Asset
+                                Allocation</h4>
+                            <table class="w-full text-sm">
+                                <tbody id="currentAssetAlloc" class="divide-y divide-slate-100"></tbody>
+                            </table>
+                        </div>
+                        <div class="grid grid-cols-2 gap-6">
+                            <div>
+                                <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Equity
+                                </h4>
+                                <div class="relative w-full aspect-square max-w-[150px] mx-auto">
+                                    <canvas id="currentEquityChart"></canvas>
+                                    <div
+                                        class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                        <span class="text-xs font-bold text-emerald-500" id="currentLargePct">0%</span>
+                                        <span class="text-[8px] text-slate-400 font-bold uppercase">Large</span>
+                                    </div>
+                                </div>
+                                <div class="mt-4 space-y-2" id="currentMcLabels"></div>
+                            </div>
+                            <div>
+                                <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Fixed
+                                    Income</h4>
+                                <div class="space-y-4">
+                                    <div class="bg-slate-50 p-3 rounded-xl">
+                                        <div class="text-[10px] font-bold text-slate-400 uppercase">Net YTM</div>
+                                        <div class="text-lg font-bold text-slate-900" id="currentYtm">0%</div>
+                                    </div>
+                                    <div class="bg-slate-50 p-3 rounded-xl">
+                                        <div class="text-[10px] font-bold text-slate-400 uppercase">Avg Maturity</div>
+                                        <div class="text-lg font-bold text-slate-900" id="currentMaturity">0.0</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recommended Portfolio -->
+                    <div class="bg-emerald-50/20 p-8 rounded-[2.5rem] border border-emerald-100 shadow-sm">
+                        <h3 class="font-bold text-xl text-slate-800 mb-6">Recommended Portfolio</h3>
+                        <div class="bg-white/50 rounded-2xl p-6 mb-8">
+                            <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Asset
+                                Allocation</h4>
+                            <table class="w-full text-sm">
+                                <tbody id="recommendedAssetAlloc" class="divide-y divide-slate-100"></tbody>
+                            </table>
+                        </div>
+                        <div class="grid grid-cols-2 gap-6">
+                            <div>
+                                <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Equity
+                                </h4>
+                                <div class="relative w-full aspect-square max-w-[150px] mx-auto">
+                                    <canvas id="recommendedEquityChart"></canvas>
+                                    <div
+                                        class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                        <span class="text-xs font-bold text-emerald-600" id="recLargePct">0%</span>
+                                        <span class="text-[8px] text-slate-400 font-bold uppercase">Large</span>
+                                    </div>
+                                </div>
+                                <div class="mt-4 space-y-2" id="recMcLabels"></div>
+                            </div>
+                            <div>
+                                <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Fixed
+                                    Income</h4>
+                                <div class="space-y-4">
+                                    <div class="bg-white p-3 rounded-xl shadow-sm border border-emerald-50">
+                                        <div class="text-[10px] font-bold text-emerald-600 uppercase">Net YTM</div>
+                                        <div class="text-lg font-bold text-slate-900" id="recYtm">0%</div>
+                                    </div>
+                                    <div class="bg-white p-3 rounded-xl shadow-sm border border-emerald-50">
+                                        <div class="text-[10px] font-bold text-emerald-600 uppercase">Avg Maturity</div>
+                                        <div class="text-lg font-bold text-slate-900" id="recMaturity">0.0</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Indicative Allocation Sections -->
+            <div id="indicativeSection" class="mb-12 hidden">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                    <!-- Equity Indicative -->
+                    <div class="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                        <h3 class="font-bold text-xl text-slate-800 mb-6">Indicative Allocation: <span
+                                class="text-emerald-500">Equity</span></h3>
+                        <div class="grid grid-cols-1 gap-8">
+                            <div class="bg-slate-50 p-6 rounded-2xl">
+                                <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">ERS
+                                    ALLOCATION</h4>
+                                <table class="w-full text-sm">
+                                    <tbody id="equityIndicativeBody"></tbody>
+                                </table>
+                            </div>
+                            <div class="bg-slate-50 p-6 rounded-2xl">
+                                <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">GAINS
+                                    OVER 3 YEARS</h4>
+                                <div class="h-48">
+                                    <canvas id="equityGainsChart"></canvas>
+                                </div>
+                                <p class="text-[8px] text-slate-400 mt-4 text-center">Performance basis back-tested data
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Fixed Income Indicative -->
+                    <div class="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                        <h3 class="font-bold text-xl text-slate-800 mb-6">Indicative Allocation: <span
+                                class="text-indigo-500">Fixed Income</span></h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-xs">
+                                <thead class="bg-slate-50 border-b border-slate-100">
+                                    <tr class="text-slate-400 text-[9px] font-bold uppercase tracking-widest">
+                                        <th class="px-3 py-4 text-left">Issuer</th>
+                                        <th class="px-2 py-4 text-right">PQRS</th>
+                                        <th class="px-2 py-4 text-right">YTM</th>
+                                        <th class="px-2 py-4 text-right">Tenure</th>
+                                        <th class="px-3 py-4 text-right">Alloc</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="fiIndicativeBody" class="divide-y divide-slate-50"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Allocation Grid (Old section updated) -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+                <!-- Allocation Chart -->
+                <div
+                    class="col-span-1 bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm flex flex-col items-center justify-center">
+                    <h3 class="w-full text-left font-bold text-lg text-slate-800 mb-6">Asset Allocation</h3>
+                    <div class="w-64 h-64 relative">
+                        <canvas id="allocationChart"></canvas>
+                        <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <div class="text-center">
+                                <span class="block text-2xl font-bold text-slate-800" id="equityTotalPct">0%</span>
+                                <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Equity</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detailed Table -->
+                <div class="col-span-2 bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
+                    <h3 class="font-bold text-lg text-slate-800 mb-6">Asset Allocation Details</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-slate-50 border-b border-slate-100">
+                                <tr class="text-slate-400 text-[10px] font-bold uppercase tracking-widest">
+                                    <th class="px-6 py-4 rounded-l-xl">Category</th>
+                                    <th class="px-6 py-4 text-right">Value (Lakhs)</th>
+                                    <th class="px-6 py-4 text-right rounded-r-xl">Allocation</th>
+                                </tr>
+                            </thead>
+                            <tbody id="allocationBody" class="divide-y divide-slate-50 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="holdingsSection" class="mt-12 pt-12 border-t border-slate-200">
+                <h3 class="font-bold text-xl text-slate-800 mb-6">Full Holding List</h3>
+                <div class="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-slate-50 border-b border-slate-100">
+                            <tr class="text-slate-400 text-[10px] font-bold uppercase tracking-widest">
+                                <th class="px-8 py-5">Fund Name / Category</th>
+                                <th class="px-8 py-5 text-right">Value (Lakhs) / Allocation</th>
+                                <th class="px-8 py-5 text-right">Returns</th>
+                                <th class="px-8 py-5 text-center">Type</th>
+                            </tr>
+                        </thead>
+                        <tbody id="holdingsBody" class="divide-y divide-slate-50"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+    </div>
+
+    <script>
+        let allocChart = null;
+        let mcChart = null;
+        let creditChart = null;
+        let curEqChart = null;
+        let recEqChart = null;
+        let eqGainsChart = null;
+
+        const toLakhs = (num) => {
+            if (num === null || num === undefined) return "₹0";
+            const n = Number(num);
+            if (isNaN(n)) return "₹0";
+            if (n >= 100000) return `₹${(n / 100000).toFixed(2)} Lakhs`;
+            return `₹${n.toLocaleString('en-IN')}`;
+        };
+
+        function updateFileInfo() {
+            const fileInput = document.getElementById('jsonFile');
+            const display = document.getElementById('fileNameDisplay');
+            if (fileInput.files[0]) {
+                display.innerText = `Selected: ${fileInput.files[0].name}`;
+            } else {
+                display.innerText = "";
+            }
+        }
+
+        const formatMoney = (num) => `₹${Number(num).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+
+        async function processData() {
+            const fileInput = document.getElementById('jsonFile');
+            const password = document.getElementById('pdfPassword').value;
+            if (!fileInput.files[0]) return alert("Please select a CAS PDF or JSON file.");
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('password', password);
+
+            // Loading State
+            document.querySelector('button[onclick="processData()"]').innerText = "Processing...";
+
+            try {
+                const response = await fetch('/api/analyze', { method: 'POST', body: formData });
+                const result = await response.json();
+
+                if (!result.success) {
+                    alert("Error: " + result.error);
+                    return;
+                }
+
+                console.log("Analysis Result:", result);
+                if (result.summary) {
+                    renderDashboard(result.summary, result.holdings || []);
+                } else {
+                    alert("Analysis returned success but no summary data found.");
+                }
+
+            } catch (error) {
+                alert("Connection Error: " + error.message + "\nIs backend running at http://127.0.0.1:8000?");
+                console.error("Full Error:", error);
+            } finally {
+                document.querySelector('button[onclick="processData()"]').innerText = "Analyze";
+            }
+        }
+
+        function renderDashboard(summary, holdings) {
+            console.log("Dashboard Data:", { summary, holdings });
+            document.getElementById('dashboard').classList.remove('hidden');
+
+            // --- 1. Top Cards ---
+            try {
+                document.getElementById('mktVal').innerText = toLakhs(summary.total_market_value);
+                document.getElementById('costVal').innerText = toLakhs(summary.total_cost_value);
+                document.getElementById('stmtDate').innerText = `Portfolio as on ${summary.statement_date || 'N/A'}`;
+                document.getElementById('absReturn').innerText = `${summary.portfolio_return || 0}%`;
+            } catch (e) { console.error("Error rendering Top Cards:", e); }
+
+            // --- 2. Concentration ---
+            try {
+                const con = summary.concentration;
+                if (con) {
+                    document.getElementById('fundCount').innerText = con.fund_count;
+                    document.getElementById('fundStatus').innerText = con.fund_status;
+                    document.getElementById('amcCount').innerText = con.amc_count;
+                    document.getElementById('amcStatus').innerText = con.amc_status;
+
+                    document.getElementById('topFundsBody').innerHTML = (con.top_funds || []).map(f => `
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="px-4 py-3 font-medium text-slate-700">${f.name}</td>
+                            <td class="px-4 py-3 text-right text-slate-600 font-bold">${(f.value / 100000).toFixed(2)}</td>
+                            <td class="px-4 py-3 text-right font-bold text-slate-900">${f.allocation_pct}%</td>
+                        </tr>`).join('');
+
+                    document.getElementById('topAmcsBody').innerHTML = (con.top_amcs || []).map(a => `
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="px-4 py-3 font-medium text-slate-700">${a.name}</td>
+                            <td class="px-4 py-3 text-right text-slate-600 font-bold">${(a.value / 100000).toFixed(2)}</td>
+                            <td class="px-4 py-3 text-right font-bold text-slate-900">${a.allocation_pct}%</td>
+                        </tr>`).join('');
+                }
+            } catch (e) { console.error("Error rendering Concentration:", e); }
+
+            // --- 3. Cost ---
+            try {
+                const cost = summary.cost;
+                if (cost) {
+                    document.getElementById('directPct').innerText = `${cost.direct_pct}%`;
+                    document.getElementById('regularPct').innerText = `${cost.regular_pct}%`;
+                    document.getElementById('directBar').style.width = `${cost.direct_pct}%`;
+                    document.getElementById('regularBar').style.width = `${cost.regular_pct}%`;
+                    document.getElementById('costPct').innerText = `${cost.portfolio_cost_pct}%`;
+                    document.getElementById('annualCost').innerText = toLakhs(cost.annual_cost) + " Annual";
+                    document.getElementById('totalCostPaid').innerText = toLakhs(cost.total_cost_paid);
+                    document.getElementById('savingsValue').innerText = toLakhs(cost.savings_value);
+                }
+            } catch (e) { console.error("Error rendering Cost:", e); }
+
+            // --- 4. Equity Deep Dive ---
+            try {
+                document.getElementById('equityCost').innerText = toLakhs(summary.total_cost_value);
+                document.getElementById('equityMkt').innerText = toLakhs(summary.equity_value);
+
+                const isBeating = (summary.portfolio_xirr || 0) >= (summary.benchmark_xirr || 0);
+                document.getElementById('alertTitle').innerText = isBeating ? "Outperforming the Benchmark" : "Underperforming the Benchmark";
+                document.getElementById('benchmarkAlert').className = isBeating ? "p-8 rounded-[2rem] border border-emerald-100 bg-emerald-50/30" : "p-8 rounded-[2rem] border border-red-100 bg-red-50/30";
+                document.getElementById('alertDot').className = isBeating ? "w-2 h-2 rounded-full bg-emerald-500" : "w-2 h-2 rounded-full bg-red-500";
+
+                document.getElementById('finalXirr').innerText = `${summary.portfolio_xirr || 0}%`;
+                document.getElementById('finalGains').innerText = toLakhs(summary.total_gain_loss);
+                document.getElementById('labelBmXirr').innerText = `${summary.benchmark_xirr || 0}%`;
+                document.getElementById('labelBmGains').innerText = toLakhs(summary.benchmark_gains);
+
+                const missed = (summary.benchmark_gains || 0) - (summary.total_gain_loss || 0);
+                if (missed > 0) {
+                    document.getElementById('missedLabel').innerText = "Total Missed Gains";
+                    document.getElementById('labelMissedValue').className = "text-2xl font-bold text-red-500";
+                    document.getElementById('labelMissedValue').innerText = toLakhs(missed);
+                } else {
+                    document.getElementById('missedLabel').innerText = "Alpha Generated";
+                    document.getElementById('labelMissedValue').className = "text-2xl font-bold text-emerald-500";
+                    document.getElementById('labelMissedValue').innerText = "+" + toLakhs(Math.abs(missed));
+                }
+
+                // Market Cap Chart
+                if (summary.market_cap) {
+                    try {
+                        document.getElementById('largePct').innerText = `${summary.market_cap.large_cap}%`;
+                        document.getElementById('midPct').innerText = `${summary.market_cap.mid_cap}%`;
+                        document.getElementById('smallPct').innerText = `${summary.market_cap.small_cap}%`;
+
+                        if (mcChart) mcChart.destroy();
+                        const ctx = document.getElementById('mcChart').getContext('2d');
+                        mcChart = new Chart(ctx, {
+                            type: 'doughnut',
+                            data: {
+                                datasets: [{
+                                    data: [summary.market_cap.large_cap, summary.market_cap.mid_cap, summary.market_cap.small_cap],
+                                    backgroundColor: ['#059669', '#34d399', '#e2e8f0'],
+                                    borderWidth: 0
+                                }]
+                            },
+                            options: { cutout: '60%', plugins: { legend: { display: false } } }
+                        });
+                    } catch (mcE) { console.error("Error rendering Market Cap Chart:", mcE); }
+                }
+            } catch (e) { console.error("Error rendering Equity Deep Dive:", e); }
+
+            // --- 5. Asset Allocation Details (Table and Chart) ---
+            try {
+                if (summary.asset_allocation) {
+                    document.getElementById('allocationBody').innerHTML = summary.asset_allocation.map(item => `
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="px-6 py-4 font-bold text-slate-700">${item.category}</td>
+                            <td class="px-6 py-4 text-right font-medium text-slate-600">${(item.value / 100000).toFixed(2)}</td>
+                            <td class="px-6 py-4 text-right font-bold text-slate-900">${item.allocation_pct}%</td>
+                        </tr>`).join('');
+
+                    // High level Doughnut
+                    let equity = 0, debt = 0, others = 0;
+                    summary.asset_allocation.forEach(a => {
+                        const cat = (a.category || "").toUpperCase();
+                        if (cat.includes("LIQUID") || cat.includes("DEBT")) debt += a.value;
+                        else if (cat.includes("EQUITY") || cat.includes("CAP") || cat.includes("ELSS")) equity += a.value;
+                        else others += a.value;
+                    });
+                    const total = equity + debt + others;
+                    const displayTotal = total > 0 ? total : 1;
+                    document.getElementById('equityTotalPct').innerText = ((equity / displayTotal) * 100).toFixed(1) + "%";
+
+                    if (allocChart) allocChart.destroy();
+                    allocChart = new Chart(document.getElementById('allocationChart'), {
+                        type: 'doughnut',
+                        data: {
+                            labels: ['Equity', 'Fixed Income', 'Others'],
+                            datasets: [{
+                                data: [equity, debt, others],
+                                backgroundColor: ['#10b981', '#818cf8', '#cbd5e1'],
+                                borderWidth: 0
+                            }]
+                        },
+                        options: { cutout: '75%', plugins: { legend: { display: false } }, responsive: true }
+                    });
+                }
+            } catch (e) { console.error("Error rendering Asset Allocation:", e); }
+
+            // --- 6. Fixed Income Details ---
+            try {
+                if (summary.fixed_income) {
+                    document.getElementById('fixedIncomeSection').classList.remove('hidden');
+                    const fi = summary.fixed_income;
+                    document.getElementById('fiCost').innerText = toLakhs(fi.invested_value);
+                    document.getElementById('fiMkt').innerText = toLakhs(fi.current_value);
+                    document.getElementById('fiIrr').innerText = `${fi.irr}%`;
+                    document.getElementById('fiYtm').innerText = `${fi.ytm}%`;
+
+                    document.getElementById('aaaPct').innerText = `${fi.credit_quality.aaa_pct}%`;
+                    document.getElementById('aaPct').innerText = `${fi.credit_quality.aa_pct}%`;
+                    document.getElementById('belowAaPct').innerText = `${fi.credit_quality.below_aa_pct}%`;
+
+                    try {
+                        if (creditChart) creditChart.destroy();
+                        const ctxFI = document.getElementById('creditChart').getContext('2d');
+                        creditChart = new Chart(ctxFI, {
+                            type: 'doughnut',
+                            data: {
+                                datasets: [{
+                                    data: [fi.credit_quality.aaa_pct, fi.credit_quality.aa_pct, fi.credit_quality.below_aa_pct],
+                                    backgroundColor: ['#75b9be', '#b2d393', '#efc88d'],
+                                    borderWidth: 0
+                                }]
+                            },
+                            options: { cutout: '70%', plugins: { legend: { display: false } } }
+                        });
+                    } catch (fiE) { console.error("Error rendering FI Credit Chart:", fiE); }
+
+                    // FI allocation bars
+                    document.getElementById('fiAllocBars').innerHTML = fi.category_allocation.map(a => `
+                        <div>
+                            <div class="flex justify-between text-xs font-bold mb-2">
+                                <span class="text-slate-500 uppercase">${a.category}</span>
+                                <span class="text-slate-900">${a.allocation_pct}%</span>
+                            </div>
+                            <div class="w-full h-2 bg-slate-50 rounded-full overflow-hidden">
+                                <div class="h-full bg-indigo-200" style="width: ${a.allocation_pct}%"></div>
+                            </div>
+                        </div>`).join('');
+
+                    // FI tables
+                    document.getElementById('fiTopFundsBody').innerHTML = fi.top_funds.map(f => `
+                        <tr>
+                            <td class="py-3 font-medium text-slate-700">${f.name}</td>
+                            <td class="py-3 text-right font-bold text-slate-900">${f.allocation_pct}%</td>
+                        </tr>`).join('');
+
+                    document.getElementById('fiTopAmcsBody').innerHTML = fi.top_amcs.map(a => `
+                        <tr>
+                            <td class="py-3 font-medium text-slate-700">${a.name}</td>
+                            <td class="py-3 text-right font-bold text-slate-900">${a.allocation_pct}%</td>
+                        </tr>`).join('');
+                }
+            } catch (e) { console.error("Error rendering Fixed Income Section:", e); }
+
+            // --- 7. Performance Section ---
+            try {
+                if (summary.performance_summary) {
+                    document.getElementById('performanceSection').classList.remove('hidden');
+                    const p = summary.performance_summary;
+
+                    document.getElementById('perf1yUnder').innerText = p.one_year.underperforming_pct;
+                    document.getElementById('perf1yUpto3').innerText = `${p.one_year.upto_3_pct}%`;
+                    document.getElementById('perf1yMore3').innerText = `${p.one_year.more_than_3_pct}%`;
+                    document.getElementById('bar1yUpto3').style.width = `${p.one_year.upto_3_pct}%`;
+                    document.getElementById('bar1yMore3').style.width = `${p.one_year.more_than_3_pct}%`;
+
+                    document.getElementById('perf3yUnder').innerText = p.three_year.underperforming_pct;
+                    document.getElementById('perf3yUpto3').innerText = `${p.three_year.upto_3_pct}%`;
+                    document.getElementById('perf3yMore3').innerText = `${p.three_year.more_than_3_pct}%`;
+                    document.getElementById('bar3yUpto3').style.width = `${p.three_year.upto_3_pct}%`;
+                    document.getElementById('bar3yMore3').style.width = `${p.three_year.more_than_3_pct}%`;
+                }
+            } catch (e) { console.error("Error rendering Performance Section:", e); }
+
+            // --- 8. Investment Guidelines ---
+            try {
+                if (summary.guidelines) {
+                    document.getElementById('guidelinesSection').classList.remove('hidden');
+                    document.getElementById('indicativeSection').classList.remove('hidden');
+                    const g = summary.guidelines;
+                    const rec = g.investment_guidelines;
+
+                    document.getElementById('guidelineDate').innerText = `Portfolio as on ${g.statement_date || 'N/A'}`;
+
+                    // Current vs Recommended Asset Alloc
+                    document.getElementById('currentAssetAlloc').innerHTML = (rec.asset_allocation || []).map(i => `
+                        <tr>
+                            <td class="py-2 text-slate-500 font-medium">${i.label}</td>
+                            <td class="py-2 text-right font-bold text-slate-900">${i.current}%</td>
+                        </tr>`).join('');
+                    document.getElementById('recommendedAssetAlloc').innerHTML = (rec.asset_allocation || []).map(i => `
+                        <tr>
+                            <td class="py-2 text-slate-500 font-medium">${i.label}</td>
+                            <td class="py-2 text-right font-bold text-emerald-600">${i.recommended}%</td>
+                        </tr>`).join('');
+
+                    // MC chart current
+                    try {
+                        const mcDataCurrent = rec.equity_mc.map(i => i.current);
+                        document.getElementById('currentLargePct').innerText = `${mcDataCurrent[0] || 0}%`;
+
+                        const mcColors = ['#43766C', '#7091F5', '#97Feed'];
+                        const renderMcLabels = (items, colors, isRec = false) => items.map((i, idx) => `
+                            <div class="flex items-center justify-between text-[8px] font-bold">
+                                <div class="flex items-center gap-1">
+                                    <div class="w-1.5 h-1.5 rounded-full" style="background: ${colors[idx]}"></div>
+                                    <span class="text-slate-400 uppercase">${i.label}</span>
+                                </div>
+                                <span class="${isRec ? 'text-emerald-600' : 'text-slate-900'}">${isRec ? i.recommended : i.current}%</span>
+                            </div>`).join('');
+
+                        document.getElementById('currentMcLabels').innerHTML = renderMcLabels(rec.equity_mc, mcColors, false);
+
+                        if (curEqChart) curEqChart.destroy();
+                        curEqChart = new Chart(document.getElementById('currentEquityChart'), {
+                            type: 'doughnut',
+                            data: { datasets: [{ data: mcDataCurrent, backgroundColor: mcColors, borderWidth: 0 }] },
+                            options: { cutout: '70%', plugins: { legend: { display: false } }, maintainAspectRatio: false }
+                        });
+                    } catch (mcCurE) { console.error("Error rendering Current MC Chart:", mcCurE); }
+
+                    // MC chart recommended
+                    try {
+                        const mcDataRec = rec.equity_mc.map(i => i.recommended);
+                        document.getElementById('recLargePct').innerText = `${mcDataRec[0] || 0}%`;
+
+                        const mcColors = ['#43766C', '#7091F5', '#97Feed']; // Re-declare or ensure scope
+                        const renderMcLabels = (items, colors, isRec = false) => items.map((i, idx) => `
+                            <div class="flex items-center justify-between text-[8px] font-bold">
+                                <div class="flex items-center gap-1">
+                                    <div class="w-1.5 h-1.5 rounded-full" style="background: ${colors[idx]}"></div>
+                                    <span class="text-slate-400 uppercase">${i.label}</span>
+                                </div>
+                                <span class="${isRec ? 'text-emerald-600' : 'text-slate-900'}">${isRec ? i.recommended : i.current}%</span>
+                            </div>`).join('');
+
+                        document.getElementById('recMcLabels').innerHTML = renderMcLabels(rec.equity_mc, mcColors, true);
+
+                        if (recEqChart) recEqChart.destroy();
+                        recEqChart = new Chart(document.getElementById('recommendedEquityChart'), {
+                            type: 'doughnut',
+                            data: { datasets: [{ data: mcDataRec, backgroundColor: mcColors, borderWidth: 0 }] },
+                            options: { cutout: '70%', plugins: { legend: { display: false } }, maintainAspectRatio: false }
+                        });
+                    } catch (mcRecE) { console.error("Error rendering Recommended MC Chart:", mcRecE); }
+
+                    // FI Metrics
+                    try {
+                        const curFi = rec.fi_metrics || [];
+                        document.getElementById('currentYtm').innerText = `${curFi.find(i => i.label.includes('YTM'))?.current || 0}%`;
+                        document.getElementById('currentMaturity').innerText = curFi.find(i => i.label.includes('Maturity'))?.current || '0.0';
+                        document.getElementById('recYtm').innerText = `${curFi.find(i => i.label.includes('YTM'))?.recommended || 0}%`;
+                        document.getElementById('recMaturity').innerText = curFi.find(i => i.label.includes('Maturity'))?.recommended || '0.0';
+                    } catch (fiMetE) { console.error("Error rendering FI Metrics:", fiMetE); }
+
+                    // Indicators
+                    document.getElementById('equityIndicativeBody').innerHTML = (g.equity_indicative || []).map(i => `
+                        <tr>
+                            <td class="py-2 text-slate-500 font-medium">${i.category}</td>
+                            <td class="py-2 text-right font-bold text-slate-900">${i.allocation}%</td>
+                        </tr>`).join('');
+
+                    if (eqGainsChart) eqGainsChart.destroy();
+                    eqGainsChart = new Chart(document.getElementById('equityGainsChart'), {
+                        type: 'bar',
+                        data: {
+                            labels: ['Index', 'Dezerv ERS'],
+                            datasets: [{
+                                data: [0.70, 1.04],
+                                backgroundColor: ['#cbd5e1', '#64abb0'],
+                                borderRadius: 8,
+                                barThickness: 40
+                            }]
+                        },
+                        options: {
+                            plugins: { legend: { display: false } },
+                            scales: {
+                                y: { display: false },
+                                x: { grid: { display: false }, ticks: { font: { weight: 'bold' } } }
+                            },
+                            maintainAspectRatio: false
+                        }
+                    });
+
+                    // FI Indicative
+                    document.getElementById('fiIndicativeBody').innerHTML = (g.fi_indicative || []).map(i => `
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="px-3 py-3 font-medium text-slate-700">${i.issuer}</td>
+                            <td class="px-2 py-3 text-right font-bold text-slate-400">${i.pqrs || '-'}</td>
+                            <td class="px-2 py-3 text-right font-bold text-slate-900">${i.ytm}%</td>
+                            <td class="px-2 py-3 text-right font-bold text-slate-600">${i.tenure}</td>
+                            <td class="px-3 py-3 text-right font-bold text-slate-900">${i.allocation}%</td>
+                        </tr>`).join('');
+                }
+            } catch (e) { console.error("Error rendering Guidelines Section:", e); }
+
+            // --- 9. Full Holdings Table ---
+            try {
+                const totalMktVal = summary.total_market_value || 1;
+                document.getElementById('holdingsBody').innerHTML = holdings.map(h => `
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="px-8 py-5">
+                            <div class="font-bold text-slate-800 text-sm">${h.scheme_name}</div>
+                            <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">${h.sub_category}</div>
+                        </td>
+                        <td class="px-8 py-5 text-right">
+                            <div class="font-bold text-slate-700">${(h.market_value / 100000).toFixed(2)}</div>
+                            <div class="text-[10px] text-slate-400 font-bold">${((h.market_value / totalMktVal) * 100).toFixed(1)}%</div>
+                        </td>
+                        <td class="px-8 py-5 text-right font-bold ${h.gain_loss >= 0 ? 'text-emerald-500' : 'text-red-500'}">${h.return_pct}%</td>
+                        <td class="px-8 py-5 text-center"><span class="text-[10px] font-bold px-3 py-1 bg-slate-100 rounded-full text-slate-500 uppercase">${h.style_category || 'N/A'}</span></td>
+                    </tr>`).join('');
+            } catch (e) { console.error("Error rendering Holdings Table:", e); }
+        }
+    </script>
+</body>
+
+</html>
