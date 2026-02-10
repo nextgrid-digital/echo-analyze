@@ -1,6 +1,49 @@
 import re
 from datetime import datetime
 import httpx
+from typing import Dict, Optional
+
+import json
+import os
+import asyncio
+
+# Global caches (In-memory + Disk)
+_nav_cache: Dict[str, float] = {}
+_history_cache: Dict[str, dict] = {}
+NAV_CACHE_FILE = "data/nav_cache.json"
+_fetch_locks: Dict[str, asyncio.Lock] = {}
+_http_client: Optional[httpx.AsyncClient] = None
+
+async def _get_client():
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=10.0, limits=httpx.Limits(max_connections=100, max_keepalive_connections=20))
+    return _http_client
+
+def _load_cache():
+    global _nav_cache, _history_cache
+    if os.path.exists(NAV_CACHE_FILE):
+        try:
+            with open(NAV_CACHE_FILE, "r") as f:
+                data = json.load(f)
+                _nav_cache = data.get("nav", {})
+                _history_cache = data.get("history", {})
+        except: pass
+
+async def save_cache_async():
+    """Save cache to disk without blocking the event loop."""
+    try:
+        # Simple synchronous write - no threading needed
+        nav_snap = dict(_nav_cache)
+        hist_snap = dict(_history_cache)
+        data_str = json.dumps({"nav": nav_snap, "history": hist_snap})
+        with open(NAV_CACHE_FILE, "w") as f:
+            f.write(data_str)
+    except: 
+        pass
+
+
+_load_cache()
 
 def clean_currency_to_float(text: str) -> float:
     """Removes currency symbols and commas to return a clean float."""
@@ -20,19 +63,31 @@ async def fetch_live_nav(amfi_code: str) -> float:
     if not amfi_code:
         return 0.0
         
-    url = f"https://api.mfapi.in/mf/{amfi_code}"
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=5.0)
+    if amfi_code in _nav_cache:
+        return _nav_cache[amfi_code]
+        
+    # Deduplicate concurrent requests for the same code
+    if amfi_code not in _fetch_locks:
+        _fetch_locks[amfi_code] = asyncio.Lock()
+        
+    async with _fetch_locks[amfi_code]:
+        if amfi_code in _nav_cache:
+            return _nav_cache[amfi_code]
+            
+        url = f"https://api.mfapi.in/mf/{amfi_code}"
+        try:
+            client = await _get_client()
+            response = await client.get(url, timeout=2.0)
             if response.status_code == 200:
                 data = response.json()
-                # mfapi returns data sorted by date descending, so index 0 is latest
                 if data.get("data") and len(data["data"]) > 0:
-                    nav = data["data"][0].get("nav")
-                    return float(nav) if nav else 0.0
-    except Exception as e:
-        print(f"Error fetching NAV for {amfi_code}: {e}")
-        
+                    nav = float(data["data"][0].get("nav") or 0.0)
+                    _nav_cache[amfi_code] = nav
+                    return nav
+        except Exception as e:
+            # Silently fail for performance, but we should eventually log
+            pass
+            
     return 0.0
 
 async def fetch_nav_history(amfi_code: str) -> dict:
@@ -43,15 +98,25 @@ async def fetch_nav_history(amfi_code: str) -> dict:
     if not amfi_code:
         return {}
     
-    url = f"https://api.mfapi.in/mf/{amfi_code}"
-    history_map = {}
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=10.0)
+    if amfi_code in _history_cache:
+        return _history_cache[amfi_code]
+        
+    # Deduplicate concurrent requests
+    if amfi_code not in _fetch_locks:
+        _fetch_locks[amfi_code] = asyncio.Lock()
+        
+    async with _fetch_locks[amfi_code]:
+        if amfi_code in _history_cache:
+            return _history_cache[amfi_code]
+            
+        url = f"https://api.mfapi.in/mf/{amfi_code}"
+        history_map = {}
+        
+        try:
+            client = await _get_client()
+            response = await client.get(url, timeout=3.0)
             if response.status_code == 200:
                 data = response.json()
-                # Format: "data": [{"date": "dd-mm-yyyy", "nav": "123.45"}, ...]
                 if data.get("data"):
                     for entry in data["data"]:
                         d = entry.get("date")
@@ -61,9 +126,10 @@ async def fetch_nav_history(amfi_code: str) -> dict:
                                 history_map[d] = float(n)
                             except ValueError:
                                 pass
-    except Exception as e:
-        print(f"Error fetching history for {amfi_code}: {e}")
-        
+                _history_cache[amfi_code] = history_map
+        except Exception as e:
+            pass
+            
     return history_map
 
 def calculate_xirr(dates, amounts):

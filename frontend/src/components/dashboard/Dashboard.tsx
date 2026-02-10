@@ -10,11 +10,10 @@ import { FundOverlap } from "./FundOverlap"
 import { Card, CardContent } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import type { AnalysisSummary, Holding } from "@/types/api"
 
-const GuidelinesLazy = lazy(() =>
-  import("./Guidelines").then((m) => ({ default: m.Guidelines }))
-)
 const HoldingsTableLazy = lazy(() =>
   import("./HoldingsTable").then((m) => ({ default: m.HoldingsTable }))
 )
@@ -24,13 +23,34 @@ interface DashboardProps {
   holdings: Holding[]
 }
 
-function DashboardSkeleton() {
+export function SkeletonDashboard() {
   return (
-    <div className="h-48 rounded-2xl bg-muted animate-pulse" />
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 sm:pt-10 pb-16 sm:pb-20 opacity-60">
+      {/* Top Cards Skeleton */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 lg:gap-8 mb-6 sm:mb-8">
+        <Skeleton className="h-40 w-full rounded-2xl" />
+        <Skeleton className="h-40 w-full rounded-2xl" />
+      </div>
+
+      {/* Grid of 4 Skeletons */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
+        <Skeleton className="h-80 w-full rounded-2xl" />
+        <Skeleton className="h-80 w-full rounded-2xl" />
+        <Skeleton className="h-64 w-full rounded-2xl" />
+        <Skeleton className="h-64 w-full rounded-2xl" />
+      </div>
+
+      {/* Large Feedback Skeleton */}
+      <Skeleton className="h-64 w-full rounded-2xl mb-12" />
+
+      {/* Table Skeleton */}
+      <Skeleton className="h-96 w-full rounded-2xl" />
+    </div>
   )
 }
 
 export function Dashboard({ summary, holdings }: DashboardProps) {
+  console.log("Dashboard Summary:", summary);
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 sm:pt-10 pb-16 sm:pb-20">
       <TopCards summary={summary} />
@@ -92,18 +112,39 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
         </Card>
       </div>
 
-      {summary.guidelines && (
-        <Suspense fallback={<DashboardSkeleton />}>
-          <GuidelinesLazy guidelines={summary.guidelines} />
-        </Suspense>
-      )}
 
-      <Suspense fallback={<DashboardSkeleton />}>
+      <Suspense fallback={<Skeleton className="h-96 w-full rounded-2xl" />}>
         <HoldingsTableLazy
           holdings={holdings}
           totalMarketValue={summary.total_market_value}
         />
       </Suspense>
+
+      <div className="mt-12 flex justify-center no-print">
+        <Button
+          type="button"
+          variant="default"
+          onClick={() => window.print()}
+          className="bg-primary text-primary-foreground hover:bg-primary/90 min-h-[48px] py-3 px-10 rounded-xl shadow-xl shadow-primary/20 flex items-center gap-3 text-lg font-bold transition-all hover:scale-105 active:scale-95"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" x2="12" y1="15" y2="3" />
+          </svg>
+          Download Entire Portfolio PDF
+        </Button>
+      </div>
     </div>
   )
 }

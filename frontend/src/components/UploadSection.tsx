@@ -10,9 +10,10 @@ import type { AnalysisResponse } from "@/types/api"
 
 interface UploadSectionProps {
   onResult: (result: AnalysisResponse) => void
+  onStart?: () => void
 }
 
-export function UploadSection({ onResult }: UploadSectionProps) {
+export function UploadSection({ onResult, onStart }: UploadSectionProps) {
   const [password, setPassword] = useState("")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
@@ -26,6 +27,7 @@ export function UploadSection({ onResult }: UploadSectionProps) {
       return
     }
     setLoading(true)
+    onStart?.()
     try {
       const result = await analyzePortfolio(selectedFile, password)
       if (!result.success) {

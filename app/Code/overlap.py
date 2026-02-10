@@ -23,25 +23,31 @@ def compute_overlap_matrix(
     n = len(scheme_order)
     matrix: List[List[float]] = [[0.0] * n for _ in range(n)]
 
+    # Pre-compute maps to avoid N^2 redundant work
+    scheme_maps = {}
+    for code in scheme_order:
+        h = holdings_by_scheme.get(code)
+        scheme_maps[code] = _to_weight_map(h) if h else {}
+
     for i in range(n):
         scheme_i = scheme_order[i]
-        holdings_i = holdings_by_scheme.get(scheme_i)
-        if not holdings_i:
+        map_i = scheme_maps[scheme_i]
+        if not map_i:
             continue
-        # Normalize to dict by instrument (use first occurrence key)
-        map_i = _to_weight_map(holdings_i)
 
-        for j in range(n):
+        for j in range(i, n): # Symmetric matrix, only compute half
             if i == j:
                 matrix[i][j] = 100.0
                 continue
+            
             scheme_j = scheme_order[j]
-            holdings_j = holdings_by_scheme.get(scheme_j)
-            if not holdings_j:
+            map_j = scheme_maps[scheme_j]
+            if not map_j:
                 continue
-            map_j = _to_weight_map(holdings_j)
-            overlap = _pairwise_overlap(map_i, map_j)
-            matrix[i][j] = round(overlap, 1)
+            
+            overlap = round(_pairwise_overlap(map_i, map_j), 1)
+            matrix[i][j] = overlap
+            matrix[j][i] = overlap
 
     return scheme_order, matrix
 

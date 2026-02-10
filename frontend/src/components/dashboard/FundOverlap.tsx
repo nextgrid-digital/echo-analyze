@@ -13,19 +13,47 @@ interface FundOverlapProps {
 }
 
 function overlapColor(pct: number): string {
-  if (pct >= 75) return "bg-destructive/90 text-white"
-  if (pct >= 50) return "bg-destructive/60 text-white"
-  if (pct >= 25) return "bg-primary/60 text-primary-foreground"
-  if (pct > 0) return "bg-primary/40 text-primary-foreground"
-  return "bg-muted text-muted-foreground"
+  // 100% is self-overlap, usually we can just grey it out or make it distinct
+  if (pct >= 99.9) return "bg-muted text-muted-foreground font-medium"
+
+  // High overlap (> 50%) -> Red (Bad diversification)
+  if (pct >= 70) return "bg-red-500 text-white"
+  if (pct >= 60) return "bg-red-400 text-white"
+  if (pct >= 50) return "bg-red-300 text-black"
+
+  // Medium overlap (30-50%) -> Yellow/Orange
+  if (pct >= 40) return "bg-orange-300 text-black"
+  if (pct >= 30) return "bg-yellow-300 text-black"
+
+  // Low overlap (< 30%) -> Green (Good diversification)
+  if (pct >= 20) return "bg-green-300 text-black"
+  return "bg-green-400 text-black"
 }
 
-/** Abbreviate fund name for axis: first word or first 12 chars */
-function abbreviate(name: string, maxLen = 14): string {
-  const s = name.trim()
-  const first = s.split(/\s+/)[0] ?? s
-  if (first.length <= maxLen) return first
-  return first.slice(0, maxLen - 1) + "…"
+/** Abbreviate fund name for axis: remove clutter and keep key parts */
+function abbreviate(name: string, maxLen = 16): string {
+  // 1. Remove common noise
+  let s = name
+    .replace(/\s*-\s*Direct.*$/gi, "") // Remove Direct Plan/Growth suffix
+    .replace(/\s*-\s*Regular.*$/gi, "")
+    .replace(/Direct Plan|Growth|Regular Plan/gi, "")
+    .replace(/Mutual Fund/gi, "")
+    .replace(/Fund/gi, "") // "Fund" is redundant in most contexts here
+    .replace(/\s+/g, " ")
+    .trim()
+
+  if (s.length <= maxLen) return s
+
+  // 2. If still long, try to keep first word + something else
+  const words = s.split(" ")
+  if (words.length >= 2) {
+    // If it's something like "Axis Bluechip", that's 13 chars - perfect.
+    const duo = `${words[0]} ${words[1]}`
+    if (duo.length <= maxLen) return duo
+  }
+
+  // 3. Last resort: truncate
+  return s.slice(0, maxLen - 1) + "…"
 }
 
 export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapProps) {
@@ -83,10 +111,11 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
                       </td>
                       {row.map((val, j) => {
                         const isDiagonal = i === j
-                        const display = isDiagonal ? "–" : `${val}%`
+                        // Diagonal is always 100, so we can use that for color lookup or just hardcode
                         const cellClass = isDiagonal
                           ? "bg-muted text-muted-foreground font-medium"
                           : overlapColor(val)
+
                         return (
                           <td
                             key={j}
@@ -94,8 +123,8 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
                           >
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span className="inline-block w-full cursor-default rounded">
-                                  {display}
+                                <span className="inline-block w-full h-full cursor-default rounded flex items-center justify-center">
+                                  {isDiagonal ? "–" : `${val}%`}
                                 </span>
                               </TooltipTrigger>
                               <TooltipContent side="top" className="max-w-[280px] bg-popover text-popover-foreground border border-border">

@@ -16,16 +16,10 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "dist",
+    outDir: "../static",
     emptyOutDir: true,
     rollupOptions: {
       input: path.resolve(__dirname, "index.html"),
-      output: {
-        manualChunks: {
-          recharts: ["recharts"],
-          vendor: ["react", "react-dom"],
-        },
-      },
     },
   },
   server: {

@@ -1,6 +1,7 @@
 import json
 import re
 import io
+import asyncio
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -11,8 +12,17 @@ from app.overlap import compute_overlap_matrix
 from app.holdings import get_holdings_for_schemes
 from datetime import datetime
 
-print("--- Starting MF-CAS Analyzer Backend ---")
 app = FastAPI()
+
+# Setup logging to file
+LOG_FILE = "data/backend_debug.log"
+def log_debug(msg):
+    try:
+        with open(LOG_FILE, "a") as f:
+            f.write(f"[{datetime.now()}] {msg}\n")
+    except: pass
+
+log_debug("--- Starting MF-CAS Analyzer Backend (Optimized) ---")
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,9 +44,8 @@ def get_sub_category(scheme_name: str, scheme_type: str) -> str:
     if "SMALL CAP" in name: return "Small-Cap"
     if "FLEXI CAP" in name: return "Flexi Cap"
     if "LARGE CAP" in name or "BLUECHIP" in name or "TOP 100" in name or "FOCUS" in name: return "Large-Cap"
-    if "AGGRESSIVE" in name: return "Aggressive Allocation"
-    
-    if "EQUITY" in scheme_type.upper(): return "Equity - Other"
+    if "EQUITY" in scheme_type.upper() or "GROWTH" in name or "DIVIDEND" in name: return "Equity - Other"
+    if "HYBRID" in name or "BALANCED" in name or "AGGRESSIVE" in name: return "Equity - Hybrid"
     if "DEBT" in scheme_type.upper(): return "Debt - Other"
     return "Others"
 
@@ -58,9 +67,6 @@ class Holding(BaseModel):
     style_category: Optional[str] = None
 
 class TopItem(BaseModel):
-    name: str
-    value: float
-    allocation_pct: float
     name: str
     value: float
     allocation_pct: float
@@ -200,9 +206,7 @@ async def map_casparser_to_analysis(cas_data):
     # Portfolio Cashflows for XIRR
     portfolio_cashflows = [] # (date_obj, amount_float)
     
-    # Benchmark Simulation
-    # Proxy: UTI Nifty 50 Index Fund (120716)
-    benchmark_history = await fetch_nav_history("120716")
+    # benchmark_history fetched in pre-pass
     benchmark_units = 0.0
     
     # Allocation Map
@@ -219,6 +223,46 @@ async def map_casparser_to_analysis(cas_data):
     # Performance trackers (Holding results)
     perf_records_1y = [] # list of (underperformance_val)
     perf_records_3y = [] 
+
+    analysis_start = datetime.now()
+    log_debug(f"Starting portfolio analysis for {len(folios)} folios")
+    
+    # Pre-fetch NAVs and Benchmark in parallel
+    all_amfis = set()
+    for folio_data in folios:
+        for scheme in folio_data.get("schemes", []):
+            if scheme.get("amfi"):
+                all_amfis.add(scheme["amfi"])
+    
+    nav_map = {}
+    benchmark_history = {}
+    benchmark_code = "120716" # UTI Nifty 50
+
+    try:
+        # Fetch Benchmark + all live NAVs concurrently - with a global 5s cap
+        tasks = [fetch_nav_history(benchmark_code)] + [fetch_live_nav(code) for code in all_amfis]
+        results = await asyncio.wait_for(asyncio.gather(*tasks), timeout=5.0)
+        benchmark_history = results[0]
+        live_navs = results[1:]
+        nav_map = dict(zip(all_amfis, live_navs))
+        
+        # Pre-convert benchmark history keys to YYYY-MM-DD for faster lookup in loop
+        benchmark_iso = {}
+        for d_str, val in benchmark_history.items():
+            try:
+                # Assuming benchmark_history d_str is DD-MM-YYYY
+                dt_obj = datetime.strptime(d_str, "%d-%m-%Y")
+                benchmark_iso[dt_obj.strftime("%Y-%m-%d")] = val
+            except: pass
+        benchmark_history = benchmark_iso
+
+        log_debug(f"Pre-fetch completed in {(datetime.now() - analysis_start).total_seconds():.2f}s")
+        
+        # Flush NAV cache once at the end of the batch
+        from app.utils import save_cache_async
+        await save_cache_async()
+    except Exception as e:
+        log_debug(f"Error in batch pre-fetch: {e}")
 
     for folio_data in folios:
         schemes = folio_data.get("schemes", [])
@@ -240,22 +284,25 @@ async def map_casparser_to_analysis(cas_data):
                     desc = txn.get("description", "").upper()
                     if "REINVEST" in desc: continue
                     
-                    date_str = txn.get("date")
-                    amt_str = str(txn.get("amount") or "0")
-                    amt = float(amt_str.replace(",", "")) if amt_str else 0.0
+                    date_str = txn.get("date") # "YYYY-MM-DD"
+                    amt = txn.get("amount")
+                    if amt is None: continue
                     
-                    if not date_str or amt == 0: continue
+                    if isinstance(amt, str):
+                        amt = float(amt.replace(",", ""))
+                    else:
+                        amt = float(amt)
+                        
+                    if amt == 0: continue
                     
                     dt = datetime.strptime(date_str, "%Y-%m-%d")
-                    cf = -1 * amt
-                    portfolio_cashflows.append((dt, cf))
+                    portfolio_cashflows.append((dt, -amt))
                     
-                    if amt > 0: scheme_cost += amt  # simplistic total invested
-                    else: scheme_cost += amt # subtract redemptions
+                    scheme_cost += amt
                     
-                    b_nav = benchmark_history.get(datetime.strftime(dt, "%d-%m-%Y"))
+                    b_nav = benchmark_history.get(date_str)
                     if b_nav:
-                        units_change = (-1 * cf) / b_nav 
+                        units_change = amt / b_nav 
                         benchmark_units += units_change
                         
                 except Exception as e:
@@ -266,7 +313,7 @@ async def map_casparser_to_analysis(cas_data):
             
             live_nav = 0.0
             if amfi:
-                live_nav = await fetch_live_nav(amfi)
+                live_nav = nav_map.get(amfi, 0.0)
             if live_nav > 0:
                 nav = live_nav
 
@@ -283,7 +330,10 @@ async def map_casparser_to_analysis(cas_data):
             # Categorization
             sub_cat = get_sub_category(name, scheme_type)
             cat = "Fixed Income" if any(x in sub_cat.upper() for x in ["LIQUID", "DEBT", "OVERNIGHT"]) else "Equity"
+            if "EQUITY" in sub_cat.upper(): cat = "Equity"
             if sub_cat == "Others": cat = "Others" 
+            
+            # log_debug(f"Categorized {name}: sub_cat={sub_cat}, cat={cat}")
             
             # Market Cap Aggregation
             if sub_cat in mc_values: 
@@ -358,25 +408,30 @@ async def map_casparser_to_analysis(cas_data):
             total_cost += scheme_cost
 
     # Summary Calculations
+    log_debug(f"Summary calculations started. Transactions for XIRR: {len(portfolio_cashflows)}")
     stmt_period = cas_data.get("statement_period", {})
     date_str = stmt_period.get("to") or datetime.now().strftime("%d-%b-%Y")
     now_dt = datetime.now()
     
     # 1. Portfolio XIRR
     pf_xirr_flows = portfolio_cashflows + [(now_dt, total_mkt)]
+    log_debug(f"Calculating Portfolio XIRR...")
     pf_xirr = calculate_xirr([x[0] for x in pf_xirr_flows], [x[1] for x in pf_xirr_flows])
+    log_debug(f"Portfolio XIRR: {pf_xirr:.2f}%")
     
     # 2. Benchmark Stats
     bench_nav_now = 0.0
     if benchmark_history:
         try:
-           sorted_dates = sorted(benchmark_history.keys(), key=lambda x: datetime.strptime(x, "%d-%m-%Y"), reverse=True)
+           sorted_dates = sorted(benchmark_history.keys(), key=lambda x: datetime.strptime(x, "%Y-%m-%d"), reverse=True)
            bench_nav_now = benchmark_history[sorted_dates[0]]
         except: pass
         
     benchmark_val_now = benchmark_units * bench_nav_now
     bm_xirr_flows = portfolio_cashflows + [(now_dt, benchmark_val_now)]
+    log_debug(f"Calculating Benchmark XIRR...")
     bm_xirr = calculate_xirr([x[0] for x in bm_xirr_flows], [x[1] for x in bm_xirr_flows])
+    log_debug(f"Benchmark XIRR: {bm_xirr:.2f}%")
 
     # 3. Asset Allocation
     alloc_list = [AssetAllocation(category=k, value=round(v, 2), allocation_pct=round((v/total_mkt)*100, 1)) 
@@ -491,7 +546,13 @@ async def map_casparser_to_analysis(cas_data):
 
     # Overlap: equity schemes only, real holdings from AMFI or HOLDINGS_API_URL
     overlap_data = None
+    all_categories = [h.category for h in holdings]
+    from collections import Counter
+    log_debug(f"[Analysis Overlap Debug] All categories found: {Counter(all_categories)}")
+    
     equity_holdings = [h for h in holdings if h.category == "Equity"]
+    log_debug(f"[Analysis Overlap Debug] Found {len(equity_holdings)} equity holdings.")
+    
     if len(equity_holdings) >= 2:
         seen = set()
         scheme_order: List[str] = []
@@ -503,19 +564,48 @@ async def map_casparser_to_analysis(cas_data):
             seen.add(key)
             scheme_order.append(key)
             scheme_names_map[key] = h.scheme_name
+            
+        log_debug(f"[Analysis Overlap Debug] Unique equity schemes to check: {scheme_order}")
+        
         if scheme_order:
-            holdings_by_scheme = get_holdings_for_schemes(
-                scheme_order,
-                scheme_names=scheme_names_map,
-            )
+            log_debug(f"Calling get_holdings_for_schemes for {len(scheme_order)} schemes")
+            h_start = datetime.now()
+            try:
+                holdings_by_scheme = await get_holdings_for_schemes(
+                    scheme_order,
+                    scheme_names=scheme_names_map,
+                )
+                log_debug(f"Holdings fetched successfully. Result type: {type(holdings_by_scheme)}, keys: {len(holdings_by_scheme)}")
+            except Exception as e:
+                log_debug(f"ERROR in get_holdings_for_schemes: {type(e).__name__}: {str(e)}")
+                import traceback
+                log_debug(f"Traceback: {traceback.format_exc()}")
+                holdings_by_scheme = {}
+            
+            log_debug(f"Holdings fetched. Saving AMFI cache...")
+            # Flush AMFI cache
+            from app.holdings import save_amfi_cache_async
+            await save_amfi_cache_async()
+            
+            log_debug(f"get_holdings_for_schemes took {(datetime.now() - h_start).total_seconds():.2f}s. Computing overlap...")
+            
             schemes_with_holdings = [s for s in scheme_order if holdings_by_scheme.get(s)]
+            log_debug(f"[Analysis Overlap Debug] Schemes with non-empty holdings: {len(schemes_with_holdings)}")
+            
             if len(schemes_with_holdings) >= 2:
                 _, matrix = compute_overlap_matrix(holdings_by_scheme, schemes_with_holdings)
+                log_debug(f"[Analysis Overlap Debug] Overlap matrix computed.")
                 overlap_data = OverlapData(
                     fund_codes=schemes_with_holdings,
                     fund_names=[scheme_names_map.get(c, c) for c in schemes_with_holdings],
                     matrix=matrix,
                 )
+            else:
+                log_debug(f"[Analysis Overlap Debug] Skipping overlap matrix: only {len(schemes_with_holdings)} schemes had matching holdings data.")
+        else:
+            log_debug("[Analysis Overlap Debug] Skipping overlap: scheme_order is empty.")
+    else:
+        log_debug(f"[Analysis Overlap Debug] Skipping overlap: need at least 2 equity funds, found {len(equity_holdings)}.")
 
     summary = AnalysisSummary(
         total_market_value=round(total_mkt, 2),
@@ -607,29 +697,43 @@ async def parse_pdf(
     output_format: str = Form("json")
 ):
     try:
+        req_start = datetime.now()
+        log_debug(f"Received parse request for {file.filename}")
+        
         content = await file.read()
+        read_time = (datetime.now() - req_start).total_seconds()
+        log_debug(f"File read completed in {read_time:.2f}s (Size: {len(content)} bytes)")
+        
         # Create a bytes buffer
         pdf_buffer = io.BytesIO(content)
         
         # Parse
+        parse_start = datetime.now()
         result = parse_with_casparser(pdf_buffer, password=password)
+        parse_time = (datetime.now() - parse_start).total_seconds()
+        log_debug(f"cas_parser parsing took {parse_time:.2f}s")
         
         if not result["success"]:
+            log_debug(f"Parsing failed: {result['error']}")
             return JSONResponse(status_code=400, content={"error": result["error"]})
             
         data = result["data"]
         
         if output_format.lower() == "excel":
+            excel_start = datetime.now()
             excel_buffer = convert_to_excel(data)
+            log_debug(f"Excel conversion took {(datetime.now() - excel_start).total_seconds():.2f}s")
             return StreamingResponse(
                 excel_buffer, 
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 headers={"Content-Disposition": "attachment; filename=portfolio.xlsx"}
             )
         else:
+            log_debug(f"Total parse request time: {(datetime.now() - req_start).total_seconds():.2f}s")
             return JSONResponse(content=data)
             
     except Exception as e:
+        log_debug(f"Critical error in parse_pdf: {str(e)}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.get("/api/health")

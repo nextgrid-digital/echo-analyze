@@ -1,26 +1,22 @@
+# Node / frontend
+node_modules/
+pnpm-lock.yaml
+frontend/build_log.txt
+frontend/pnpm.exe
+
+# Node binaries
+node-v*/
+*.msi
+*.zip
+
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-.env
-.venv
-venv/
-ENV/
+*.pyc
 
-# Project
-backend.log
-debug_cas_output.json
-test_results_debug.json
-test_results.json
+# Data
+data/
 
-# Frontend
-frontend/node_modules/
+# Frontend build output
+static/assets/
 
-# IDE / OS
-.idea/
-.DS_Store
-*.swp
-*.swo
-.vercel
+
