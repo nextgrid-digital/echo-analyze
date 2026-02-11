@@ -96,10 +96,10 @@ export const HoldingsTable = memo(function HoldingsTable({
       </TableCell>
       <TableCell className="px-4 py-3 sm:px-8 sm:py-5 text-right">
         <div className="font-bold text-foreground font-mono">
-          {(h.market_value / 100_000).toFixed(2)}
+          {((h.market_value || 0) / 100_000).toFixed(2)}
         </div>
         <div className="text-[10px] text-muted-foreground font-bold font-mono">
-          {((h.market_value / total) * 100).toFixed(1)}%
+          {(((h.market_value || 0) / total) * 100).toFixed(1)}%
         </div>
       </TableCell>
       <TableCell
