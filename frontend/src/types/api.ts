@@ -13,6 +13,9 @@ export interface Holding {
   sub_category: string
   gain_loss?: number
   return_pct?: number
+  xirr?: number
+  benchmark_xirr?: number
+  date_of_entry?: string | null
   style_category?: string | null
 }
 

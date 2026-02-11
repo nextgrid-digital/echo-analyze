@@ -16,7 +16,7 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts"
-import { CHART_COLORS_3 } from "@/lib/chartColors"
+import { CHART_COLORS } from "@/lib/chartColors"
 import type { AnalysisSummary, AssetAllocation as AssetAlloc } from "@/types/api"
 
 interface AssetAllocationProps {
@@ -27,27 +27,70 @@ function AssetAllocationInner({ summary }: AssetAllocationProps) {
   const { tableData, pieData, equityPct } = useMemo(() => {
     const alloc: AssetAlloc[] = summary.asset_allocation ?? []
     let equity = 0,
-      debt = 0,
+      liquidity = 0,
+      market_debt = 0,
       others = 0
+
+    // Group by main categories
     alloc.forEach((a) => {
       const cat = (a.category ?? "").toUpperCase()
-      if (cat.includes("LIQUID") || cat.includes("DEBT")) debt += a.value
-      else if (
+      if (cat.includes("LIQUID") || cat.includes("OVERNIGHT") || cat.includes("MONEY MARKET")) {
+        liquidity += a.value
+      } else if (cat.includes("DEBT") || cat.includes("FIXED INCOME")) {
+        market_debt += a.value
+      } else if (
         cat.includes("EQUITY") ||
         cat.includes("CAP") ||
         cat.includes("ELSS")
-      )
+      ) {
         equity += a.value
-      else others += a.value
+      } else {
+        others += a.value
+      }
     })
-    const total = equity + debt + others || 1
+
+    const total = equity + liquidity + market_debt + others || 1
+
     const pieData = [
-      { name: "Equity", value: equity, color: CHART_COLORS_3[0] },
-      { name: "Fixed Income", value: debt, color: CHART_COLORS_3[1] },
-      { name: "Others", value: others, color: CHART_COLORS_3[2] },
+      { name: "Equity", value: equity, color: CHART_COLORS[0] },
+      { name: "Debt (Market)", value: market_debt, color: CHART_COLORS[1] },
+      { name: "Liquidity", value: liquidity, color: CHART_COLORS[2] },
+      { name: "Others", value: others, color: CHART_COLORS[3] },
     ].filter((d) => d.value > 0)
+
+    // Create grouped table data matching pie chart
+    const groupedTableData: AssetAlloc[] = []
+    if (equity > 0) {
+      groupedTableData.push({
+        category: "Equity",
+        value: equity,
+        allocation_pct: parseFloat(((equity / total) * 100).toFixed(1))
+      })
+    }
+    if (market_debt > 0) {
+      groupedTableData.push({
+        category: "Debt - Market",
+        value: market_debt,
+        allocation_pct: parseFloat(((market_debt / total) * 100).toFixed(1))
+      })
+    }
+    if (liquidity > 0) {
+      groupedTableData.push({
+        category: "Liquidity",
+        value: liquidity,
+        allocation_pct: parseFloat(((liquidity / total) * 100).toFixed(1))
+      })
+    }
+    if (others > 0) {
+      groupedTableData.push({
+        category: "Others",
+        value: others,
+        allocation_pct: parseFloat(((others / total) * 100).toFixed(1))
+      })
+    }
+
     return {
-      tableData: alloc,
+      tableData: groupedTableData,
       pieData,
       equityPct: ((equity / total) * 100).toFixed(1),
     }
@@ -125,36 +168,36 @@ function AssetAllocationInner({ summary }: AssetAllocationProps) {
             Asset Allocation Details
           </h3>
           <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted border-b border-border">
-                <TableHead className="text-[10px] uppercase rounded-l-xl">
-                  Category
-                </TableHead>
-                <TableHead className="text-right text-[10px] uppercase">
-                  Value (Lakhs)
-                </TableHead>
-                <TableHead className="text-right text-[10px] uppercase rounded-r-xl">
-                  Allocation
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {tableData.map((item, i) => (
-                <TableRow key={i} className="hover:bg-muted/50">
-                  <TableCell className="font-bold text-foreground">
-                    {item.category}
-                  </TableCell>
-                  <TableCell className="text-right font-medium text-muted-foreground font-mono">
-                    {(item.value / 100_000).toFixed(2)}
-                  </TableCell>
-                  <TableCell className="text-right font-bold text-foreground font-mono">
-                    {item.allocation_pct}%
-                  </TableCell>
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted border-b border-border">
+                  <TableHead className="text-[10px] uppercase rounded-l-xl">
+                    Category
+                  </TableHead>
+                  <TableHead className="text-right text-[10px] uppercase">
+                    Value (Lakhs)
+                  </TableHead>
+                  <TableHead className="text-right text-[10px] uppercase rounded-r-xl">
+                    Allocation
+                  </TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {tableData.map((item, i) => (
+                  <TableRow key={i} className="hover:bg-muted/50">
+                    <TableCell className="font-bold text-foreground">
+                      {item.category}
+                    </TableCell>
+                    <TableCell className="text-right font-medium text-muted-foreground font-mono">
+                      {(item.value / 100_000).toFixed(2)}
+                    </TableCell>
+                    <TableCell className="text-right font-bold text-foreground font-mono">
+                      {item.allocation_pct}%
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         </CardContent>
       </Card>

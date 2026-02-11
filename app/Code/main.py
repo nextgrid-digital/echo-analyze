@@ -36,7 +36,7 @@ app.add_middleware(
 
 def get_sub_category(scheme_name: str, scheme_type: str) -> str:
     name = scheme_name.upper()
-    if "LIQUID" in name: return "Liquid"
+    if "LIQUID" in name or "OVERNIGHT" in name or "MONEY MARKET" in name: return "Diff - Liquidity"
     if "ELSS" in name or "TAX SAVER" in name: return "ELSS (Tax Savings)"
     if "INDEX" in name or "NIFTY" in name: return "Index Fund"
     if "LARGE & MID" in name: return "Large & Mid-Cap"
@@ -46,7 +46,7 @@ def get_sub_category(scheme_name: str, scheme_type: str) -> str:
     if "LARGE CAP" in name or "BLUECHIP" in name or "TOP 100" in name or "FOCUS" in name: return "Large-Cap"
     if "EQUITY" in scheme_type.upper() or "GROWTH" in name or "DIVIDEND" in name: return "Equity - Other"
     if "HYBRID" in name or "BALANCED" in name or "AGGRESSIVE" in name: return "Equity - Hybrid"
-    if "DEBT" in scheme_type.upper(): return "Debt - Other"
+    if "DEBT" in scheme_type.upper() or "FIXED INCOME" in scheme_type.upper(): return "Debt - Market"
     return "Others"
 
 # --- Models ---
@@ -64,6 +64,9 @@ class Holding(BaseModel):
     sub_category: str
     gain_loss: float = 0.0
     return_pct: float = 0.0
+    xirr: float = 0.0  # [NEW]
+    benchmark_xirr: float = 0.0 # [NEW]
+    date_of_entry: Optional[str] = None # [NEW]
     style_category: Optional[str] = None
 
 class TopItem(BaseModel):
@@ -264,6 +267,17 @@ async def map_casparser_to_analysis(cas_data):
     except Exception as e:
         log_debug(f"Error in batch pre-fetch: {e}")
 
+    # Determine current benchmark NAV once
+    bench_nav_now = 0.0
+    if benchmark_history:
+        try:
+           # Sort by date descending to get latest
+           sorted_dates = sorted(benchmark_history.keys(), key=lambda x: datetime.strptime(x, "%Y-%m-%d"), reverse=True)
+           if sorted_dates:
+               bench_nav_now = benchmark_history[sorted_dates[0]]
+        except: pass
+
+
     for folio_data in folios:
         schemes = folio_data.get("schemes", [])
         folio_num = folio_data.get("folio", "N/A")
@@ -279,6 +293,9 @@ async def map_casparser_to_analysis(cas_data):
             # 1. Transactions & Cashflows
             transactions = scheme.get("transactions", [])
             scheme_cost = 0.0
+            scheme_cashflows = [] # For individual XIRR
+            scheme_txns_sorted = [] 
+
             for txn in transactions:
                 try:
                     desc = txn.get("description", "").upper()
@@ -296,10 +313,15 @@ async def map_casparser_to_analysis(cas_data):
                     if amt == 0: continue
                     
                     dt = datetime.strptime(date_str, "%Y-%m-%d")
+                    scheme_cashflows.append((dt, -amt)) # Inflow logic for XIRR
+                    scheme_txns_sorted.append(dt)
+                    
+                    if amt > 0: # Only buy/SIP adds to cost basis generally, strictly speaking cost is separate but this is a proxy
+                         scheme_cost += amt
+                    
+                    # Add to global portfolio cashflows
                     portfolio_cashflows.append((dt, -amt))
-                    
-                    scheme_cost += amt
-                    
+
                     b_nav = benchmark_history.get(date_str)
                     if b_nav:
                         units_change = amt / b_nav 
@@ -307,6 +329,12 @@ async def map_casparser_to_analysis(cas_data):
                         
                 except Exception as e:
                     pass # Txn parse error
+            
+            date_of_entry = None
+            if scheme_txns_sorted:
+                scheme_txns_sorted.sort()
+                date_of_entry = scheme_txns_sorted[0].strftime("%Y-%m-%d")
+
             # 2. Valuation
             val = scheme.get("valuation", {})
             nav = float(val.get("nav", 0.0) or 0.0)
@@ -329,9 +357,10 @@ async def map_casparser_to_analysis(cas_data):
             
             # Categorization
             sub_cat = get_sub_category(name, scheme_type)
-            cat = "Fixed Income" if any(x in sub_cat.upper() for x in ["LIQUID", "DEBT", "OVERNIGHT"]) else "Equity"
+            # Refined categorization for Debt
+            cat = "Fixed Income" if "Diff - Liquidity" in sub_cat or "Debt" in sub_cat or "Debt" in scheme_type else "Equity"
             if "EQUITY" in sub_cat.upper(): cat = "Equity"
-            if sub_cat == "Others": cat = "Others" 
+            if sub_cat == "Others": cat = "Others"  
             
             # log_debug(f"Categorized {name}: sub_cat={sub_cat}, cat={cat}")
             
@@ -384,7 +413,44 @@ async def map_casparser_to_analysis(cas_data):
             under_val = bm_ret - ret_pct
             perf_records_1y.append(under_val) # Placeholder for 1Y
             perf_records_3y.append(under_val + 1.2) # Placeholder for 3Y
+            
+            # Scheme XIRR
+            s_xirr = 0.0
+            s_bm_xirr = 0.0
+            if scheme_cashflows:
+                # 1. Fund XIRR
+                s_flows = scheme_cashflows + [(datetime.now(), mkt_val)]
+                s_xirr = calculate_xirr([x[0] for x in s_flows], [x[1] for x in s_flows])
                 
+                # 2. Benchmark XIRR equivalent
+                # We need to simulate: if we invested the same amounts in Benchmark on same days, what would be value now?
+                # Benchmark units accumulated map to `scheme_benchmark_units` locally
+                # But since we didn't track local benchmark units per scheme in the loop, let's do a quick pass or approximation
+                # Better: Use the cashflows and benchmark history directly here
+                
+                s_bm_units = 0.0
+                for dt, amt in scheme_cashflows: 
+                    # amt is negative for investment (outflow from pocket), positive for redemption (inflow)
+                    # For unit calculation, Investment(neg amount) -> Buy units(pos). Redemption(pos amount) -> Sell units(neg)
+                    # So: units_bought = (-amt) / nav.  => Since amt is -ve for buy, -(-ve) = +ve. Correct.
+                    d_str = dt.strftime("%Y-%m-%d")
+                    b_nav_d = benchmark_history.get(d_str)
+                    if not b_nav_d and benchmark_history:
+                        # Fallback to closest or first/last if missing (simple fallback: use 10000 or skip)
+                        b_nav_d = list(benchmark_history.values())[0] # Very rough fallback
+                    
+                    if b_nav_d:
+                         # Cashflow amt: -1000 (Invest). Units = 1000 / nav.
+                         # Cashflow amt: +500 (Redeem). Units = -500 / nav.
+                         # So units_change = -amt / nav
+                         s_bm_units += (-amt) / b_nav_d
+                
+                # Current Val of Benchmark = s_bm_units * current_benchmark_nav
+                s_bm_val = s_bm_units * bench_nav_now
+                
+                s_bm_flows = scheme_cashflows + [(datetime.now(), s_bm_val)]
+                s_bm_xirr = calculate_xirr([x[0] for x in s_bm_flows], [x[1] for x in s_bm_flows])
+
             h_obj = Holding(
                 fund_family=amc_name,
                 folio=folio_num,
@@ -398,6 +464,9 @@ async def map_casparser_to_analysis(cas_data):
                 sub_category=sub_cat,
                 gain_loss=round(gain, 2),
                 return_pct=ret_pct,
+                xirr=round(s_xirr, 2),
+                benchmark_xirr=round(s_bm_xirr, 2),
+                date_of_entry=date_of_entry,
                 style_category="Direct" if is_direct else "Regular"
             )
             holdings.append(h_obj)
@@ -420,13 +489,7 @@ async def map_casparser_to_analysis(cas_data):
     log_debug(f"Portfolio XIRR: {pf_xirr:.2f}%")
     
     # 2. Benchmark Stats
-    bench_nav_now = 0.0
-    if benchmark_history:
-        try:
-           sorted_dates = sorted(benchmark_history.keys(), key=lambda x: datetime.strptime(x, "%Y-%m-%d"), reverse=True)
-           bench_nav_now = benchmark_history[sorted_dates[0]]
-        except: pass
-        
+    # bench_nav_now calculated above
     benchmark_val_now = benchmark_units * bench_nav_now
     bm_xirr_flows = portfolio_cashflows + [(now_dt, benchmark_val_now)]
     log_debug(f"Calculating Benchmark XIRR...")

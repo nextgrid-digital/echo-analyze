@@ -30,27 +30,6 @@ function CostInner({ cost }: CostProps) {
                 }
               />
             </div>
-            <h3 className="font-bold text-lg text-foreground mb-6">
-              Fund Types
-            </h3>
-            <div className="flex justify-between text-xs font-bold uppercase mb-2">
-              <span className="text-primary font-mono">
-                Direct funds {cost.direct_pct}%
-              </span>
-              <span className="text-muted-foreground font-mono">
-                Regular funds {cost.regular_pct}%
-              </span>
-            </div>
-            <div className="w-full h-8 bg-muted rounded-full overflow-hidden flex mb-6 sm:mb-8">
-              <div
-                className="h-full bg-primary"
-                style={{ width: `${cost.direct_pct}%` }}
-              />
-              <div
-                className="h-full bg-muted-foreground/50"
-                style={{ width: `${cost.regular_pct}%` }}
-              />
-            </div>
             <div className="bg-destructive/10 p-4 sm:p-6 rounded-2xl border border-destructive/30">
               <div className="flex items-center gap-2 mb-4">
                 <span className="text-destructive text-lg">⚠️</span>

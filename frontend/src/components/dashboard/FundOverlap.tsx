@@ -13,21 +13,22 @@ interface FundOverlapProps {
 }
 
 function overlapColor(pct: number): string {
-  // 100% is self-overlap, usually we can just grey it out or make it distinct
+  // 100% is self-overlap, grey it out
   if (pct >= 99.9) return "bg-muted text-muted-foreground font-medium"
 
   // High overlap (> 50%) -> Red (Bad diversification)
-  if (pct >= 70) return "bg-red-500 text-white"
-  if (pct >= 60) return "bg-red-400 text-white"
-  if (pct >= 50) return "bg-red-300 text-black"
+  if (pct >= 70) return "bg-red-600 text-white font-bold"
+  if (pct >= 60) return "bg-red-500 text-white font-bold"
+  if (pct >= 50) return "bg-red-400 text-white"
 
   // Medium overlap (30-50%) -> Yellow/Orange
-  if (pct >= 40) return "bg-orange-300 text-black"
-  if (pct >= 30) return "bg-yellow-300 text-black"
+  if (pct >= 40) return "bg-orange-400 text-black font-semibold"
+  if (pct >= 30) return "bg-yellow-400 text-black font-semibold"
 
   // Low overlap (< 30%) -> Green (Good diversification)
-  if (pct >= 20) return "bg-green-300 text-black"
-  return "bg-green-400 text-black"
+  if (pct >= 20) return "bg-green-400 text-black"
+  if (pct >= 10) return "bg-green-500 text-white"
+  return "bg-green-600 text-white"
 }
 
 /** Abbreviate fund name for axis: remove clutter and keep key parts */
