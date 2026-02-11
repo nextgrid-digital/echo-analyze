@@ -165,13 +165,21 @@ def calculate_xirr(dates, amounts):
     # Newton-Raphson
     rate = 0.1
     for _ in range(50):
-        f = xnpv(rate)
-        if abs(f) < 1e-9:
-            return rate * 100
-        fp = xnpv_prime(rate)
-        if abs(fp) < 1e-12:
+        try:
+            f = xnpv(rate)
+            if abs(f) < 1e-9:
+                return rate * 100
+            fp = xnpv_prime(rate)
+            if abs(fp) < 1e-12:
+                break
+            rate = rate - f / fp
+            if rate <= -1.0:
+                rate = -0.99
+        except:
             break
-        rate = rate - f / fp
-        if rate <= -1.0:
-            rate = -0.99
-    return rate * 100
+            
+    import math
+    final_rate = rate * 100
+    if not math.isfinite(final_rate):
+        return 0.0
+    return final_rate

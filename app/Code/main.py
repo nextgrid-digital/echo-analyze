@@ -1,4 +1,4 @@
-import json # Deployment: 2026-02-11 21:38
+import json # Version: 1.0.1 (Robust XIRR + Vercel Logs)
 import re
 import io
 import asyncio
@@ -18,6 +18,7 @@ app = FastAPI()
 LOG_FILE = "data/backend_debug.log"
 def log_debug(msg):
     try:
+        print(f"[DEBUG] {msg}") # Added for Vercel logging
         with open(LOG_FILE, "a") as f:
             f.write(f"[{datetime.now()}] {msg}\n")
     except: pass
