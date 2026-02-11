@@ -16,7 +16,7 @@ __pycache__/
 # Data
 data/
 
-# Frontend build output
-static/assets/
+# Frontend build output (Unignored for Vercel deployment)
+# static/assets/
 
 

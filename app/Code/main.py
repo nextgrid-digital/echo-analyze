@@ -18,9 +18,11 @@ app = FastAPI()
 LOG_FILE = "data/backend_debug.log"
 def log_debug(msg):
     try:
-        print(f"[DEBUG] {msg}") # Added for Vercel logging
-        with open(LOG_FILE, "a") as f:
-            f.write(f"[{datetime.now()}] {msg}\n")
+        print(f"[DEBUG] {msg}", flush=True) # Ensure it's flushed to stdout
+        # Skip file logging on Vercel to avoid read-only filesystem errors
+        if not os.environ.get("VERCEL"):
+            with open(LOG_FILE, "a") as f:
+                f.write(f"[{datetime.now()}] {msg}\n")
     except: pass
 
 log_debug("--- Starting MF-CAS Analyzer Backend (Optimized) ---")
