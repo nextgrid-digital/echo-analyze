@@ -32,9 +32,12 @@ export function SectionInfoTooltip({
           variant="ghost"
           size="icon"
           aria-label="What this section shows and how it's calculated"
-          className={cn("min-[44px]:size-[44px]", className)}
+          className={cn(
+            "h-8 w-8 rounded-full text-foreground/70 hover:text-foreground hover:bg-muted/50",
+            className
+          )}
         >
-          <Info className="size-4 min-[44px]:size-5" />
+          <Info className="size-4" />
         </Button>
       </TooltipTrigger>
       <TooltipContent

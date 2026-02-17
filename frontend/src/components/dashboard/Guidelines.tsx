@@ -60,7 +60,7 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
         <Card className="border-border">
           <CardContent className="p-4 sm:p-6 lg:p-8 relative">
-            <div className="absolute top-4 right-4">
+            <div className="absolute top-2 right-3">
               <SectionInfoTooltip
                 title="Current Portfolio"
                 content={
@@ -163,7 +163,7 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
 
         <Card className="border-primary/30 bg-primary/10">
           <CardContent className="p-4 sm:p-6 lg:p-8 relative">
-            <div className="absolute top-4 right-4">
+            <div className="absolute top-2 right-3">
               <SectionInfoTooltip
                 title="Recommended Portfolio"
                 content={
@@ -269,7 +269,7 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
       {g.equity_indicative?.length > 0 && (
         <Card className="mt-6 sm:mt-8 border-border">
           <CardContent className="p-4 sm:p-6 lg:p-8 relative">
-            <div className="absolute top-4 right-4">
+            <div className="absolute top-2 right-3">
               <SectionInfoTooltip
                 title="Indicative Equity Allocation"
                 content={
@@ -315,7 +315,7 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
       {g.fi_indicative?.length > 0 && (
         <Card className="mt-6 sm:mt-8 border-border">
           <CardContent className="p-4 sm:p-6 lg:p-8 relative">
-            <div className="absolute top-4 right-4">
+            <div className="absolute top-2 right-3">
               <SectionInfoTooltip
                 title="Indicative Fixed Income Allocation"
                 content={

@@ -18,44 +18,67 @@ def recursive_to_dict(obj):
     return obj
 
 
+def _is_password_error(err_str: str) -> bool:
+    """Check if an exception message looks like a password-related failure."""
+    lower = err_str.lower()
+    return any(kw in lower for kw in [
+        "password", "encrypted", "decrypt", "invalid credential",
+        "wrong password", "incorrect password", "pdfminer",
+        "file has not been decrypted", "owner password",
+    ])
+
 def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: str = "") -> Dict[str, Any]:
     """
     Parses a CAS PDF file using casparser library.
-    
-    Args:
-        pdf_path_or_buffer: Path to file or bytes buffer
-        password: Password for the PDF
-        
-    Returns:
-        Dict containing parsed data
+    Handles password-protected PDFs gracefully.
     """
+    import tempfile
+    import os
+
+    tmp_path = None
     try:
-        import tempfile
-        import os
-        
-        # Create a temporary file
+        # Write buffer to a temp file (casparser needs a file path)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            # If it's bytes buffer, write to file
             if hasattr(pdf_path_or_buffer, "read"):
                 tmp.write(pdf_path_or_buffer.read())
+                tmp_path = tmp.name
             else:
-                 # If it's already a path (string), just use it
-                 return {"success": True, "data": read_cas_pdf(pdf_path_or_buffer, password=password)}
-            tmp_path = tmp.name
+                # Already a path string
+                tmp_path = None
+                try:
+                    data = read_cas_pdf(pdf_path_or_buffer, password=password)
+                    return {"success": True, "data": recursive_to_dict(data)}
+                except Exception as e:
+                    if _is_password_error(str(e)):
+                        if not password:
+                            return {"success": False, "error": "This PDF is password-protected. Please enter the password (usually your PAN, e.g. ABCDE1234F)."}
+                        return {"success": False, "error": "Incorrect password. CAS PDFs are usually protected with your PAN (e.g. ABCDE1234F). Please try again."}
+                    return {"success": False, "error": str(e)}
 
+        # Parse the temp file
         try:
             data = read_cas_pdf(tmp_path, password=password)
-            # Recursively convert everything to dict/primitives
             data = recursive_to_dict(data)
-            
             return {"success": True, "data": data}
-        finally:
-            # Clean up temp file
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-                
+        except Exception as e:
+            err_msg = str(e)
+            if _is_password_error(err_msg):
+                if not password:
+                    return {"success": False, "error": "This PDF is password-protected. Please enter the password (usually your PAN, e.g. ABCDE1234F)."}
+                return {"success": False, "error": "Incorrect password. CAS PDFs are usually protected with your PAN (e.g. ABCDE1234F). Please try again."}
+            # If password was provided but parsing still failed, it's likely a bad password
+            if password:
+                return {"success": False, "error": f"Failed to parse PDF. If the file is password-protected, please verify your password (usually your PAN). Error: {err_msg}"}
+            return {"success": False, "error": err_msg}
+
     except Exception as e:
         return {"success": False, "error": str(e)}
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except:
+                pass
 
 def convert_to_excel(json_data: Dict[str, Any]) -> io.BytesIO:
     """

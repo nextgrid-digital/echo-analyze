@@ -12,11 +12,10 @@ node-v*/
 # Python
 __pycache__/
 *.pyc
+venv/
 
-# Data
+# Runtime data (logs, caches)
 data/
 
-# Frontend build output (Unignored for Vercel deployment)
-# static/assets/
-
-
+# Environment
+.env

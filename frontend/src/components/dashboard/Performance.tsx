@@ -21,7 +21,7 @@ export const Performance = memo(function Performance({ performance }: Performanc
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
         <Card className="border-border">
           <CardContent className="p-4 sm:p-6 lg:p-8 relative">
-            <div className="absolute top-4 right-4">
+            <div className="absolute top-2 right-3">
               <SectionInfoTooltip
                 title="1 Year Performance"
                 content={

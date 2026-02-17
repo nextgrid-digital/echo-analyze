@@ -26,7 +26,7 @@ function ConcentrationInner({ concentration }: ConcentrationProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
         <Card className="border-border">
           <CardContent className="p-4 sm:p-6 lg:p-8 relative">
-            <div className="absolute top-4 right-4">
+            <div className="absolute top-2 right-3">
               <SectionInfoTooltip
                 title="Your Funds"
                 content={
@@ -69,43 +69,43 @@ function ConcentrationInner({ concentration }: ConcentrationProps) {
               </div>
             </div>
             <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted">
-                  <TableHead className="text-[10px] uppercase rounded-l-xl">
-                    Top Funds
-                  </TableHead>
-                  <TableHead className="text-right text-[10px] uppercase">
-                    Value (Lakhs)
-                  </TableHead>
-                  <TableHead className="text-right text-[10px] uppercase rounded-r-xl">
-                    Allocation %
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(con.top_funds ?? []).map((f, i) => (
-                  <TableRow key={i} className="hover:bg-muted/50">
-                    <TableCell className="font-medium text-foreground">
-                      {f.name}
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground font-bold font-mono">
-                      {(f.value / 100_000).toFixed(2)}
-                    </TableCell>
-                    <TableCell className="text-right font-bold text-foreground font-mono">
-                      {f.allocation_pct}%
-                    </TableCell>
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted">
+                    <TableHead className="text-[10px] uppercase rounded-l-xl">
+                      Top Funds
+                    </TableHead>
+                    <TableHead className="text-right text-[10px] uppercase">
+                      Value (Lakhs)
+                    </TableHead>
+                    <TableHead className="text-right text-[10px] uppercase rounded-r-xl">
+                      Allocation %
+                    </TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {(con.top_funds ?? []).map((f, i) => (
+                    <TableRow key={i} className="hover:bg-muted/50">
+                      <TableCell className="font-medium text-foreground">
+                        {f.name}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground font-bold font-mono">
+                        {(f.value / 100_000).toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-foreground font-mono">
+                        {f.allocation_pct}%
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           </CardContent>
         </Card>
 
         <Card className="border-border">
           <CardContent className="p-4 sm:p-6 lg:p-8 relative">
-            <div className="absolute top-4 right-4">
+            <div className="absolute top-2 right-3">
               <SectionInfoTooltip
                 title="Your AMCs"
                 content={
@@ -147,36 +147,36 @@ function ConcentrationInner({ concentration }: ConcentrationProps) {
               </div>
             </div>
             <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted">
-                  <TableHead className="text-[10px] uppercase rounded-l-xl">
-                    Top AMCs
-                  </TableHead>
-                  <TableHead className="text-right text-[10px] uppercase">
-                    Value (Lakhs)
-                  </TableHead>
-                  <TableHead className="text-right text-[10px] uppercase rounded-r-xl">
-                    Allocation %
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(con.top_amcs ?? []).map((a, i) => (
-                  <TableRow key={i} className="hover:bg-muted/50">
-                    <TableCell className="font-medium text-foreground">
-                      {a.name}
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground font-bold font-mono">
-                      {(a.value / 100_000).toFixed(2)}
-                    </TableCell>
-                    <TableCell className="text-right font-bold text-foreground font-mono">
-                      {a.allocation_pct}%
-                    </TableCell>
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted">
+                    <TableHead className="text-[10px] uppercase rounded-l-xl">
+                      Top AMCs
+                    </TableHead>
+                    <TableHead className="text-right text-[10px] uppercase">
+                      Value (Lakhs)
+                    </TableHead>
+                    <TableHead className="text-right text-[10px] uppercase rounded-r-xl">
+                      Allocation %
+                    </TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {(con.top_amcs ?? []).map((a, i) => (
+                    <TableRow key={i} className="hover:bg-muted/50">
+                      <TableCell className="font-medium text-foreground">
+                        {a.name}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground font-bold font-mono">
+                        {(a.value / 100_000).toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-foreground font-mono">
+                        {a.allocation_pct}%
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           </CardContent>
         </Card>

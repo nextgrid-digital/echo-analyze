@@ -26,6 +26,11 @@ export function UploadSection({ onResult, onStart }: UploadSectionProps) {
       setError("Please select a CAS PDF or JSON file.")
       return
     }
+    const isPdf = selectedFile.name.toLowerCase().endsWith(".pdf")
+    if (isPdf && !password.trim()) {
+      setError("Password is required for PDF files. CAS PDFs are usually protected with your PAN (e.g. ABCDE1234F).")
+      return
+    }
     setLoading(true)
     onStart?.()
     try {

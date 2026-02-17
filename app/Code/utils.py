@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import datetime, date
 import httpx
 from typing import Dict, Optional
 
@@ -10,6 +10,7 @@ import asyncio
 # Global caches (In-memory + Disk)
 _nav_cache: Dict[str, float] = {}
 _history_cache: Dict[str, dict] = {}
+_nav_cache_date: Optional[str] = None  # ISO date string (YYYY-MM-DD) when NAVs were cached
 NAV_CACHE_FILE = "data/nav_cache.json"
 _fetch_locks: Dict[str, asyncio.Lock] = {}
 _http_client: Optional[httpx.AsyncClient] = None
@@ -21,22 +22,45 @@ async def _get_client():
     return _http_client
 
 def _load_cache():
-    global _nav_cache, _history_cache
+    """Load cache from disk; discard stale NAV cache (different day)."""
+    global _nav_cache, _history_cache, _nav_cache_date
     if os.path.exists(NAV_CACHE_FILE):
         try:
             with open(NAV_CACHE_FILE, "r") as f:
                 data = json.load(f)
-                _nav_cache = data.get("nav", {})
+                cached_date = data.get("nav_date", "")
+                today = date.today().isoformat()
+                if cached_date == today:
+                    _nav_cache = data.get("nav", {})
+                    _nav_cache_date = cached_date
+                else:
+                    # Stale NAV cache — discard so fresh NAVs are fetched
+                    _nav_cache = {}
+                    _nav_cache_date = today
+                # History cache doesn't expire (historical data doesn't change)
                 _history_cache = data.get("history", {})
         except: pass
+
+def _ensure_fresh_cache():
+    """Clear in-memory NAV cache if a new day has started."""
+    global _nav_cache, _nav_cache_date
+    today = date.today().isoformat()
+    if _nav_cache_date != today:
+        _nav_cache = {}
+        _nav_cache_date = today
 
 async def save_cache_async():
     """Save cache to disk without blocking the event loop."""
     try:
-        # Simple synchronous write - no threading needed
+        if os.environ.get("VERCEL"):
+            return  # Read-only filesystem on Vercel
         nav_snap = dict(_nav_cache)
         hist_snap = dict(_history_cache)
-        data_str = json.dumps({"nav": nav_snap, "history": hist_snap})
+        data_str = json.dumps({
+            "nav": nav_snap,
+            "history": hist_snap,
+            "nav_date": _nav_cache_date or date.today().isoformat()
+        })
         with open(NAV_CACHE_FILE, "w") as f:
             f.write(data_str)
     except: 
@@ -59,9 +83,12 @@ async def fetch_live_nav(amfi_code: str) -> float:
     """
     Fetches the latest NAV for a given AMFI code from mfapi.in.
     Returns 0.0 if fetch fails or code is invalid.
+    NAV cache expires daily so values are always fresh.
     """
     if not amfi_code:
         return 0.0
+    
+    _ensure_fresh_cache()
         
     if amfi_code in _nav_cache:
         return _nav_cache[amfi_code]

@@ -56,7 +56,7 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
           <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
             <Card className="border-border">
               <CardContent className="p-4 sm:p-6 relative">
-                <div className="absolute top-4 right-4">
+                <div className="absolute top-2 right-3">
                   <SectionInfoTooltip
                     title="Invested Equity Value"
                     content={
@@ -77,7 +77,7 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
             </Card>
             <Card className="border-border">
               <CardContent className="p-4 sm:p-6 relative">
-                <div className="absolute top-4 right-4">
+                <div className="absolute top-2 right-3">
                   <SectionInfoTooltip
                     title="Current Equity Value"
                     content={
@@ -106,7 +106,7 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
             }
           >
             <CardContent className="p-4 sm:p-6 lg:p-8 relative">
-              <div className="absolute top-4 right-4">
+              <div className="absolute top-2 right-3">
                 <SectionInfoTooltip
                   title="XIRR vs Benchmark"
                   content={
@@ -121,9 +121,8 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
               </div>
               <div className="flex items-center gap-3 mb-4 sm:mb-6">
                 <div
-                  className={`size-2 rounded-full ${
-                    isBeating ? "bg-primary" : "bg-destructive"
-                  }`}
+                  className={`size-2 rounded-full ${isBeating ? "bg-primary" : "bg-destructive"
+                    }`}
                 />
                 <h3 className="font-bold text-lg text-foreground">
                   {isBeating
@@ -187,7 +186,7 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
 
         <Card className="border-border">
           <CardContent className="p-4 sm:p-6 lg:p-8 relative">
-            <div className="absolute top-4 right-4">
+            <div className="absolute top-2 right-3">
               <SectionInfoTooltip
                 title="Market Cap Allocation"
                 content={

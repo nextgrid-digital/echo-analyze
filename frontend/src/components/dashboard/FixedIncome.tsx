@@ -87,7 +87,7 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
 
           <Card className="border-border">
             <CardContent className="p-4 sm:p-6 lg:p-8 relative">
-              <div className="absolute top-4 right-4">
+              <div className="absolute top-2 right-3">
                 <SectionInfoTooltip
                   title="Credit Quality"
                   content={
@@ -175,7 +175,7 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
 
           <Card className="border-border">
             <CardContent className="p-4 sm:p-6 lg:p-8 relative">
-              <div className="absolute top-4 right-4">
+              <div className="absolute top-2 right-3">
                 <SectionInfoTooltip
                   title="Category wise allocation"
                   content={
@@ -214,7 +214,7 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
         <div className="space-y-8">
           <Card className="border-border">
             <CardContent className="p-4 sm:p-6 lg:p-8 relative">
-              <div className="absolute top-4 right-4">
+              <div className="absolute top-2 right-3">
                 <SectionInfoTooltip
                   title="Top holdings"
                   content={

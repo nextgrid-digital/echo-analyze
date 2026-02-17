@@ -1,11 +1,10 @@
-test_api.py
-test_casparser.py
-test_mock.json
+venv/
 tests/
-backend.log
-debug_cas_output.json
-test_results_debug.json
-test_results.json
+data/
 *.md
 .git
 .gitignore
+__pycache__/
+*.pyc
+run_local.bat
+frontend/

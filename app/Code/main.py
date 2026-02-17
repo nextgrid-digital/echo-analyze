@@ -1,6 +1,7 @@
 import json # Version: 1.0.1 (Robust XIRR + Vercel Logs)
 import re
 import io
+import os
 import asyncio
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
@@ -480,7 +481,7 @@ async def map_casparser_to_analysis(cas_data):
             total_cost += scheme_cost
 
     # Summary Calculations
-    log_debug(f"Summary calculations started. Transactions for XIRR: {len(portfolio_cashflows)}")
+    log_debug(f"Totals: Mkt={total_mkt:.2f}, Cost={total_cost:.2f}, Holdings={len(holdings)}, XIRR Txns={len(portfolio_cashflows)}")
     stmt_period = cas_data.get("statement_period", {})
     date_str = stmt_period.get("to") or datetime.now().strftime("%d-%b-%Y")
     now_dt = datetime.now()
