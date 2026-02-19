@@ -1,7 +1,6 @@
 import { memo, useMemo } from "react"
 import { WideCard } from "./cards/WideCard"
 import { CompactCard } from "./cards/CompactCard"
-import { TwoColumnLayout } from "./layouts/TwoColumnLayout"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import {
   Table,
@@ -17,7 +16,6 @@ import {
   Cell,
   ResponsiveContainer,
   Tooltip,
-  Legend,
 } from "recharts"
 import { toLakhs } from "@/lib/format"
 import { CHART_COLORS_3 } from "@/lib/chartColors"

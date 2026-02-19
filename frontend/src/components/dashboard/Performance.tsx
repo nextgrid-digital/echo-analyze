@@ -2,7 +2,7 @@ import { memo } from "react"
 import { CompactCard } from "./cards/CompactCard"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import { Badge } from "@/components/ui/badge"
-import { CheckCircle2, AlertTriangle, TrendingDown, TrendingUp } from "lucide-react"
+import { CheckCircle2, AlertTriangle, TrendingDown } from "lucide-react"
 import { formatPercent } from "@/lib/format"
 import type { PerformanceSummary as PerfSummary } from "@/types/api"
 

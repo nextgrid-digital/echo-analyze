@@ -1,6 +1,5 @@
 import { memo, useMemo } from "react"
 import { CompactCard } from "./cards/CompactCard"
-import { WideCard } from "./cards/WideCard"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import { TrendingUp } from "lucide-react"
 import { toLakhs } from "@/lib/format"

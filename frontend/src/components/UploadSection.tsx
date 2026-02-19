@@ -4,7 +4,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Progress } from "@/components/ui/progress"
 import { analyzePortfolio } from "@/api/analyze"
 import type { AnalysisResponse } from "@/types/api"
@@ -20,7 +19,7 @@ export function UploadSection({ onResult, onStart }: UploadSectionProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
-  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     // Cleanup interval on unmount

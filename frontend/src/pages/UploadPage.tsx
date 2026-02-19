@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Progress } from "@/components/ui/progress"
 import { analyzePortfolio } from "@/api/analyze"
 import type { AnalysisResponse } from "@/types/api"
 import { Upload, ArrowRight } from "lucide-react"
@@ -18,11 +17,9 @@ export function UploadPage() {
   const [isDragging, setIsDragging] = useState(false)
   const [analysisComplete, setAnalysisComplete] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<AnalysisResponse | null>(null)
-  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Get user name (could be from context or props in the future)
-  const userName = "Anindya"
 
   useEffect(() => {
     return () => {
