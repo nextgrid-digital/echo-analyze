@@ -1,10 +1,11 @@
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Progress } from "@/components/ui/progress"
 import { analyzePortfolio } from "@/api/analyze"
 import type { AnalysisResponse } from "@/types/api"
 
@@ -18,6 +19,17 @@ export function UploadSection({ onResult, onStart }: UploadSectionProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [progress, setProgress] = useState(0)
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  useEffect(() => {
+    // Cleanup interval on unmount
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current)
+      }
+    }
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -31,22 +43,63 @@ export function UploadSection({ onResult, onStart }: UploadSectionProps) {
       setError("Password is required for PDF files. CAS PDFs are usually protected with your PAN (e.g. ABCDE1234F).")
       return
     }
+    
     setLoading(true)
+    setProgress(1) // Start at 1%
     onStart?.()
+
+    // Simulate progress during API call
+    let currentProgress = 1
+    progressIntervalRef.current = setInterval(() => {
+      if (currentProgress < 95) {
+        // Increment progress more slowly as we approach 95%
+        const increment = currentProgress < 50 ? 2 : currentProgress < 80 ? 1.5 : 0.8
+        currentProgress = Math.min(currentProgress + increment, 95)
+        setProgress(currentProgress)
+      }
+    }, 100) // Update every 100ms
+
     try {
       const result = await analyzePortfolio(selectedFile, password)
+      
+      // Clear progress interval
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current)
+        progressIntervalRef.current = null
+      }
+      
+      // Complete progress to 100%
+      setProgress(100)
+      
+      // Small delay to show 100% before showing data
+      await new Promise(resolve => setTimeout(resolve, 300))
+      
       if (!result.success) {
         setError(result.error ?? "Analysis failed.")
+        setProgress(0)
+        setLoading(false)
         return
       }
       if (!result.summary) {
         setError("Analysis returned no summary data.")
+        setProgress(0)
+        setLoading(false)
         return
       }
       onResult(result)
+      // Reset progress after data is shown
+      setTimeout(() => {
+        setProgress(0)
+        setLoading(false)
+      }, 100)
     } catch (err) {
+      // Clear progress interval on error
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current)
+        progressIntervalRef.current = null
+      }
       setError(err instanceof Error ? err.message : "Connection error. Is the backend running?")
-    } finally {
+      setProgress(0)
       setLoading(false)
     }
   }
@@ -108,10 +161,14 @@ export function UploadSection({ onResult, onStart }: UploadSectionProps) {
         </Card>
       </div>
 
-      {loading && (
-        <div className="space-y-4 mb-8">
-          <Skeleton className="h-24 w-full rounded-2xl" />
-          <Skeleton className="h-24 w-full rounded-2xl" />
+      {loading && progress > 0 && (
+        <div className="mb-8">
+          <div className="mb-3">
+            <p className="text-sm font-medium text-foreground">
+              Analyzing your portfolio...
+            </p>
+          </div>
+          <Progress variant="pill" value={progress} className="w-full" />
         </div>
       )}
 

@@ -1,21 +1,7 @@
 import { memo, useMemo } from "react"
-import { Card, CardContent } from "@/components/ui/card"
+import { WideCard } from "./cards/WideCard"
+import { ProgressBarWithLabel } from "./visualizations/ProgressBarWithLabel"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-} from "recharts"
 import { CHART_COLORS } from "@/lib/chartColors"
 import type { AnalysisSummary, AssetAllocation as AssetAlloc } from "@/types/api"
 
@@ -24,7 +10,7 @@ interface AssetAllocationProps {
 }
 
 function AssetAllocationInner({ summary }: AssetAllocationProps) {
-  const { tableData, pieData, equityPct } = useMemo(() => {
+  const tableData = useMemo(() => {
     const alloc: AssetAlloc[] = summary.asset_allocation ?? []
     let equity = 0,
       liquidity = 0,
@@ -51,14 +37,7 @@ function AssetAllocationInner({ summary }: AssetAllocationProps) {
 
     const total = equity + liquidity + market_debt + others || 1
 
-    const pieData = [
-      { name: "Equity", value: equity, color: CHART_COLORS[0] },
-      { name: "Debt (Market)", value: market_debt, color: CHART_COLORS[1] },
-      { name: "Liquidity", value: liquidity, color: CHART_COLORS[2] },
-      { name: "Others", value: others, color: CHART_COLORS[3] },
-    ].filter((d) => d.value > 0)
-
-    // Create grouped table data matching pie chart
+    // Create grouped table data
     const groupedTableData: AssetAlloc[] = []
     if (equity > 0) {
       groupedTableData.push({
@@ -89,118 +68,64 @@ function AssetAllocationInner({ summary }: AssetAllocationProps) {
       })
     }
 
-    return {
-      tableData: groupedTableData,
-      pieData,
-      equityPct: ((equity / total) * 100).toFixed(1),
-    }
+    return groupedTableData
   }, [summary.asset_allocation])
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 mb-8 sm:mb-12">
-      <Card className="border-border">
-        <CardContent className="p-4 sm:p-6 lg:p-8 flex flex-col items-center justify-center relative">
-          <div className="absolute top-2 right-3">
+    <div className="mb-6 sm:mb-8">
+      <WideCard>
+        <div className="relative">
+          <div className="absolute top-0 right-0">
             <SectionInfoTooltip
-              title="Asset Allocation (Pie)"
+              title="Asset Allocation"
+              formula={
+                <>
+                  Allocation % = (Category Value ÷ Total Portfolio Value) × 100
+                </>
+              }
               content={
                 <>
-                  Equity = categories containing &quot;Equity&quot;, &quot;Cap&quot;, or
-                  &quot;ELSS&quot;; Fixed Income = &quot;Liquid&quot; or &quot;Debt&quot;; rest
-                  = Others. Values are market value; center shows equity % of total.
+                  Equity = categories containing &quot;Equity&quot;, &quot;Cap&quot;, or &quot;ELSS&quot;; Fixed Income = &quot;Liquid&quot; or &quot;Debt&quot;; rest = Others. Values are market value.
                 </>
               }
             />
           </div>
-          <h3 className="w-full text-left font-bold text-base sm:text-lg text-foreground mb-4 sm:mb-6">
-            Asset Allocation
-          </h3>
-          <div className="size-48 sm:size-64 relative max-w-full">
-            {pieData.length > 0 && (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={0}
-                    dataKey="value"
-                  >
-                    {pieData.map((entry, i) => (
-                      <Cell key={i} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v: number | undefined) => v != null ? `${(v / (pieData.reduce((s, d) => s + d.value, 0)) * 100).toFixed(1)}%` : ""} />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="text-center">
-                <span className="block text-2xl font-bold text-foreground font-mono">
-                  {equityPct}%
-                </span>
-                <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
-                  Equity
-                </span>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
-      <Card className="col-span-2 border-border">
-        <CardContent className="p-4 sm:p-6 lg:p-8 relative">
-          <div className="absolute top-2 right-3">
-            <SectionInfoTooltip
-              title="Asset Allocation Details"
-              content={
-                <>
-                  Each row is a scheme category (e.g. Large Cap, Liquid). Value =
-                  market value in Lakhs; Allocation = that category&apos;s share of
-                  total portfolio × 100.
-                </>
-              }
-            />
-          </div>
-          <h3 className="font-bold text-base sm:text-lg text-foreground mb-4 sm:mb-6">
-            Asset Allocation Details
-          </h3>
-          <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted border-b border-border">
-                  <TableHead className="text-[10px] uppercase rounded-l-xl">
-                    Category
-                  </TableHead>
-                  <TableHead className="text-right text-[10px] uppercase">
-                    Value (Lakhs)
-                  </TableHead>
-                  <TableHead className="text-right text-[10px] uppercase rounded-r-xl">
-                    Allocation
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tableData.map((item, i) => (
-                  <TableRow key={i} className="hover:bg-muted/50">
-                    <TableCell className="font-bold text-foreground">
+          <h3 className="font-semibold text-lg text-foreground mb-6">Asset Allocation</h3>
+
+          <div className="space-y-4">
+            {tableData.map((item, i) => {
+              const color = CHART_COLORS[i % CHART_COLORS.length]
+              return (
+                <div key={i}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-semibold text-foreground">
                       {item.category}
-                    </TableCell>
-                    <TableCell className="text-right font-medium text-muted-foreground font-mono">
-                      {(item.value / 100_000).toFixed(2)}
-                    </TableCell>
-                    <TableCell className="text-right font-bold text-foreground font-mono">
-                      {item.allocation_pct}%
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-muted-foreground font-mono">
+                        {(item.value / 100_000).toFixed(2)}L
+                      </span>
+                      <span className="text-base font-bold text-foreground font-mono">
+                        {item.allocation_pct}%
+                      </span>
+                    </div>
+                  </div>
+                  <ProgressBarWithLabel
+                    value={item.allocation_pct}
+                    max={100}
+                    label=""
+                    valueLabel=""
+                    color={color}
+                    height="md"
+                    showValue={false}
+                  />
+                </div>
+              )
+            })}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </WideCard>
     </div>
   )
 }

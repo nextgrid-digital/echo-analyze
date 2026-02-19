@@ -1,13 +1,20 @@
 import { memo } from "react"
-import { Card, CardContent } from "@/components/ui/card"
+import { WideCard } from "./cards/WideCard"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import type { OverlapData } from "@/types/api"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-
 interface FundOverlapProps {
   overlap: OverlapData
 }
@@ -32,7 +39,7 @@ function overlapColor(pct: number): string {
 }
 
 /** Abbreviate fund name for axis: remove clutter and keep key parts */
-function abbreviate(name: string, maxLen = 16): string {
+function abbreviate(name: string, maxLen = 10): string {
   // 1. Remove common noise
   let s = name
     .replace(/\s*-\s*Direct.*$/gi, "") // Remove Direct Plan/Growth suffix
@@ -60,96 +67,100 @@ function abbreviate(name: string, maxLen = 16): string {
 export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapProps) {
   const { fund_codes, fund_names, matrix } = overlap
   const n = fund_codes.length
-  if (n < 2) return null
+  const hasData = n >= 2 && matrix.length >= 2
 
   return (
-    <div className="mb-8 sm:mb-12">
-      <div className="flex items-center justify-between gap-2 mb-4 sm:mb-6">
+    <div className="mb-6 sm:mb-8">
+      <div className="flex items-center justify-between gap-2 mb-4">
         <h2 className="text-xl sm:text-2xl font-bold text-foreground">
           Fund Overlap
         </h2>
         <SectionInfoTooltip
           title="Fund Overlap"
+          formula={
+            <>
+              Overlap % = Σ min(Weight_A, Weight_B) for each common holding<br />
+              Range: 0% (no overlap) to 100% (identical portfolios)
+            </>
+          }
           content={
             <>
-              Overlap is how much of two funds&apos; portfolios is in the same
-              stocks. It is the sum of the minimum weight of each common holding
-              (0–100%). High overlap means less diversification between those
-              funds.
+              Overlap is how much of two funds&apos; portfolios is in the same stocks. High overlap means less diversification between those funds.
             </>
           }
         />
       </div>
-      <Card className="border-border overflow-hidden">
-        <CardContent className="p-4 sm:p-6 lg:p-8">
-          <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
-            <div className="inline-block min-w-full">
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr>
-                    <th className="text-left p-2 font-bold text-muted-foreground sticky left-0 bg-background z-10 border-b border-r border-border min-w-[120px] sm:min-w-[140px]">
+      <WideCard className="overflow-hidden p-0">
+        {hasData ? (
+          <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted border-b border-border">
+                    <TableHead className="text-[9px] font-bold uppercase tracking-wide px-2 py-1.5 sticky left-0 bg-muted z-20 min-w-[100px] border-r border-border/30">
                       Fund
-                    </th>
+                    </TableHead>
                     {fund_names.map((name, j) => (
-                      <th
+                      <TableHead
                         key={fund_codes[j]}
-                        className="p-1 sm:p-2 text-center font-bold text-muted-foreground border-b border-border whitespace-nowrap max-w-[80px] sm:max-w-[100px]"
+                        className="text-[9px] font-bold uppercase tracking-wide px-1 py-1.5 text-center whitespace-nowrap min-w-[50px]"
                         title={name}
                       >
                         {abbreviate(name)}
-                      </th>
+                      </TableHead>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {matrix.map((row, i) => (
-                    <tr key={fund_codes[i]}>
-                      <td
-                        className="sticky left-0 bg-muted/95 border-r border-b border-border p-1 sm:p-2 font-medium text-foreground whitespace-nowrap max-w-[120px] sm:max-w-[140px] truncate"
+                    <TableRow key={fund_codes[i]} className="hover:bg-muted/30">
+                      <TableCell
+                        className="sticky left-0 bg-card border-r border-border/30 px-2 py-1.5 font-semibold text-foreground text-[10px] whitespace-nowrap min-w-[100px] truncate z-10"
                         title={fund_names[i]}
                       >
                         {abbreviate(fund_names[i])}
-                      </td>
+                      </TableCell>
                       {row.map((val, j) => {
                         const isDiagonal = i === j
-                        // Diagonal is always 100, so we can use that for color lookup or just hardcode
                         const cellClass = isDiagonal
                           ? "bg-muted text-muted-foreground font-medium"
                           : overlapColor(val)
 
                         return (
-                          <td
+                          <TableCell
                             key={j}
-                            className={`p-1 sm:p-2 text-center border-b border-border align-middle min-w-[44px] sm:min-w-[52px] font-mono ${cellClass}`}
+                            className={`px-1 py-1.5 text-center align-middle font-mono text-[10px] ${cellClass}`}
                           >
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span className="inline-block w-full h-full cursor-default rounded flex items-center justify-center">
+                                <span className="inline-block w-full h-full cursor-default">
                                   {isDiagonal ? "–" : `${val}%`}
                                 </span>
                               </TooltipTrigger>
-                              <TooltipContent side="top" className="max-w-[280px] bg-popover text-popover-foreground border border-border">
-                                <p className="font-semibold">
+                              <TooltipContent side="top" className="max-w-[280px] bg-popover text-popover-foreground border border-border text-xs">
+                                <p className="font-semibold text-xs mb-1">
                                   {fund_names[i]} vs {fund_names[j]}
                                 </p>
-                                <p className="text-muted-foreground">
+                                <p className="text-muted-foreground text-xs">
                                   {isDiagonal
                                     ? "Same fund"
                                     : `Overlap: ${val}%`}
                                 </p>
                               </TooltipContent>
                             </Tooltip>
-                          </td>
+                          </TableCell>
                         )
                       })}
-                    </tr>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          ) : (
+            <div className="text-center py-12 text-muted-foreground">
+              <p className="text-sm">No fund overlap data available. Upload a portfolio to see overlap analysis.</p>
+            </div>
+          )}
+      </WideCard>
     </div>
   )
 })

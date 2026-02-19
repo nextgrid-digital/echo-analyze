@@ -1,5 +1,11 @@
-/** Dark-theme chart palette with primary accent #ccff00 */
-export const CHART_COLORS = ["#ccff00", "#a3e635", "#84cc16", "#65a30d", "#4d7c0f"] as const
+/** Professional chart palette - cohesive colors optimized for readability */
+export const CHART_COLORS = [
+  "#059669", // Primary emerald (professional green)
+  "#0284c7", // Sky blue
+  "#7c3aed", // Violet
+  "#ea580c", // Orange
+  "#dc2626", // Red
+] as const
 
 /** 3-slice palette (e.g. market cap, asset allocation) */
 export const CHART_COLORS_3: readonly [string, string, string] = [

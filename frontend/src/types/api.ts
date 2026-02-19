@@ -122,6 +122,14 @@ export interface OverlapData {
   matrix: number[][]
 }
 
+export interface InvestorInfo {
+  name?: string | null
+  pan?: string | null
+  email?: string | null
+  address?: string | null
+  phone?: string | null
+}
+
 export interface AnalysisSummary {
   total_market_value: number
   total_cost_value: number
@@ -142,6 +150,7 @@ export interface AnalysisSummary {
   performance_summary?: PerformanceSummary | null
   guidelines?: GuidelinesData | null
   overlap?: OverlapData | null
+  investor_info?: InvestorInfo | null
 }
 
 export interface AnalysisResponse {

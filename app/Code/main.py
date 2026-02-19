@@ -163,6 +163,14 @@ class OverlapData(BaseModel):
     matrix: List[List[float]]
 
 
+class InvestorInfo(BaseModel):
+    name: Optional[str] = None
+    pan: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
+
+
 class AnalysisSummary(BaseModel):
     total_market_value: float
     total_cost_value: float
@@ -183,6 +191,7 @@ class AnalysisSummary(BaseModel):
     performance_summary: Optional[PerformanceSummary] = None
     guidelines: Optional[GuidelinesData] = None
     overlap: Optional[OverlapData] = None
+    investor_info: Optional[InvestorInfo] = None
 
 
 class AnalysisResponse(BaseModel):
@@ -674,6 +683,54 @@ async def map_casparser_to_analysis(cas_data):
     else:
         log_debug(f"[Analysis Overlap Debug] Skipping overlap: need at least 2 equity funds, found {len(equity_holdings)}.")
 
+    # Extract investor information from cas_data
+    investor_info = None
+    if cas_data:
+        # casparser returns investor_info object with: name, email, mobile, address
+        # PAN is typically at folio level, not in investor_info
+        investor_obj = cas_data.get("investor_info") or cas_data.get("investor") or {}
+        investor_data = {}
+        
+        if isinstance(investor_obj, dict):
+            # Extract from investor_info object (casparser structure)
+            investor_data = {
+                "name": investor_obj.get("name") or investor_obj.get("investor_name") or investor_obj.get("full_name"),
+                "email": investor_obj.get("email") or investor_obj.get("email_id") or investor_obj.get("email_address"),
+                "address": investor_obj.get("address") or investor_obj.get("investor_address") or investor_obj.get("full_address"),
+                "phone": investor_obj.get("mobile") or investor_obj.get("phone") or investor_obj.get("phone_number") or investor_obj.get("mobile_number"),
+            }
+        
+        # Also check top-level fields (fallback)
+        if not investor_data.get("name"):
+            investor_data["name"] = cas_data.get("investor_name") or cas_data.get("name") or cas_data.get("investor") or cas_data.get("full_name")
+        if not investor_data.get("email"):
+            investor_data["email"] = cas_data.get("email") or cas_data.get("email_id") or cas_data.get("email_address")
+        if not investor_data.get("address"):
+            investor_data["address"] = cas_data.get("address") or cas_data.get("investor_address") or cas_data.get("full_address")
+        if not investor_data.get("phone"):
+            investor_data["phone"] = cas_data.get("mobile") or cas_data.get("phone") or cas_data.get("phone_number") or cas_data.get("mobile_number")
+        
+        # Extract PAN from folios if not found in investor_info
+        # PAN is typically at folio level in casparser structure
+        if not investor_data.get("pan"):
+            # Check top-level first
+            investor_data["pan"] = cas_data.get("pan") or cas_data.get("pan_number") or cas_data.get("pan_no") or cas_data.get("PAN")
+            
+            # If still not found, check folios
+            if not investor_data.get("pan"):
+                folios = cas_data.get("folios") or []
+                for folio in folios:
+                    if isinstance(folio, dict):
+                        pan = folio.get("PAN") or folio.get("pan") or folio.get("pan_number") or folio.get("pan_no")
+                        if pan:
+                            investor_data["pan"] = pan
+                            break
+        
+        # Only create if at least one field has a value
+        if any(v for v in investor_data.values() if v):
+            investor_info = InvestorInfo(**{k: v for k, v in investor_data.items() if v})
+            log_debug(f"Extracted investor info: {investor_info}")
+
     summary = AnalysisSummary(
         total_market_value=round(total_mkt, 2),
         total_cost_value=round(total_cost, 2),
@@ -708,6 +765,7 @@ async def map_casparser_to_analysis(cas_data):
         performance_summary=perf_summary,
         guidelines=guidelines,
         overlap=overlap_data,
+        investor_info=investor_info,
     )
     
     return AnalysisResponse(success=True, holdings=holdings, summary=summary)

@@ -10,6 +10,8 @@ import { Info } from "lucide-react"
 interface SectionInfoTooltipProps {
   /** Title shown in bold at the top of the tooltip */
   title?: string
+  /** Calculation formula shown first in monospace font */
+  formula?: React.ReactNode
   /** Body content: what the card shows and how it's calculated */
   content: React.ReactNode
   /** Optional side for the tooltip popover (default: "left" so it opens left of the icon at top-right) */
@@ -20,6 +22,7 @@ interface SectionInfoTooltipProps {
 
 export function SectionInfoTooltip({
   title,
+  formula,
   content,
   side = "left",
   className,
@@ -43,12 +46,17 @@ export function SectionInfoTooltip({
       <TooltipContent
         side={side}
         sideOffset={8}
-        className="max-w-[320px] bg-popover text-popover-foreground text-left text-sm leading-relaxed shadow-lg border border-border"
+        className="max-w-[320px] bg-popover text-popover-foreground text-left text-xs leading-relaxed shadow-lg border border-border"
       >
         {title && (
-          <p className="font-semibold text-foreground mb-1.5">{title}</p>
+          <p className="font-semibold text-foreground mb-1.5 text-xs">{title}</p>
         )}
-        <div className="text-muted-foreground">{content}</div>
+        {formula && (
+          <div className="font-mono text-foreground mb-2 text-[10px] bg-muted/50 p-2 rounded-none border border-border/50">
+            {formula}
+          </div>
+        )}
+        <div className="text-muted-foreground text-xs">{content}</div>
       </TooltipContent>
     </Tooltip>
   )

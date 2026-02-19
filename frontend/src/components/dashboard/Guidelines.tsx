@@ -44,11 +44,17 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
         <div className="flex items-center gap-2">
           <SectionInfoTooltip
             title="Investment Guidelines"
+            formula={
+              <>
+                Asset Allocation % = (Category Value ÷ Total Portfolio Value) × 100<br />
+                Market Cap % = (Cap Category Value ÷ Total Equity Value) × 100<br />
+                YTM = Yield to Maturity<br />
+                Average Maturity = Weighted Average of Bond Maturities
+              </>
+            }
             content={
               <>
-                Current vs recommended portfolio: asset allocation, equity market-cap
-                mix (large/mid/small), and fixed income metrics (YTM, maturity).
-                Indicative tables show suggested equity/FI allocation by category.
+                Current vs recommended portfolio: asset allocation, equity market-cap mix (large/mid/small), and fixed income metrics (YTM, maturity). Indicative tables show suggested equity/FI allocation by category.
               </>
             }
           />
@@ -63,10 +69,15 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
             <div className="absolute top-2 right-3">
               <SectionInfoTooltip
                 title="Current Portfolio"
+                formula={
+                  <>
+                    Allocation % = (Category Value ÷ Total Portfolio Value) × 100<br />
+                    Market Cap % = (Cap Category Value ÷ Total Equity Value) × 100
+                  </>
+                }
                 content={
                   <>
-                    Your current asset allocation and equity market-cap mix; fixed
-                    income Net YTM and average maturity. Values from your statement.
+                    Your current asset allocation and equity market-cap mix; fixed income Net YTM and average maturity. Values from your statement.
                   </>
                 }
               />
@@ -74,7 +85,7 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
             <h3 className="font-bold text-xl text-foreground mb-6">
               Current Portfolio
             </h3>
-            <div className="bg-muted/50 rounded-2xl p-4 sm:p-6 mb-6 sm:mb-8">
+            <div className="bg-muted/50 rounded-none p-4 sm:p-6 mb-6 sm:mb-8">
               <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-4">
                 Asset Allocation
               </h4>
@@ -120,7 +131,13 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
                             <Cell key={i} fill={CHART_COLORS_3[i]} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(v: number | undefined) => v != null ? `${v}%` : ""} />
+                        <Tooltip 
+                          contentStyle={{
+                            fontSize: "11px",
+                            padding: "6px 10px",
+                          }}
+                          formatter={(v: number | undefined) => v != null ? `${v}%` : ""} 
+                        />
                       </PieChart>
                     </ResponsiveContainer>
                   )}
@@ -139,7 +156,7 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
                   Fixed Income
                 </h4>
                 <div className="space-y-4">
-                  <div className="bg-muted p-3 rounded-xl">
+                  <div className="bg-muted p-3 rounded-none">
                     <div className="text-[10px] font-bold text-muted-foreground uppercase">
                       Net YTM
                     </div>
@@ -147,7 +164,7 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
                       {ytmCur}%
                     </div>
                   </div>
-                  <div className="bg-muted p-3 rounded-xl">
+                  <div className="bg-muted p-3 rounded-none">
                     <div className="text-[10px] font-bold text-muted-foreground uppercase">
                       Avg Maturity
                     </div>
@@ -178,7 +195,7 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
             <h3 className="font-bold text-xl text-foreground mb-6">
               Recommended Portfolio
             </h3>
-            <div className="bg-muted/50 rounded-2xl p-4 sm:p-6 mb-6 sm:mb-8">
+            <div className="bg-muted/50 rounded-none p-4 sm:p-6 mb-6 sm:mb-8">
               <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-4">
                 Asset Allocation
               </h4>
@@ -224,7 +241,13 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
                             <Cell key={i} fill={CHART_COLORS_3[i]} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(v: number | undefined) => v != null ? `${v}%` : ""} />
+                        <Tooltip 
+                          contentStyle={{
+                            fontSize: "11px",
+                            padding: "6px 10px",
+                          }}
+                          formatter={(v: number | undefined) => v != null ? `${v}%` : ""} 
+                        />
                       </PieChart>
                     </ResponsiveContainer>
                   )}

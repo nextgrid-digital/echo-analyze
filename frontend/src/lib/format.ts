@@ -17,3 +17,11 @@ export function formatMoney(num: number | null | undefined): string {
   if (num === null || num === undefined) return "₹0"
   return `₹${Number(num).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
 }
+
+export function formatCurrency(num: number | null | undefined): string {
+  if (num === null || num === undefined) return "0.00"
+  return Number(num).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })
+}
