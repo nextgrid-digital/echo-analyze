@@ -1,6 +1,7 @@
 import re
 from datetime import datetime, date
 import httpx
+import math
 from typing import Dict, Optional
 
 import json
@@ -159,54 +160,101 @@ async def fetch_nav_history(amfi_code: str) -> dict:
             
     return history_map
 
-def calculate_xirr(dates, amounts):
+def calculate_xirr(dates, amounts) -> Optional[float]:
     """
-    Calculates XIRR for a schedule of transactions (pure Python, no scipy).
-    :param dates: List of datetime objects
-    :param amounts: List of floats (negative for investment, positive for value)
-    :return: XIRR as a percentage (float), or 0.0 if calculation fails.
+    Calculates XIRR for irregular cashflows.
+    Returns annualized XIRR % when a stable root is found, otherwise None.
     """
     if len(dates) != len(amounts) or not dates:
-        return 0.0
+        return None
 
     transactions = sorted(zip(dates, amounts), key=lambda x: x[0])
     dates, amounts = zip(*transactions)
-    
-    if amounts[0] >= 0:
-        return 0.0
+
+    # XIRR is only meaningful when both outflows and inflows exist.
+    has_negative = any(a < 0 for a in amounts)
+    has_positive = any(a > 0 for a in amounts)
+    if not (has_negative and has_positive):
+        return None
 
     start_date = dates[0]
-    # Time in years from start for each cashflow
     times = [(d - start_date).days / 365.0 for d in dates]
 
-    def xnpv(rate):
-        if rate <= -1.0:
+    # Require at least one non-zero time interval.
+    if all(t == 0 for t in times):
+        return None
+
+    def xnpv(rate: float) -> float:
+        # Domain guard: (1 + rate) must remain positive.
+        if rate <= -0.999999:
             return float("inf")
-        return sum(a / ((1 + rate) ** t) for a, t in zip(amounts, times))
-
-    def xnpv_prime(rate):
-        if rate <= -1.0:
-            return 1.0
-        return sum(-a * t / ((1 + rate) ** (t + 1)) for a, t in zip(amounts, times))
-
-    # Newton-Raphson
-    rate = 0.1
-    for _ in range(50):
         try:
-            f = xnpv(rate)
-            if abs(f) < 1e-9:
-                return rate * 100
-            fp = xnpv_prime(rate)
-            if abs(fp) < 1e-12:
-                break
-            rate = rate - f / fp
-            if rate <= -1.0:
-                rate = -0.99
-        except:
+            return sum(a / ((1 + rate) ** t) for a, t in zip(amounts, times))
+        except Exception:
+            return float("inf")
+
+    # Step 1: find a sign-change bracket for NPV.
+    low = -0.99
+    high_candidates = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+    f_low = xnpv(low)
+    if not math.isfinite(f_low):
+        return None
+
+    bracket = None
+    prev_r = low
+    prev_f = f_low
+    for r in high_candidates:
+        f_r = xnpv(r)
+        if not math.isfinite(f_r):
+            prev_r = r
+            prev_f = f_r
+            continue
+        if prev_f == 0:
+            bracket = (prev_r, prev_r)
             break
-            
-    import math
-    final_rate = rate * 100
-    if not math.isfinite(final_rate):
-        return 0.0
-    return final_rate
+        if f_r == 0:
+            bracket = (r, r)
+            break
+        if prev_f * f_r < 0:
+            bracket = (prev_r, r)
+            break
+        prev_r = r
+        prev_f = f_r
+
+    if bracket is None:
+        return None
+
+    low_b, high_b = bracket
+    if low_b == high_b:
+        root = low_b
+    else:
+        f_low_b = xnpv(low_b)
+        f_high_b = xnpv(high_b)
+        if not (math.isfinite(f_low_b) and math.isfinite(f_high_b)):
+            return None
+        if f_low_b * f_high_b > 0:
+            return None
+
+        # Step 2: bisection for guaranteed convergence.
+        root = None
+        for _ in range(120):
+            mid = (low_b + high_b) / 2.0
+            f_mid = xnpv(mid)
+            if not math.isfinite(f_mid):
+                return None
+            if abs(f_mid) < 1e-7 or abs(high_b - low_b) < 1e-8:
+                root = mid
+                break
+            if f_low_b * f_mid <= 0:
+                high_b = mid
+                f_high_b = f_mid
+            else:
+                low_b = mid
+                f_low_b = f_mid
+        if root is None:
+            root = (low_b + high_b) / 2.0
+
+    result_pct = root * 100.0
+    if not math.isfinite(result_pct):
+        return None
+    return result_pct

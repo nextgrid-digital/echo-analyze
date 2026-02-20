@@ -28,22 +28,6 @@ function ExecutiveSummaryInner({ summary }: ExecutiveSummaryProps) {
       })
     }
 
-    // Cost indicator
-    const costPct = summary.cost.portfolio_cost_pct ?? 0
-    if (costPct > 1.5) {
-      insightsList.push({
-        type: "warning",
-        label: "Portfolio Cost",
-        value: `${costPct}% (High)`,
-      })
-    } else if (costPct > 0) {
-      insightsList.push({
-        type: "info",
-        label: "Portfolio Cost",
-        value: `${costPct}%`,
-      })
-    }
-
     // Allocation status
     const equityPct = summary.equity_pct ?? 0
     const guidelines = summary.guidelines
@@ -75,9 +59,9 @@ function ExecutiveSummaryInner({ summary }: ExecutiveSummaryProps) {
     }
 
     // XIRR vs Benchmark
-    const xirr = summary.portfolio_xirr ?? 0
-    const benchmarkXirr = summary.benchmark_xirr ?? 0
-    if (benchmarkXirr > 0) {
+    const xirr = summary.portfolio_xirr
+    const benchmarkXirr = summary.benchmark_xirr
+    if (xirr !== null && xirr !== undefined && benchmarkXirr !== null && benchmarkXirr !== undefined) {
       const diff = xirr - benchmarkXirr
       if (diff < -2) {
         insightsList.push({
@@ -117,7 +101,6 @@ function ExecutiveSummaryInner({ summary }: ExecutiveSummaryProps) {
             formula={
               <>
                 Underperformance % = Σ(Underperforming Holdings Value) ÷ Total Portfolio Value × 100<br />
-                Portfolio Cost % = Weighted Average TER<br />
                 Equity Allocation % = (Equity Value ÷ Total Portfolio Value) × 100<br />
                 Gap = Current % − Target %
               </>

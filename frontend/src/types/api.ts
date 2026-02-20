@@ -13,8 +13,8 @@ export interface Holding {
   sub_category: string
   gain_loss?: number
   return_pct?: number
-  xirr?: number
-  benchmark_xirr?: number
+  xirr?: number | null
+  benchmark_xirr?: number | null
   date_of_entry?: string | null
   style_category?: string | null
 }
@@ -135,8 +135,8 @@ export interface AnalysisSummary {
   total_cost_value: number
   total_gain_loss: number
   portfolio_return: number
-  portfolio_xirr: number
-  benchmark_xirr: number
+  portfolio_xirr: number | null
+  benchmark_xirr: number | null
   benchmark_gains: number
   holdings_count: number
   statement_date?: string | null

@@ -20,20 +20,22 @@ function KeyObservationsInner({ summary }: KeyObservationsProps) {
 
     // Performance Highlights
     const perfItems: string[] = []
-    const xirr = summary.portfolio_xirr ?? 0
-    const benchmarkXirr = summary.benchmark_xirr ?? 0
+    const xirr = summary.portfolio_xirr
+    const benchmarkXirr = summary.benchmark_xirr
     const returnPct = summary.portfolio_return ?? 0
 
-    if (xirr > 0) {
+    if (xirr !== null && xirr !== undefined) {
       perfItems.push(`Portfolio XIRR: ${formatPercent(xirr)}`)
     }
-    if (benchmarkXirr > 0) {
+    if (benchmarkXirr !== null && benchmarkXirr !== undefined) {
       perfItems.push(`Benchmark XIRR: ${formatPercent(benchmarkXirr)}`)
-      const diff = xirr - benchmarkXirr
-      if (Math.abs(diff) > 0.1) {
-        perfItems.push(
-          `Performance Gap: ${diff > 0 ? "+" : ""}${formatPercent(diff)}`
-        )
+      if (xirr !== null && xirr !== undefined) {
+        const diff = xirr - benchmarkXirr
+        if (Math.abs(diff) > 0.1) {
+          perfItems.push(
+            `Performance Gap: ${diff > 0 ? "+" : ""}${formatPercent(diff)}`
+          )
+        }
       }
     }
     if (returnPct > 0) {

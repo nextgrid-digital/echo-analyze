@@ -12,9 +12,12 @@ interface TopCardsProps {
 
 function TopCardsInner({ summary }: TopCardsProps) {
   const returnValue = summary.portfolio_return ?? 0
-  const xirrValue = summary.portfolio_xirr ?? 0
-  const benchmarkXirr = summary.benchmark_xirr ?? 0
-  const isBeatingBenchmark = xirrValue >= benchmarkXirr
+  const xirrValue = summary.portfolio_xirr
+  const benchmarkXirr = summary.benchmark_xirr
+  const hasPortfolioXirr = xirrValue !== null && xirrValue !== undefined
+  const hasBenchmarkXirr = benchmarkXirr !== null && benchmarkXirr !== undefined
+  const isBeatingBenchmark =
+    hasPortfolioXirr && hasBenchmarkXirr ? (xirrValue as number) >= (benchmarkXirr as number) : false
   const costPct = summary.cost?.portfolio_cost_pct ?? 0
   const isHighCost = costPct > 1.5
 
@@ -139,7 +142,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {benchmarkXirr > 0 && (
+            {hasPortfolioXirr && hasBenchmarkXirr && (
               <Badge
                 variant={isBeatingBenchmark ? "secondary" : "outline"}
                 className={`text-[10px] px-1.5 py-0 flex items-center gap-1 ${
@@ -161,22 +164,25 @@ function TopCardsInner({ summary }: TopCardsProps) {
               formula={
                 <>
                   XIRR = Internal Rate of Return using cash flows<br />
-                  Σ(CFₜ / (1 + XIRR)^t) = 0
+                  Σ(CFₜ / (1 + XIRR)^t) = 0<br />
+                  Guardrail: no hard % cap; if no stable root exists, show N/A
                 </>
               }
               content={
                 <>
-                  XIRR (Extended Internal Rate of Return) accounts for the timing of your investments and redemptions. It&apos;s compared against the benchmark XIRR for the same period.
+                  XIRR (Extended Internal Rate of Return) accounts for the timing of your investments and redemptions. It&apos;s compared against the benchmark XIRR for the same period. If cash flows are not valid for a stable solve (for example no sign change or non-convergent cases), XIRR is shown as N/A instead of forcing/capping a number.
                 </>
               }
             />
           </div>
         </div>
         <p className="text-lg font-bold text-foreground font-mono mb-1">
-          {formatPercent(xirrValue)}
+          {hasPortfolioXirr ? formatPercent(xirrValue as number) : "N/A"}
         </p>
         <p className="text-xs text-muted-foreground">
-          {benchmarkXirr > 0 ? `Benchmark: ${formatPercent(benchmarkXirr)}` : "Internal Rate of Return"}
+          {hasBenchmarkXirr
+            ? `Benchmark: ${formatPercent(benchmarkXirr as number)}`
+            : "Internal Rate of Return"}
         </p>
       </CompactCard>
     </div>

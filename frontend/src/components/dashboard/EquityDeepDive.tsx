@@ -26,8 +26,12 @@ interface EquityDeepDiveProps {
 }
 
 function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
+  const hasPortfolioXirr = summary.portfolio_xirr !== null && summary.portfolio_xirr !== undefined
+  const hasBenchmarkXirr = summary.benchmark_xirr !== null && summary.benchmark_xirr !== undefined
   const isBeating =
-    (summary.portfolio_xirr ?? 0) >= (summary.benchmark_xirr ?? 0)
+    hasPortfolioXirr && hasBenchmarkXirr
+      ? (summary.portfolio_xirr as number) >= (summary.benchmark_xirr as number)
+      : false
   const missed =
     (summary.benchmark_gains ?? 0) - (summary.total_gain_loss ?? 0)
 
@@ -55,12 +59,13 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
               Equity Invested = Σ(Equity Units × Purchase NAV)<br />
               Equity Current Value = Σ(Equity Units × Latest NAV)<br />
               XIRR = IRR from equity cash flows<br />
-              Market Cap % = (Category Value ÷ Total Equity Value) × 100
+              Market Cap % = (Category Value ÷ Total Equity Value) × 100<br />
+              Guardrail: no hard XIRR cap; unstable solves are shown as N/A
             </>
           }
           content={
             <>
-              Equity-only invested/current value; XIRR (internal rate of return) vs benchmark; market cap split (large/mid/small) from equity holdings. XIRR is computed from cash flows (investments/redemptions); benchmark gains use the same period.
+              Equity-only invested/current value; XIRR (internal rate of return) vs benchmark; market cap split (large/mid/small) from equity holdings. XIRR is computed from cash flows (investments/redemptions); benchmark gains use the same period. If a stable XIRR cannot be computed, the UI shows N/A instead of using a capped fallback.
             </>
           }
         />
@@ -145,21 +150,22 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                 formula={
                   <>
                     XIRR: Σ(CFₜ / (1 + XIRR)^t) = 0<br />
-                    Internal rate of return from equity cash flows
+                    Internal rate of return from equity cash flows<br />
+                    Guardrail: no hard % capping; unstable solve leads to N/A
                   </>
                 }
                 content={
                   <>
-                    XIRR = internal rate of return on your equity cash flows, accounting for timing of investments and redemptions.
+                    XIRR = internal rate of return on your equity cash flows, accounting for timing of investments and redemptions. If the solver cannot find a reliable root, this metric is intentionally shown as N/A.
                   </>
                 }
               />
             </div>
             <p className={`text-lg font-bold font-mono mb-1 ${isBeating ? "text-green-600" : "text-amber-600"}`}>
-              {(summary.portfolio_xirr ?? 0).toFixed(2)}%
+              {hasPortfolioXirr ? `${(summary.portfolio_xirr as number).toFixed(2)}%` : "N/A"}
             </p>
             <p className="text-xs text-muted-foreground">
-              {isBeating ? "Beating benchmark" : "Below benchmark"}
+              {hasBenchmarkXirr ? (isBeating ? "Beating benchmark" : "Below benchmark") : "Benchmark unavailable"}
             </p>
           </CompactCard>
 
@@ -205,12 +211,13 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                   <>
                     XIRR: Σ(CFₜ / (1 + XIRR)^t) = 0<br />
                     Alpha = Portfolio Gains − Benchmark Gains<br />
-                    Missed Gains = Benchmark Gains − Portfolio Gains (if negative)
+                    Missed Gains = Benchmark Gains − Portfolio Gains (if negative)<br />
+                    Guardrail: XIRR values are not hard-capped; unreliable solves appear as N/A
                   </>
                 }
                 content={
                   <>
-                    Comparison of your equity portfolio performance against the benchmark. Benchmark XIRR/gains assume the same amount invested in the benchmark index over the same period.
+                    Comparison of your equity portfolio performance against the benchmark. Benchmark XIRR/gains assume the same amount invested in the benchmark index over the same period. If either side has an unstable XIRR solve, it is shown as N/A.
                   </>
                 }
               />
@@ -230,7 +237,7 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                   </p>
                   <div className="flex items-baseline gap-2">
                     <p className="text-xl font-bold text-foreground font-mono">
-                      {(summary.portfolio_xirr ?? 0).toFixed(2)}%
+                      {hasPortfolioXirr ? `${(summary.portfolio_xirr as number).toFixed(2)}%` : "N/A"}
                     </p>
                     <p className="text-sm text-muted-foreground">XIRR</p>
                   </div>
@@ -248,7 +255,7 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                   </p>
                   <div className="flex items-baseline gap-2">
                     <p className="text-xl font-bold text-muted-foreground font-mono">
-                      {(summary.benchmark_xirr ?? 0).toFixed(2)}%
+                      {hasBenchmarkXirr ? `${(summary.benchmark_xirr as number).toFixed(2)}%` : "N/A"}
                     </p>
                     <p className="text-sm text-muted-foreground">XIRR</p>
                   </div>

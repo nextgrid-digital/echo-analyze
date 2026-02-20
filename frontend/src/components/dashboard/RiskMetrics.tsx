@@ -14,7 +14,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
   // Calculate risk metrics from available data
   // Note: These are simplified calculations - real risk metrics would require historical NAV data
   const riskMetrics = useMemo(() => {
-    const xirr = summary.portfolio_xirr ?? 0
+    const xirr = summary.portfolio_xirr
     const equityPct = summary.equity_pct ?? 0
 
     // Simplified volatility estimate (would need historical data for accurate calculation)
@@ -25,9 +25,9 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
     // Assuming risk-free rate of 6% and using estimated volatility
     const riskFreeRate = 6
     const sharpeRatio =
-      estimatedVolatility > 0
-        ? ((xirr - riskFreeRate) / estimatedVolatility).toFixed(2)
-        : "0.00"
+      xirr !== null && xirr !== undefined && estimatedVolatility > 0
+        ? (xirr - riskFreeRate) / estimatedVolatility
+        : null
 
     // Beta estimate (correlation with market) - simplified
     // Higher equity allocation typically means higher beta
@@ -41,7 +41,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
 
     return {
       volatility: estimatedVolatility,
-      sharpeRatio: parseFloat(sharpeRatio),
+      sharpeRatio,
       beta: beta,
       riskScore: riskScore,
     }
@@ -123,7 +123,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
             />
           </div>
           <p className="text-lg font-bold text-foreground font-mono mb-1">
-            {riskMetrics.sharpeRatio.toFixed(2)}
+            {riskMetrics.sharpeRatio !== null ? riskMetrics.sharpeRatio.toFixed(2) : "N/A"}
           </p>
           <p className="text-xs text-muted-foreground">Risk-adjusted return</p>
         </CompactCard>

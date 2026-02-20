@@ -53,7 +53,7 @@ export const HoldingsTable = memo(function HoldingsTable({
     let dbInvestedTotal = 0
     let otInvestedTotal = 0
 
-    holdings.forEach(h => {
+    filteredHoldings.forEach(h => {
       if (h.category === "Equity") {
         equity.push(h)
         eqTotal += h.market_value
@@ -153,6 +153,9 @@ export const HoldingsTable = memo(function HoldingsTable({
     return null
   }
 
+  const formatOptionalPercent = (value: number | null | undefined): string =>
+    value !== null && value !== undefined ? value.toFixed(2) : ""
+
   // CSV download handler
   const handleDownloadCSV = () => {
     const headers = [
@@ -187,8 +190,8 @@ export const HoldingsTable = memo(function HoldingsTable({
           formatCurrency(h.market_value || 0),
           (((h.market_value || 0) / total) * 100).toFixed(2),
           (h.return_pct ?? 0).toFixed(2),
-          (h.xirr ?? 0).toFixed(2),
-          (h.benchmark_xirr ?? 0).toFixed(2),
+          formatOptionalPercent(h.xirr),
+          formatOptionalPercent(h.benchmark_xirr),
           benchmarkName
         ])
       })
@@ -210,8 +213,8 @@ export const HoldingsTable = memo(function HoldingsTable({
           formatCurrency(h.market_value || 0),
           (((h.market_value || 0) / total) * 100).toFixed(2),
           (h.return_pct ?? 0).toFixed(2),
-          (h.xirr ?? 0).toFixed(2),
-          (h.benchmark_xirr ?? 0).toFixed(2),
+          formatOptionalPercent(h.xirr),
+          formatOptionalPercent(h.benchmark_xirr),
           benchmarkName
         ])
       })
@@ -233,8 +236,8 @@ export const HoldingsTable = memo(function HoldingsTable({
           formatCurrency(h.market_value || 0),
           (((h.market_value || 0) / total) * 100).toFixed(2),
           (h.return_pct ?? 0).toFixed(2),
-          (h.xirr ?? 0).toFixed(2),
-          (h.benchmark_xirr ?? 0).toFixed(2),
+          formatOptionalPercent(h.xirr),
+          formatOptionalPercent(h.benchmark_xirr),
           benchmarkName
         ])
       })
@@ -282,6 +285,8 @@ export const HoldingsTable = memo(function HoldingsTable({
 
   const renderHoldingRow = (h: Holding, i: string | number) => {
     const benchmarkName = getBenchmarkName(h)
+    const hasXirr = h.xirr !== null && h.xirr !== undefined
+    const hasBenchmarkXirr = h.benchmark_xirr !== null && h.benchmark_xirr !== undefined
     return (
       <TableRow key={i} className="hover:bg-muted/50">
         <TableCell className="px-4 py-3 sm:px-8 sm:py-5 whitespace-normal max-w-0">
@@ -338,12 +343,12 @@ export const HoldingsTable = memo(function HoldingsTable({
           {h.return_pct ?? 0}%
         </TableCell>
         <TableCell className="px-4 py-3 sm:px-8 sm:py-5 text-right">
-          <div className={`font-bold font-mono text-sm ${(h.xirr ?? 0) >= 0 ? "text-green-500" : "text-red-500"
+          <div className={`font-bold font-mono text-sm ${hasXirr && (h.xirr as number) < 0 ? "text-red-500" : "text-green-500"
             }`}>
-            {h.xirr ? h.xirr.toFixed(1) + "%" : "-"}
+            {hasXirr ? `${(h.xirr as number).toFixed(1)}%` : "-"}
           </div>
           <div className="text-[10px] text-muted-foreground font-bold font-mono">
-            BM: {h.benchmark_xirr ? h.benchmark_xirr.toFixed(1) + "%" : "-"}
+            BM: {hasBenchmarkXirr ? `${(h.benchmark_xirr as number).toFixed(1)}%` : "-"}
           </div>
         </TableCell>
       </TableRow>

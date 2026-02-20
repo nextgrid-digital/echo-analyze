@@ -68,8 +68,8 @@ class Holding(BaseModel):
     sub_category: str
     gain_loss: float = 0.0
     return_pct: float = 0.0
-    xirr: float = 0.0  # [NEW]
-    benchmark_xirr: float = 0.0 # [NEW]
+    xirr: Optional[float] = None  # [NEW]
+    benchmark_xirr: Optional[float] = None # [NEW]
     date_of_entry: Optional[str] = None # [NEW]
     style_category: Optional[str] = None
 
@@ -176,8 +176,8 @@ class AnalysisSummary(BaseModel):
     total_cost_value: float
     total_gain_loss: float
     portfolio_return: float # Absolute Return %
-    portfolio_xirr: float # XIRR %
-    benchmark_xirr: float
+    portfolio_xirr: Optional[float] # XIRR %
+    benchmark_xirr: Optional[float]
     benchmark_gains: float
     holdings_count: int
     statement_date: Optional[str]
@@ -428,8 +428,8 @@ async def map_casparser_to_analysis(cas_data):
             perf_records_3y.append(under_val + 1.2) # Placeholder for 3Y
             
             # Scheme XIRR
-            s_xirr = 0.0
-            s_bm_xirr = 0.0
+            s_xirr: Optional[float] = None
+            s_bm_xirr: Optional[float] = None
             if scheme_cashflows:
                 # 1. Fund XIRR
                 s_flows = scheme_cashflows + [(datetime.now(), mkt_val)]
@@ -477,8 +477,8 @@ async def map_casparser_to_analysis(cas_data):
                 sub_category=sub_cat,
                 gain_loss=round(gain, 2),
                 return_pct=ret_pct,
-                xirr=round(s_xirr, 2),
-                benchmark_xirr=round(s_bm_xirr, 2),
+                xirr=round(s_xirr, 2) if s_xirr is not None else None,
+                benchmark_xirr=round(s_bm_xirr, 2) if s_bm_xirr is not None else None,
                 date_of_entry=date_of_entry,
                 style_category="Direct" if is_direct else "Regular"
             )
@@ -499,15 +499,15 @@ async def map_casparser_to_analysis(cas_data):
     pf_xirr_flows = portfolio_cashflows + [(now_dt, total_mkt)]
     log_debug(f"Calculating Portfolio XIRR...")
     pf_xirr = calculate_xirr([x[0] for x in pf_xirr_flows], [x[1] for x in pf_xirr_flows])
-    log_debug(f"Portfolio XIRR: {pf_xirr:.2f}%")
-    
+    log_debug(f"Portfolio XIRR: {'N/A' if pf_xirr is None else f'{pf_xirr:.2f}%'}")
+
     # 2. Benchmark Stats
     # bench_nav_now calculated above
     benchmark_val_now = benchmark_units * bench_nav_now
     bm_xirr_flows = portfolio_cashflows + [(now_dt, benchmark_val_now)]
     log_debug(f"Calculating Benchmark XIRR...")
     bm_xirr = calculate_xirr([x[0] for x in bm_xirr_flows], [x[1] for x in bm_xirr_flows])
-    log_debug(f"Benchmark XIRR: {bm_xirr:.2f}%")
+    log_debug(f"Benchmark XIRR: {'N/A' if bm_xirr is None else f'{bm_xirr:.2f}%'}")
 
     # 3. Asset Allocation
     alloc_list = [AssetAllocation(category=k, value=round(v, 2), allocation_pct=round((v/total_mkt)*100, 1)) 
@@ -736,8 +736,8 @@ async def map_casparser_to_analysis(cas_data):
         total_cost_value=round(total_cost, 2),
         total_gain_loss=round(total_mkt - total_cost, 2),
         portfolio_return=round((total_mkt - total_cost)/total_cost * 100, 2) if total_cost > 0 else 0.0,
-        portfolio_xirr=round(pf_xirr, 2),
-        benchmark_xirr=round(bm_xirr, 2),
+        portfolio_xirr=round(pf_xirr, 2) if pf_xirr is not None else None,
+        benchmark_xirr=round(bm_xirr, 2) if bm_xirr is not None else None,
         benchmark_gains=round(benchmark_val_now - total_cost, 2),
         holdings_count=len(holdings),
         statement_date=date_str,
