@@ -1,66 +1,31 @@
-import { memo, useMemo } from "react"
+import { memo } from "react"
 import { CompactCard } from "./cards/CompactCard"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import { TrendingUp } from "lucide-react"
 import { toLakhs } from "@/lib/format"
-import type { AnalysisSummary, Holding } from "@/types/api"
+import type { AnalysisSummary } from "@/types/api"
 
 interface TaxAnalysisProps {
   summary: AnalysisSummary
-  holdings: Holding[]
 }
 
-function TaxAnalysisInner({ summary, holdings }: TaxAnalysisProps) {
-  const taxData = useMemo(() => {
-    const now = new Date()
-    const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
-
-    let shortTermGains = 0
-    let longTermGains = 0
-    let taxFreeGains = 0
-    let totalGains = summary.total_gain_loss ?? 0
-
-    // Calculate STCG/LTCG based on date_of_entry
-    holdings.forEach((holding) => {
-      if (!holding.date_of_entry || !holding.gain_loss) return
-
-      const entryDate = new Date(holding.date_of_entry)
-      const isLongTerm = entryDate < oneYearAgo
-      const gain = holding.gain_loss
-
-      if (gain > 0) {
-        if (isLongTerm) {
-          longTermGains += gain
-        } else {
-          shortTermGains += gain
-        }
-      }
-    })
-
-    // Estimate tax-free gains (ELSS, PPF, etc.)
-    // This is simplified - would need actual tax status from fund data
-    const elssHoldings = holdings.filter(
-      (h) => h.category?.toLowerCase().includes("elss") || h.sub_category?.toLowerCase().includes("elss")
-    )
-    const elssGains = elssHoldings.reduce((sum, h) => sum + (h.gain_loss ?? 0), 0)
-    taxFreeGains = Math.max(0, elssGains)
-
-    const taxableGains = shortTermGains + longTermGains - taxFreeGains
-    const taxEfficiencyScore =
-      totalGains > 0 ? ((taxFreeGains / totalGains) * 100) : 0
-
-    return {
-      shortTermGains,
-      longTermGains,
-      taxFreeGains,
-      taxableGains,
-      taxEfficiencyScore,
-      totalGains,
-    }
-  }, [summary, holdings])
+function TaxAnalysisInner({ summary }: TaxAnalysisProps) {
+  const taxData = summary.tax ?? {
+    short_term_gains: 0,
+    long_term_gains: 0,
+    tax_free_gains: 0,
+    taxable_gains: 0,
+    estimated_tax_liability: 0,
+    equity_stcg_rate_pct: 20,
+    equity_ltcg_rate_pct: 12,
+    equity_ltcg_exemption: 125000,
+  }
 
   return (
     <div className="mb-6 sm:mb-8">
+      <div className="mb-3 border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+        Estimated metrics: tax buckets are indicative and should not be used for tax filing decisions.
+      </div>
       {/* Tax Metrics - Status Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 mb-6">
         <CompactCard>
@@ -77,16 +42,16 @@ function TaxAnalysisInner({ summary, holdings }: TaxAnalysisProps) {
               }
               content={
                 <>
-                  Capital gains from holdings held for less than 1 year. Taxed at your income tax slab rate.
+                  Equity gains from holdings held for less than 1 year.
                 </>
               }
             />
           </div>
           <p className="text-xl font-bold text-foreground font-mono">
-            {toLakhs(taxData.shortTermGains)}
+            {toLakhs(taxData.short_term_gains)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            Taxed at slab rate
+            Taxed at {taxData.equity_stcg_rate_pct}% (equity)
           </p>
         </CompactCard>
 
@@ -99,21 +64,21 @@ function TaxAnalysisInner({ summary, holdings }: TaxAnalysisProps) {
               title="Long-Term Gains"
               formula={
                 <>
-                  Long-Term Gains = Gains from holdings ≥ 1 year old
+                  Long-Term Gains = Gains from holdings &gt;= 1 year old
                 </>
               }
               content={
                 <>
-                  Capital gains from holdings held for 1 year or more. Taxed at 10% (equity) or 20% with indexation (debt).
+                  Equity gains from holdings held for 1 year or more.
                 </>
               }
             />
           </div>
           <p className="text-xl font-bold text-foreground font-mono">
-            {toLakhs(taxData.longTermGains)}
+            {toLakhs(taxData.long_term_gains)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            Taxed at 10% (equity) or 20% (debt)
+            Taxed at {taxData.equity_ltcg_rate_pct}% after {toLakhs(taxData.equity_ltcg_exemption)} exemption
           </p>
         </CompactCard>
 
@@ -134,16 +99,16 @@ function TaxAnalysisInner({ summary, holdings }: TaxAnalysisProps) {
               }
               content={
                 <>
-                  Gains from ELSS and other tax-exempt instruments that are not subject to capital gains tax.
+                  Gains from tax-exempt instruments that are not subject to capital gains tax.
                 </>
               }
             />
           </div>
           <p className="text-xl font-bold text-green-600 font-mono">
-            {toLakhs(taxData.taxFreeGains)}
+            {toLakhs(taxData.tax_free_gains)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            ELSS and tax-exempt
+            Exempt gains
           </p>
         </CompactCard>
 
@@ -156,7 +121,7 @@ function TaxAnalysisInner({ summary, holdings }: TaxAnalysisProps) {
               title="Taxable Gains"
               formula={
                 <>
-                  Taxable Gains = Short-Term + Long-Term − Tax-Free
+                  Taxable Gains = Short-Term + Long-Term - Tax-Free
                 </>
               }
               content={
@@ -167,13 +132,12 @@ function TaxAnalysisInner({ summary, holdings }: TaxAnalysisProps) {
             />
           </div>
           <p className="text-xl font-bold text-foreground font-mono">
-            {toLakhs(taxData.taxableGains)}
+            {toLakhs(taxData.taxable_gains)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            Subject to tax
+            Est. tax: {toLakhs(taxData.estimated_tax_liability)}
           </p>
         </CompactCard>
-
       </div>
     </div>
   )

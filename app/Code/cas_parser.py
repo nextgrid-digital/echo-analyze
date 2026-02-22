@@ -27,6 +27,15 @@ def _is_password_error(err_str: str) -> bool:
         "file has not been decrypted", "owner password",
     ])
 
+
+def _safe_parse_error(message: str) -> str:
+    lower = (message or "").lower()
+    if "not a pdf" in lower or "pdf" in lower and "corrupt" in lower:
+        return "The uploaded file appears to be invalid or corrupted."
+    if "timeout" in lower:
+        return "PDF parsing timed out. Please try again with a smaller file."
+    return "Unable to parse the provided PDF file."
+
 def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: str = "") -> Dict[str, Any]:
     """
     Parses a CAS PDF file using casparser library.
@@ -53,7 +62,7 @@ def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: s
                         if not password:
                             return {"success": False, "error": "This PDF is password-protected. Please enter the password (usually your PAN, e.g. ABCDE1234F)."}
                         return {"success": False, "error": "Incorrect password. CAS PDFs are usually protected with your PAN (e.g. ABCDE1234F). Please try again."}
-                    return {"success": False, "error": str(e)}
+                    return {"success": False, "error": _safe_parse_error(str(e))}
 
         # Parse the temp file
         try:
@@ -66,13 +75,12 @@ def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: s
                 if not password:
                     return {"success": False, "error": "This PDF is password-protected. Please enter the password (usually your PAN, e.g. ABCDE1234F)."}
                 return {"success": False, "error": "Incorrect password. CAS PDFs are usually protected with your PAN (e.g. ABCDE1234F). Please try again."}
-            # If password was provided but parsing still failed, it's likely a bad password
             if password:
-                return {"success": False, "error": f"Failed to parse PDF. If the file is password-protected, please verify your password (usually your PAN). Error: {err_msg}"}
-            return {"success": False, "error": err_msg}
+                return {"success": False, "error": "Failed to parse PDF. Please verify your password and file integrity."}
+            return {"success": False, "error": _safe_parse_error(err_msg)}
 
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": _safe_parse_error(str(e))}
     finally:
         if tmp_path and os.path.exists(tmp_path):
             try:

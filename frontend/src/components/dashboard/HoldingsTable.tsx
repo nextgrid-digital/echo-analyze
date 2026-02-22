@@ -156,6 +156,18 @@ export const HoldingsTable = memo(function HoldingsTable({
   const formatOptionalPercent = (value: number | null | undefined): string =>
     value !== null && value !== undefined ? value.toFixed(2) : ""
 
+  const formatYearsFromEntryDate = (entryDate: string | null | undefined): string | null => {
+    if (!entryDate) return null
+    const parsed = new Date(entryDate)
+    if (Number.isNaN(parsed.getTime())) return null
+
+    const elapsedMs = Date.now() - parsed.getTime()
+    if (elapsedMs < 0) return null
+
+    const years = elapsedMs / (1000 * 60 * 60 * 24 * 365.25)
+    return `${years.toFixed(1)} yrs`
+  }
+
   // CSV download handler
   const handleDownloadCSV = () => {
     const headers = [
@@ -287,13 +299,30 @@ export const HoldingsTable = memo(function HoldingsTable({
     const benchmarkName = getBenchmarkName(h)
     const hasXirr = h.xirr !== null && h.xirr !== undefined
     const hasBenchmarkXirr = h.benchmark_xirr !== null && h.benchmark_xirr !== undefined
+    const yearsFromEntry = formatYearsFromEntryDate(h.date_of_entry)
+    const xirrColorClass = hasXirr
+      ? hasBenchmarkXirr
+        ? (h.xirr as number) < (h.benchmark_xirr as number)
+          ? "text-red-500"
+          : "text-green-500"
+        : (h.xirr as number) < 0
+          ? "text-red-500"
+          : "text-green-500"
+      : "text-muted-foreground"
     return (
       <TableRow key={i} className="hover:bg-muted/50">
         <TableCell className="px-4 py-3 sm:px-8 sm:py-5 whitespace-normal max-w-0">
           <div className="flex items-center gap-2 min-w-0">
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="font-bold text-foreground text-sm truncate flex-1 min-w-0 cursor-help">
+                <div
+                  className="font-bold text-foreground text-sm flex-1 min-w-0 cursor-help break-words leading-tight overflow-hidden"
+                  style={{
+                    display: "-webkit-box",
+                    WebkitBoxOrient: "vertical",
+                    WebkitLineClamp: 2,
+                  }}
+                >
                   {h.scheme_name}
                 </div>
               </TooltipTrigger>
@@ -322,6 +351,11 @@ export const HoldingsTable = memo(function HoldingsTable({
           <div className="text-xs font-mono text-muted-foreground">
             {h.date_of_entry || "-"}
           </div>
+          {yearsFromEntry && (
+            <div className="text-[10px] font-mono text-muted-foreground mt-0.5">
+              {yearsFromEntry}
+            </div>
+          )}
         </TableCell>
         <TableCell className="px-4 py-3 sm:px-8 sm:py-5 text-right">
           <div className="font-bold text-foreground font-mono">
@@ -343,8 +377,7 @@ export const HoldingsTable = memo(function HoldingsTable({
           {h.return_pct ?? 0}%
         </TableCell>
         <TableCell className="px-4 py-3 sm:px-8 sm:py-5 text-right">
-          <div className={`font-bold font-mono text-sm ${hasXirr && (h.xirr as number) < 0 ? "text-red-500" : "text-green-500"
-            }`}>
+          <div className={`font-bold font-mono text-sm ${xirrColorClass}`}>
             {hasXirr ? `${(h.xirr as number).toFixed(1)}%` : "-"}
           </div>
           <div className="text-[10px] text-muted-foreground font-bold font-mono">

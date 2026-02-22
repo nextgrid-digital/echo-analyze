@@ -66,12 +66,23 @@ export interface CreditQuality {
 export interface FixedIncomeData {
   invested_value: number
   current_value: number
-  irr: number
-  ytm: number
+  irr?: number | null
+  ytm?: number | null
   credit_quality: CreditQuality
   top_funds: TopItem[]
   top_amcs: TopItem[]
   category_allocation: AssetAllocation[]
+}
+
+export interface TaxSummary {
+  short_term_gains: number
+  long_term_gains: number
+  tax_free_gains: number
+  taxable_gains: number
+  estimated_tax_liability: number
+  equity_stcg_rate_pct: number
+  equity_ltcg_rate_pct: number
+  equity_ltcg_exemption: number
 }
 
 export interface PerfMetric {
@@ -130,6 +141,32 @@ export interface InvestorInfo {
   phone?: string | null
 }
 
+export type WarningSeverity = "info" | "warn" | "error"
+export type WarningSection =
+  | "valuation"
+  | "overlap"
+  | "performance"
+  | "fixed_income"
+  | "risk"
+  | "tax"
+  | "guidelines"
+  | "benchmark"
+  | "classification"
+
+export interface AnalysisWarning {
+  code: string
+  section: WarningSection | string
+  severity: WarningSeverity
+  message: string
+  affected_schemes?: string[]
+}
+
+export interface DataCoverage {
+  benchmark_date_match_pct: number
+  overlap_source: "real" | "none"
+  overlap_available_funds: number
+}
+
 export interface AnalysisSummary {
   total_market_value: number
   total_cost_value: number
@@ -151,6 +188,16 @@ export interface AnalysisSummary {
   guidelines?: GuidelinesData | null
   overlap?: OverlapData | null
   investor_info?: InvestorInfo | null
+  valuation_mode: "live_nav"
+  statement_market_value: number
+  live_nav_delta_value: number
+  equity_cost_value: number
+  equity_gain_loss: number
+  fixed_income_cost_value: number
+  fixed_income_gain_loss: number
+  tax: TaxSummary
+  warnings: AnalysisWarning[]
+  data_coverage: DataCoverage
 }
 
 export interface AnalysisResponse {

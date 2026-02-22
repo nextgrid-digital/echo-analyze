@@ -37,6 +37,9 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
 
   return (
     <div className="mb-6 sm:mb-8">
+      <div className="mb-3 border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+        Estimated/partial metrics: fixed-income YTM is shown only when available from source holdings data; otherwise it is marked N/A.
+      </div>
       <div className="flex items-center justify-end gap-2 mb-4">
         <SectionInfoTooltip
           title="Fixed Income Deep Dive"
@@ -146,7 +149,7 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
               />
             </div>
             <p className="text-lg font-bold text-blue-600 font-mono mb-1">
-              {fi.irr}%
+              {fi.irr !== null && fi.irr !== undefined ? `${fi.irr}%` : "N/A"}
             </p>
             <p className="text-xs text-muted-foreground">Internal rate of return</p>
           </CompactCard>
@@ -176,7 +179,7 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
               />
             </div>
             <p className="text-lg font-bold text-purple-600 font-mono mb-1">
-              {fi.ytm}%
+              {fi.ytm !== null && fi.ytm !== undefined ? `${fi.ytm}%` : "N/A"}
             </p>
             <p className="text-xs text-muted-foreground">Yield to maturity</p>
           </CompactCard>

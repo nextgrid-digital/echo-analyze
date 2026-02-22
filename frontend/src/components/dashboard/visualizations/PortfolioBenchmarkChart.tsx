@@ -64,6 +64,12 @@ const normalizeToPeriodStart = (date: Date, zoom: ZoomLevel): Date => {
   return normalized
 }
 
+const annualToMonthlyRate = (xirr: number | null | undefined): number | null => {
+  if (xirr === null || xirr === undefined || Number.isNaN(xirr)) return null
+  if (xirr <= -100) return null
+  return Math.pow(1 + xirr / 100, 1 / 12) - 1
+}
+
 export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmarkChartProps) {
   // Find oldest entry date from holdings
   const oldestEntryDate = useMemo(() => {
@@ -184,16 +190,8 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
 
   const chartData = useMemo(() => {
     const initialValue = summary.total_cost_value || 1
-    const portfolioXirr = summary.portfolio_xirr || 0
-    const benchmarkXirr = summary.benchmark_xirr || 0
-
-    // Convert annual XIRR to monthly rate
-    const portfolioMonthlyRate = portfolioXirr > 0 
-      ? Math.pow(1 + portfolioXirr / 100, 1 / 12) - 1 
-      : 0
-    const benchmarkMonthlyRate = benchmarkXirr > 0 
-      ? Math.pow(1 + benchmarkXirr / 100, 1 / 12) - 1 
-      : 0
+    const portfolioMonthlyRate = annualToMonthlyRate(summary.portfolio_xirr)
+    const benchmarkMonthlyRate = annualToMonthlyRate(summary.benchmark_xirr)
 
     // Normalize start date to period start based on zoom level
     const startDate = normalizeToPeriodStart(new Date(oldestEntryDate), effectiveZoomLevel)
@@ -212,8 +210,8 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
       const monthsElapsed = (current.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44)
       
       // Calculate values using compound growth formula: V(t) = V(0) * (1 + r)^t
-      const portfolioValue = initialValue * Math.pow(1 + portfolioMonthlyRate, monthsElapsed)
-      const benchmarkValue = initialValue * Math.pow(1 + benchmarkMonthlyRate, monthsElapsed)
+      const portfolioValue = initialValue * Math.pow(1 + (portfolioMonthlyRate ?? 0), monthsElapsed)
+      const benchmarkValue = initialValue * Math.pow(1 + (benchmarkMonthlyRate ?? 0), monthsElapsed)
       
       // Format date based on zoom level
       const dateStr = formatDateForZoom(current, effectiveZoomLevel)
@@ -248,8 +246,8 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
         const date = new Date(start)
         date.setMonth(date.getMonth() + i)
         const monthsElapsed = i
-        const portfolioValue = initialValue * Math.pow(1 + portfolioMonthlyRate, monthsElapsed)
-        const benchmarkValue = initialValue * Math.pow(1 + benchmarkMonthlyRate, monthsElapsed)
+        const portfolioValue = initialValue * Math.pow(1 + (portfolioMonthlyRate ?? 0), monthsElapsed)
+        const benchmarkValue = initialValue * Math.pow(1 + (benchmarkMonthlyRate ?? 0), monthsElapsed)
         const portfolioPct = ((portfolioValue - initialValue) / initialValue) * 100
         const benchmarkPct = ((benchmarkValue - initialValue) / initialValue) * 100
         
@@ -266,6 +264,9 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
 
     return data
   }, [summary.total_cost_value, summary.portfolio_xirr, summary.benchmark_xirr, oldestEntryDate, effectiveZoomLevel])
+
+  const portfolioRateUnavailable = annualToMonthlyRate(summary.portfolio_xirr) === null
+  const benchmarkRateUnavailable = annualToMonthlyRate(summary.benchmark_xirr) === null
 
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
@@ -322,6 +323,13 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
 
   return (
     <div className="w-full">
+      {(portfolioRateUnavailable || benchmarkRateUnavailable) && (
+        <div className="mb-3 border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          {portfolioRateUnavailable && "Portfolio XIRR unavailable/invalid. "}
+          {benchmarkRateUnavailable && "Benchmark XIRR unavailable/invalid. "}
+          Unavailable rates are shown as flat reference lines.
+        </div>
+      )}
       {/* Time Granularity Controls */}
       <div className="flex items-center justify-end gap-2 mb-4">
         <Button

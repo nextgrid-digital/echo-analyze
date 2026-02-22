@@ -15,6 +15,10 @@ _nav_cache_date: Optional[str] = None  # ISO date string (YYYY-MM-DD) when NAVs 
 NAV_CACHE_FILE = "data/nav_cache.json"
 _fetch_locks: Dict[str, asyncio.Lock] = {}
 _http_client: Optional[httpx.AsyncClient] = None
+_navall_map: Dict[str, float] = {}
+_navall_cache_date: Optional[str] = None
+_navall_lock = asyncio.Lock()
+NAV_ALL_URL = "https://portal.amfiindia.com/spages/NAVAll.txt"
 
 async def _get_client():
     global _http_client
@@ -50,6 +54,54 @@ def _ensure_fresh_cache():
         _nav_cache = {}
         _nav_cache_date = today
 
+
+def _parse_navall_text(text: str) -> Dict[str, float]:
+    nav_map: Dict[str, float] = {}
+    if not text:
+        return nav_map
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or ";" not in line:
+            continue
+        parts = line.split(";")
+        # NAVAll rows: Scheme Code ; ISIN Div ; ISIN Growth ; Scheme Name ; NAV ; Date
+        if len(parts) < 6:
+            continue
+        code = parts[0].strip()
+        nav_str = parts[4].strip()
+        if not code or not code.isdigit():
+            continue
+        try:
+            nav_val = float(nav_str)
+        except (TypeError, ValueError):
+            continue
+        if nav_val > 0:
+            nav_map[code] = nav_val
+    return nav_map
+
+
+async def _get_navall_map() -> Dict[str, float]:
+    global _navall_map, _navall_cache_date
+    today = date.today().isoformat()
+    if _navall_cache_date == today and _navall_map:
+        return _navall_map
+
+    async with _navall_lock:
+        if _navall_cache_date == today and _navall_map:
+            return _navall_map
+        try:
+            client = await _get_client()
+            response = await client.get(NAV_ALL_URL, timeout=4.0)
+            if response.status_code == 200:
+                parsed = _parse_navall_text(response.text)
+                if parsed:
+                    _navall_map = parsed
+                    _navall_cache_date = today
+        except Exception:
+            pass
+    return _navall_map
+
+
 async def save_cache_async():
     """Save cache to disk without blocking the event loop."""
     try:
@@ -82,7 +134,8 @@ def clean_currency_to_float(text: str) -> float:
 
 async def fetch_live_nav(amfi_code: str) -> float:
     """
-    Fetches the latest NAV for a given AMFI code from mfapi.in.
+    Fetches the latest NAV for a given AMFI code.
+    Primary source: AMFI NAVAll (official). Fallback: mfapi.in.
     Returns 0.0 if fetch fails or code is invalid.
     NAV cache expires daily so values are always fresh.
     """
@@ -101,6 +154,13 @@ async def fetch_live_nav(amfi_code: str) -> float:
     async with _fetch_locks[amfi_code]:
         if amfi_code in _nav_cache:
             return _nav_cache[amfi_code]
+
+        # Official AMFI NAVAll source first.
+        navall_map = await _get_navall_map()
+        nav_from_amfi = float(navall_map.get(amfi_code) or 0.0)
+        if nav_from_amfi > 0:
+            _nav_cache[amfi_code] = nav_from_amfi
+            return nav_from_amfi
             
         url = f"https://api.mfapi.in/mf/{amfi_code}"
         try:

@@ -19,6 +19,9 @@ export const Performance = memo(function Performance({ performance }: Performanc
 
   return (
     <div className="mb-6 sm:mb-8">
+      <div className="mb-3 border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+        Coverage note: performance buckets are computed on schemes with comparable fund and benchmark return data.
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
         {/* Performing card */}
         <CompactCard>

@@ -33,7 +33,7 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
       ? (summary.portfolio_xirr as number) >= (summary.benchmark_xirr as number)
       : false
   const missed =
-    (summary.benchmark_gains ?? 0) - (summary.total_gain_loss ?? 0)
+    (summary.benchmark_gains ?? 0) - (summary.equity_gain_loss ?? 0)
 
   const mcData = useMemo(() => {
     const mc: MarketCapAllocation = summary.market_cap
@@ -100,7 +100,7 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
               />
             </div>
             <p className="text-lg font-bold text-foreground font-mono mb-1">
-              {toLakhs(summary.total_cost_value)}
+              {toLakhs(summary.equity_cost_value)}
             </p>
             <p className="text-xs text-muted-foreground">Equity holdings cost</p>
           </CompactCard>
@@ -195,7 +195,7 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
               />
             </div>
             <p className="text-lg font-bold text-green-600 font-mono mb-1">
-              {toLakhs(summary.total_gain_loss)}
+              {toLakhs(summary.equity_gain_loss)}
             </p>
             <p className="text-xs text-muted-foreground">Equity portfolio gains</p>
           </CompactCard>
@@ -242,7 +242,7 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                     <p className="text-sm text-muted-foreground">XIRR</p>
                   </div>
                   <p className="text-sm font-semibold text-foreground font-mono mt-1">
-                    {toLakhs(summary.total_gain_loss)} gains
+                    {toLakhs(summary.equity_gain_loss)} gains
                   </p>
                 </div>
               </div>

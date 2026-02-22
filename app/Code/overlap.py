@@ -59,6 +59,11 @@ def _to_weight_map(holdings: List[Tuple[str, float]]) -> Dict[str, float]:
         key = _normalize_instrument(name)
         if key:
             out[key] = out.get(key, 0.0) + float(w)
+    total_weight = sum(v for v in out.values() if v > 0)
+    if total_weight > 0:
+        scale = 100.0 / total_weight
+        for key in list(out.keys()):
+            out[key] = out[key] * scale
     return out
 
 

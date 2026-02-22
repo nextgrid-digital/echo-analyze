@@ -55,9 +55,6 @@ export function SkeletonDashboard() {
 }
 
 export function Dashboard({ summary, holdings }: DashboardProps) {
-  console.log("Dashboard Summary:", summary);
-  console.log("Investor Info:", summary.investor_info);
-
   return (
     <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-12 sm:pb-16">
       <div className="flex gap-6 lg:gap-8">
@@ -228,7 +225,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
 
             {/* Tax Analysis */}
             <div>
-              <TaxAnalysis summary={summary} holdings={holdings} />
+              <TaxAnalysis summary={summary} />
             </div>
           </section>
 
@@ -250,8 +247,8 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
                 summary.fixed_income ?? {
                   invested_value: 0,
                   current_value: 0,
-                  irr: 0,
-                  ytm: 0,
+                  irr: null,
+                  ytm: null,
                   credit_quality: { aaa_pct: 0, aa_pct: 0, below_aa_pct: 0 },
                   top_funds: [],
                   top_amcs: [],
