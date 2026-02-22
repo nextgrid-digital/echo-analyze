@@ -51,7 +51,7 @@ export function createEmptySummary(): AnalysisSummary {
       taxable_gains: 0,
       estimated_tax_liability: 0,
       equity_stcg_rate_pct: 20,
-      equity_ltcg_rate_pct: 12,
+      equity_ltcg_rate_pct: 12.5,
       equity_ltcg_exemption: 125000,
     },
     warnings: [],

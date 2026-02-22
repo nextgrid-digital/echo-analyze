@@ -790,7 +790,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     others_pct_actual = round(max(0, 100 - equity_pct_actual - fi_pct_actual), 1) if total_mkt_live > 0 else 0.0
 
     tax_stcg_rate = 20.0
-    tax_ltcg_rate = 12.0
+    tax_ltcg_rate = 12.5
     tax_ltcg_exemption = 125000.0
     tax_short_term_gains = 0.0
     tax_long_term_gains = 0.0
@@ -808,8 +808,8 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         else:
             tax_short_term_gains += gain
 
-    tax_taxable_gains = max(0.0, tax_short_term_gains + tax_long_term_gains - tax_free_gains)
     taxable_ltcg = max(0.0, tax_long_term_gains - tax_ltcg_exemption)
+    tax_taxable_gains = max(0.0, tax_short_term_gains + taxable_ltcg - tax_free_gains)
     tax_estimated_liability = (tax_short_term_gains * tax_stcg_rate / 100.0) + (taxable_ltcg * tax_ltcg_rate / 100.0)
 
     tax_summary = TaxSummary(

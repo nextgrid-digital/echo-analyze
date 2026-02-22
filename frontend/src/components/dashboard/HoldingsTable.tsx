@@ -156,7 +156,10 @@ export const HoldingsTable = memo(function HoldingsTable({
   const formatOptionalPercent = (value: number | null | undefined): string =>
     value !== null && value !== undefined ? value.toFixed(2) : ""
 
-  const formatYearsFromEntryDate = (entryDate: string | null | undefined): string | null => {
+  const formatOptionalCurrency = (value: number | null | undefined): string =>
+    value !== null && value !== undefined ? formatCurrency(value) : ""
+
+  const getYearsFromEntryDate = (entryDate: string | null | undefined): number | null => {
     if (!entryDate) return null
     const parsed = new Date(entryDate)
     if (Number.isNaN(parsed.getTime())) return null
@@ -164,8 +167,34 @@ export const HoldingsTable = memo(function HoldingsTable({
     const elapsedMs = Date.now() - parsed.getTime()
     if (elapsedMs < 0) return null
 
-    const years = elapsedMs / (1000 * 60 * 60 * 24 * 365.25)
+    return elapsedMs / (1000 * 60 * 60 * 24 * 365.25)
+  }
+
+  const formatYearsFromEntryDate = (entryDate: string | null | undefined): string | null => {
+    const years = getYearsFromEntryDate(entryDate)
+    if (years === null) return null
     return `${years.toFixed(1)} yrs`
+  }
+
+  const calculateMissedGains = (holding: Holding): number | null => {
+    const fundXirr = holding.xirr
+    const benchmarkXirr = holding.benchmark_xirr
+    if (fundXirr === null || fundXirr === undefined) return null
+    if (benchmarkXirr === null || benchmarkXirr === undefined) return null
+
+    const invested = holding.cost_value || 0
+    if (invested <= 0) return null
+
+    const years = getYearsFromEntryDate(holding.date_of_entry)
+    if (years === null) return null
+
+    const fundGrowthBase = 1 + fundXirr / 100
+    const benchmarkGrowthBase = 1 + benchmarkXirr / 100
+    if (fundGrowthBase <= 0 || benchmarkGrowthBase <= 0) return null
+
+    const fundValueByXirr = invested * Math.pow(fundGrowthBase, years)
+    const benchmarkValueByXirr = invested * Math.pow(benchmarkGrowthBase, years)
+    return Math.abs(benchmarkValueByXirr - fundValueByXirr)
   }
 
   // CSV download handler
@@ -180,6 +209,7 @@ export const HoldingsTable = memo(function HoldingsTable({
       "Market Value (₹)",
       "Allocation (%)",
       "Absolute Returns (%)",
+      "Missed Gains (Rs)",
       "XIRR (%)",
       "Benchmark XIRR (%)",
       "Benchmark Name"
@@ -202,6 +232,7 @@ export const HoldingsTable = memo(function HoldingsTable({
           formatCurrency(h.market_value || 0),
           (((h.market_value || 0) / total) * 100).toFixed(2),
           (h.return_pct ?? 0).toFixed(2),
+          formatOptionalCurrency(calculateMissedGains(h)),
           formatOptionalPercent(h.xirr),
           formatOptionalPercent(h.benchmark_xirr),
           benchmarkName
@@ -225,6 +256,7 @@ export const HoldingsTable = memo(function HoldingsTable({
           formatCurrency(h.market_value || 0),
           (((h.market_value || 0) / total) * 100).toFixed(2),
           (h.return_pct ?? 0).toFixed(2),
+          formatOptionalCurrency(calculateMissedGains(h)),
           formatOptionalPercent(h.xirr),
           formatOptionalPercent(h.benchmark_xirr),
           benchmarkName
@@ -248,6 +280,7 @@ export const HoldingsTable = memo(function HoldingsTable({
           formatCurrency(h.market_value || 0),
           (((h.market_value || 0) / total) * 100).toFixed(2),
           (h.return_pct ?? 0).toFixed(2),
+          formatOptionalCurrency(calculateMissedGains(h)),
           formatOptionalPercent(h.xirr),
           formatOptionalPercent(h.benchmark_xirr),
           benchmarkName
@@ -291,7 +324,7 @@ export const HoldingsTable = memo(function HoldingsTable({
           {((subtotal / total) * 100).toFixed(1)}%
         </div>
       </TableCell>
-      <TableCell colSpan={2} />
+      <TableCell colSpan={3} />
     </TableRow>
   )
 
@@ -300,15 +333,25 @@ export const HoldingsTable = memo(function HoldingsTable({
     const hasXirr = h.xirr !== null && h.xirr !== undefined
     const hasBenchmarkXirr = h.benchmark_xirr !== null && h.benchmark_xirr !== undefined
     const yearsFromEntry = formatYearsFromEntryDate(h.date_of_entry)
+    const missedGains = calculateMissedGains(h)
+    const isBelowBenchmark = hasXirr && hasBenchmarkXirr
+      ? (h.xirr as number) < (h.benchmark_xirr as number)
+      : null
     const xirrColorClass = hasXirr
       ? hasBenchmarkXirr
-        ? (h.xirr as number) < (h.benchmark_xirr as number)
+        ? isBelowBenchmark
           ? "text-red-500"
           : "text-green-500"
         : (h.xirr as number) < 0
           ? "text-red-500"
           : "text-green-500"
       : "text-muted-foreground"
+    const missedGainsColorClass =
+      isBelowBenchmark === null
+        ? "text-muted-foreground"
+        : isBelowBenchmark
+          ? "text-red-500"
+          : "text-green-500"
     return (
       <TableRow key={i} className="hover:bg-muted/50">
         <TableCell className="px-4 py-3 sm:px-8 sm:py-5 whitespace-normal max-w-0">
@@ -375,6 +418,11 @@ export const HoldingsTable = memo(function HoldingsTable({
             }`}
         >
           {h.return_pct ?? 0}%
+        </TableCell>
+        <TableCell className="px-4 py-3 sm:px-8 sm:py-5 text-right">
+          <div className={`font-bold font-mono text-sm ${missedGainsColorClass}`}>
+            {missedGains !== null ? `\u20B9${formatCurrency(missedGains)}` : "-"}
+          </div>
         </TableCell>
         <TableCell className="px-4 py-3 sm:px-8 sm:py-5 text-right">
           <div className={`font-bold font-mono text-sm ${xirrColorClass}`}>
@@ -444,16 +492,19 @@ export const HoldingsTable = memo(function HoldingsTable({
                 <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 w-[12%]">
                     Entry Date
                   </TableHead>
-                <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 text-right w-[15%]">
+                <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 text-right w-[14%]">
                     Invested Value
                   </TableHead>
-                <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 text-right w-[15%]">
+                <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 text-right w-[14%]">
                     Current Value
                   </TableHead>
-                <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 text-right w-[12%]">
+                <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 text-right w-[11%]">
                     Abs Returns
                   </TableHead>
-                <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 text-right w-[21%]">
+                <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 text-right w-[10%]">
+                    Missed Gains
+                  </TableHead>
+                <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 text-right w-[14%]">
                     XIRR / BM
                   </TableHead>
               </TableRow>
@@ -462,7 +513,7 @@ export const HoldingsTable = memo(function HoldingsTable({
               {equityHoldings.length > 0 && (
                 <>
                   <TableRow className="bg-primary/10">
-                    <TableCell colSpan={6} className="px-4 py-2 sm:px-8 sm:py-3 font-bold text-sm uppercase tracking-wider text-primary">
+                    <TableCell colSpan={7} className="px-4 py-2 sm:px-8 sm:py-3 font-bold text-sm uppercase tracking-wider text-primary">
                       Equity
                     </TableCell>
                   </TableRow>
@@ -474,7 +525,7 @@ export const HoldingsTable = memo(function HoldingsTable({
               {debtHoldings.length > 0 && (
                 <>
                   <TableRow className="bg-primary/10">
-                    <TableCell colSpan={6} className="px-4 py-2 sm:px-8 sm:py-3 font-bold text-sm uppercase tracking-wider text-primary">
+                    <TableCell colSpan={7} className="px-4 py-2 sm:px-8 sm:py-3 font-bold text-sm uppercase tracking-wider text-primary">
                       Fixed Income / Debt
                     </TableCell>
                   </TableRow>
@@ -486,7 +537,7 @@ export const HoldingsTable = memo(function HoldingsTable({
               {otherHoldings.length > 0 && (
                 <>
                   <TableRow className="bg-primary/10">
-                    <TableCell colSpan={6} className="px-4 py-2 sm:px-8 sm:py-3 font-bold text-sm uppercase tracking-wider text-primary">
+                    <TableCell colSpan={7} className="px-4 py-2 sm:px-8 sm:py-3 font-bold text-sm uppercase tracking-wider text-primary">
                       Others
                     </TableCell>
                   </TableRow>

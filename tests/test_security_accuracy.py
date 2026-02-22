@@ -47,7 +47,51 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(summary.data_coverage)
         self.assertTrue(isinstance(summary.warnings, list))
         self.assertIsNotNone(summary.tax)
-        self.assertGreaterEqual(summary.tax.equity_ltcg_rate_pct, 12.0)
+        self.assertEqual(summary.tax.equity_ltcg_rate_pct, 12.5)
+
+    async def test_taxable_gains_apply_ltcg_exemption(self):
+        cas_data = {
+            "folios": [
+                {
+                    "amc": "Test AMC",
+                    "folio": "1/1",
+                    "schemes": [
+                        {
+                            "scheme": "Test Equity Fund",
+                            "amfi": "100001",
+                            "type": "EQUITY",
+                            "close": 1000.0,
+                            "valuation": {"nav": 200.0, "value": 200000.0, "cost": 100000.0},
+                            "transactions": [{"date": "2020-01-01", "amount": 100000.0, "description": "Purchase"}],
+                        }
+                    ],
+                }
+            ],
+            "statement_period": {"from": "01-Jan-2020", "to": "01-Jan-2026"},
+        }
+
+        async def fake_live_nav(_):
+            return 0.0
+
+        async def fake_benchmark_history(_):
+            return {"01-01-2020": 100.0, "01-01-2026": 110.0}
+
+        with patch("app.Code.main.fetch_live_nav", new=fake_live_nav), patch(
+            "app.Code.main.fetch_nav_history", new=fake_benchmark_history
+        ), patch("app.Code.main.save_cache_async", new=AsyncMock()), patch(
+            "app.Code.main.get_holdings_for_schemes", new=AsyncMock(return_value={})
+        ), patch(
+            "app.Code.main.save_amfi_cache_async", new=AsyncMock()
+        ):
+            response = await map_casparser_to_analysis(cas_data)
+
+        self.assertTrue(response.success)
+        summary = response.summary
+        assert summary is not None
+        self.assertEqual(summary.tax.long_term_gains, 100000.0)
+        self.assertEqual(summary.tax.short_term_gains, 0.0)
+        self.assertEqual(summary.tax.taxable_gains, 0.0)
+        self.assertEqual(summary.tax.estimated_tax_liability, 0.0)
 
     async def test_overlap_absent_when_real_holdings_unavailable(self):
         fixture = Path("tests/fixtures/sample_cas.json")

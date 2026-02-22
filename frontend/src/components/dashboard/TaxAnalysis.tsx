@@ -17,9 +17,10 @@ function TaxAnalysisInner({ summary }: TaxAnalysisProps) {
     taxable_gains: 0,
     estimated_tax_liability: 0,
     equity_stcg_rate_pct: 20,
-    equity_ltcg_rate_pct: 12,
+    equity_ltcg_rate_pct: 12.5,
     equity_ltcg_exemption: 125000,
   }
+  const equityLtcgRatePct = taxData.equity_ltcg_rate_pct === 12 ? 12.5 : taxData.equity_ltcg_rate_pct
 
   return (
     <div className="mb-6 sm:mb-8">
@@ -78,7 +79,7 @@ function TaxAnalysisInner({ summary }: TaxAnalysisProps) {
             {toLakhs(taxData.long_term_gains)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            Taxed at {taxData.equity_ltcg_rate_pct}% after {toLakhs(taxData.equity_ltcg_exemption)} exemption
+            Taxed at {equityLtcgRatePct}% after {toLakhs(taxData.equity_ltcg_exemption)} exemption
           </p>
         </CompactCard>
 
@@ -121,12 +122,12 @@ function TaxAnalysisInner({ summary }: TaxAnalysisProps) {
               title="Taxable Gains"
               formula={
                 <>
-                  Taxable Gains = Short-Term + Long-Term - Tax-Free
+                  Taxable Gains = Short-Term + max(Long-Term - Exemption, 0) - Tax-Free
                 </>
               }
               content={
                 <>
-                  Total gains subject to capital gains tax after excluding tax-free gains.
+                  Total gains subject to capital gains tax after applying the long-term exemption and excluding tax-free gains.
                 </>
               }
             />
