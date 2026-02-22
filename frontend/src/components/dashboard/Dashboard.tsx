@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react"
+import { HoldingsTable } from "./HoldingsTable"
 import { TopCards } from "./TopCards"
 import { Concentration } from "./Concentration"
 import { EquityDeepDive } from "./EquityDeepDive"
@@ -18,10 +18,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { AnalysisSummary, Holding } from "@/types/api"
-
-const HoldingsTableLazy = lazy(() =>
-  import("./HoldingsTable").then((m) => ({ default: m.HoldingsTable }))
-)
 
 interface DashboardProps {
   summary: AnalysisSummary
@@ -287,12 +283,10 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
                 Complete holdings breakdown for detailed review
               </p>
             </div>
-            <Suspense fallback={<Skeleton className="h-96 w-full rounded-none" />}>
-              <HoldingsTableLazy
-                holdings={holdings}
-                totalMarketValue={summary.total_market_value}
-              />
-            </Suspense>
+            <HoldingsTable
+              holdings={holdings}
+              totalMarketValue={summary.total_market_value}
+            />
           </section>
 
           {/* Notes & Feedback Section */}
