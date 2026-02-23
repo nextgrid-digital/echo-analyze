@@ -13,6 +13,7 @@ node-v*/
 __pycache__/
 *.pyc
 venv/
+.venv/
 
 # Runtime data (logs, caches)
 data/
