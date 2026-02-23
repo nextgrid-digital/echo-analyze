@@ -176,7 +176,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
 
             {/* Asset Allocation */}
             <div id="portfolio-structure-asset-allocation" className="scroll-mt-24 mb-6 sm:mb-8">
-              <AssetAllocation summary={summary} />
+              <AssetAllocation summary={summary} holdings={holdings} />
             </div>
 
             {/* Allocation Gap Analysis */}

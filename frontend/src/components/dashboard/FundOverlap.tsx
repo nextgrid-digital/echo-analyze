@@ -20,9 +20,6 @@ interface FundOverlapProps {
 }
 
 function overlapColor(pct: number): string {
-  // 100% is self-overlap, grey it out
-  if (pct >= 99.9) return "bg-muted text-muted-foreground font-medium"
-
   // High overlap (> 50%) -> Red (Bad diversification)
   if (pct >= 70) return "bg-red-600 text-white font-bold"
   if (pct >= 60) return "bg-red-500 text-white font-bold"
