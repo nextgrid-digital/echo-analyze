@@ -56,45 +56,56 @@ export function DashboardPage() {
 
     try {
       // Small delay to ensure any transient states (like tooltips disappearing) are resolved
-      await new Promise(resolve => setTimeout(resolve, 100))
+      await new Promise(resolve => setTimeout(resolve, 150))
 
       const element = dashboardRef.current
+
+      // Capture at a fixed width to prevent smushing, then scale to fit landscape A4
       const canvas = await html2canvas(element, {
         scale: 2, // High resolution
         useCORS: true,
         logging: false,
         backgroundColor: "#ffffff",
+        width: 1400, // Fixed width for clear layout
+        windowWidth: 1400,
         ignoreElements: (el: Element) => el.classList.contains("no-print") || el.tagName === "BUTTON",
-        // Expand overflow for the capture
         onclone: (clonedDoc: Document) => {
+          const container = clonedDoc.querySelector('[ref="dashboardRef"]') as HTMLElement
+          if (container) {
+            container.style.width = "1400px"
+          }
+
           const fullTables = clonedDoc.querySelectorAll(".print-full-table")
           fullTables.forEach((table: Element) => {
             const t = table as HTMLElement
             t.style.height = "auto"
             t.style.maxHeight = "none"
             t.style.overflow = "visible"
+            t.style.display = "block"
           })
         }
       })
 
       const imgData = canvas.toDataURL("image/jpeg", 1.0)
       const pdf = new jsPDF({
-        orientation: "portrait",
+        orientation: "landscape",
         unit: "mm",
         format: "a4",
       })
 
-      const imgProps = pdf.getImageProperties(imgData)
       const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width
+      const pdfHeight = pdf.internal.pageSize.getHeight()
 
-      // If content is very long, we might need multiple pages. 
-      // Simplified single page for now, or scaled to fit width.
-      pdf.addImage(imgData, "JPEG", 0, 0, pdfWidth, pdfHeight)
+      const imgProps = pdf.getImageProperties(imgData)
+      const ratio = imgProps.width / imgProps.height
+      const renderWidth = pdfWidth
+      const renderHeight = pdfWidth / ratio
+
+      // Add image, scaling to fit width
+      pdf.addImage(imgData, "JPEG", 0, 0, renderWidth, renderHeight)
       pdf.save(`ECHO_Analysis_${displaySummary.statement_date || "Report"}.pdf`)
     } catch (error) {
       console.error("PDF generation failed:", error)
-      // Fallback to print if library fails
       window.print()
     } finally {
       setIsDownloading(false)
