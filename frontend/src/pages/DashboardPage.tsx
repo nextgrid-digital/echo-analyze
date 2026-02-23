@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useRef } from "react"
+import html2canvas from "html2canvas"
+import { jsPDF } from "jspdf"
 import { CircleAlert, X } from "lucide-react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { Dashboard } from "@/components/dashboard/Dashboard"
@@ -15,7 +17,9 @@ export function DashboardPage() {
   const location = useLocation()
   const [isNoticesModalMounted, setIsNoticesModalMounted] = useState(false)
   const [isNoticesModalVisible, setIsNoticesModalVisible] = useState(false)
-  
+  const [isDownloading, setIsDownloading] = useState(false)
+  const dashboardRef = useRef<HTMLDivElement>(null)
+
   // Get analysis result from route state
   const routeState = location.state as { result?: AnalysisResponse } | null
   const result = routeState?.result
@@ -44,6 +48,57 @@ export function DashboardPage() {
 
   const closeNoticesModal = () => {
     setIsNoticesModalVisible(false)
+  }
+
+  const handleDownloadPDF = async () => {
+    if (!dashboardRef.current) return
+    setIsDownloading(true)
+
+    try {
+      // Small delay to ensure any transient states (like tooltips disappearing) are resolved
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      const element = dashboardRef.current
+      const canvas = await html2canvas(element, {
+        scale: 2, // High resolution
+        useCORS: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+        ignoreElements: (el: Element) => el.classList.contains("no-print") || el.tagName === "BUTTON",
+        // Expand overflow for the capture
+        onclone: (clonedDoc: Document) => {
+          const fullTables = clonedDoc.querySelectorAll(".print-full-table")
+          fullTables.forEach((table: Element) => {
+            const t = table as HTMLElement
+            t.style.height = "auto"
+            t.style.maxHeight = "none"
+            t.style.overflow = "visible"
+          })
+        }
+      })
+
+      const imgData = canvas.toDataURL("image/jpeg", 1.0)
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+      })
+
+      const imgProps = pdf.getImageProperties(imgData)
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width
+
+      // If content is very long, we might need multiple pages. 
+      // Simplified single page for now, or scaled to fit width.
+      pdf.addImage(imgData, "JPEG", 0, 0, pdfWidth, pdfHeight)
+      pdf.save(`ECHO_Analysis_${displaySummary.statement_date || "Report"}.pdf`)
+    } catch (error) {
+      console.error("PDF generation failed:", error)
+      // Fallback to print if library fails
+      window.print()
+    } finally {
+      setIsDownloading(false)
+    }
   }
 
   useEffect(() => {
@@ -86,25 +141,35 @@ export function DashboardPage() {
             <Button
               type="button"
               variant="default"
-              onClick={() => window.print()}
+              onClick={handleDownloadPDF}
+              disabled={isDownloading}
               className="min-h-[44px] sm:min-h-0 py-2 px-6 shadow-md shadow-primary/10 flex items-center gap-2"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" x2="12" y1="15" y2="3" />
-              </svg>
-              Download Dashboard PDF
+              {isDownloading ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Generating...
+                </div>
+              ) : (
+                <>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" x2="12" y1="15" y2="3" />
+                  </svg>
+                  Download Dashboard PDF
+                </>
+              )}
             </Button>
             <Button
               type="button"
@@ -131,9 +196,8 @@ export function DashboardPage() {
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 no-print">
           <button
             type="button"
-            className={`absolute inset-0 bg-black/45 transition-opacity duration-200 ease-out ${
-              isNoticesModalVisible ? "opacity-100" : "opacity-0"
-            }`}
+            className={`absolute inset-0 bg-black/45 transition-opacity duration-200 ease-out ${isNoticesModalVisible ? "opacity-100" : "opacity-0"
+              }`}
             aria-label="Close Data Quality & Methodology Notices modal"
             onClick={closeNoticesModal}
           />
@@ -141,11 +205,10 @@ export function DashboardPage() {
             role="dialog"
             aria-modal="true"
             aria-label="Data Quality & Methodology Notices"
-            className={`relative z-10 w-full max-w-4xl border border-border bg-background shadow-2xl max-h-[85vh] overflow-hidden transform transition-all duration-200 ease-out ${
-              isNoticesModalVisible
-                ? "opacity-100 translate-y-0 scale-100"
-                : "opacity-0 translate-y-3 scale-[0.98]"
-            }`}
+            className={`relative z-10 w-full max-w-4xl border border-border bg-background shadow-2xl max-h-[85vh] overflow-hidden transform transition-all duration-200 ease-out ${isNoticesModalVisible
+              ? "opacity-100 translate-y-0 scale-100"
+              : "opacity-0 translate-y-3 scale-[0.98]"
+              }`}
           >
             <div className="flex items-center justify-between border-b border-border px-4 sm:px-6 py-3">
               <h2 className="text-base sm:text-lg font-semibold text-foreground">
@@ -174,7 +237,9 @@ export function DashboardPage() {
         </div>
       )}
 
-      <Dashboard summary={displaySummary} holdings={displayHoldings} />
+      <div ref={dashboardRef}>
+        <Dashboard summary={displaySummary} holdings={displayHoldings} />
+      </div>
       <Footer />
     </div>
   )
