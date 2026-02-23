@@ -186,7 +186,7 @@ export const HoldingsTable = memo(function HoldingsTable({
   const filteredHoldings = useMemo(() => {
     if (!searchQuery.trim()) return filteredByFilters
     const query = searchQuery.toLowerCase().trim()
-    return filteredByFilters.filter(h => 
+    return filteredByFilters.filter(h =>
       h.scheme_name.toLowerCase().includes(query) ||
       h.sub_category.toLowerCase().includes(query) ||
       h.category.toLowerCase().includes(query) ||
@@ -549,14 +549,14 @@ export const HoldingsTable = memo(function HoldingsTable({
     const firstVisibleColId = visibleColumnOrder[0]
     const firstColWidth = firstVisibleColId != null ? getScaledWidth(firstVisibleColId) : getScaledWidth(0)
     return (
-    <TableRow key={`section-${label}`} className="bg-primary/10">
-      <TableCell className="sticky left-0 z-10 bg-primary/10 border-r border-border/30 px-2 py-1.5 sm:px-3 font-mono text-xs text-muted-foreground text-right align-middle" style={{ width: firstColWidth, minWidth: firstColWidth, maxWidth: firstColWidth }}>
-        {rowNum}
-      </TableCell>
-      <TableCell colSpan={Math.max(visibleColumnOrder.length - 1, 1)} className="px-2 py-1.5 sm:px-3 font-bold text-sm uppercase tracking-wider text-primary whitespace-nowrap">
-        {label}
-      </TableCell>
-    </TableRow>
+      <TableRow key={`section-${label}`} className="bg-primary/10">
+        <TableCell className="sticky left-0 z-10 bg-primary/10 border-r border-border/30 px-2 py-1.5 sm:px-3 font-mono text-xs text-muted-foreground text-right align-middle" style={{ width: firstColWidth, minWidth: firstColWidth, maxWidth: firstColWidth }}>
+          {rowNum}
+        </TableCell>
+        <TableCell colSpan={Math.max(visibleColumnOrder.length - 1, 1)} className="px-2 py-1.5 sm:px-3 font-bold text-sm uppercase tracking-wider text-primary whitespace-nowrap">
+          {label}
+        </TableCell>
+      </TableRow>
     )
   }
 
@@ -687,9 +687,9 @@ export const HoldingsTable = memo(function HoldingsTable({
           }
         />
       </div>
-      <WideCard className="min-w-0">
+      <WideCard className="min-w-0 no-print-shadow">
         {/* Row 1: Search + Download */}
-        <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-3">
+        <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-3 no-print">
           <div className="relative flex-1 min-w-0 max-w-md">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
@@ -711,7 +711,7 @@ export const HoldingsTable = memo(function HoldingsTable({
           </Button>
         </div>
         {/* Row 2: View controls */}
-        <div className="mb-4 flex flex-col gap-3">
+        <div className="mb-4 flex flex-col gap-3 no-print">
           <div className="flex flex-wrap items-center gap-3">
             <Button
               onClick={() => setShowFolio(prev => !prev)}
@@ -758,7 +758,7 @@ export const HoldingsTable = memo(function HoldingsTable({
           </span>
         </div>
         {/* Row 3: Filters */}
-        <div className="mb-4 flex min-w-0 max-w-full flex-wrap items-center gap-3">
+        <div className="mb-4 flex min-w-0 max-w-full flex-wrap items-center gap-3 no-print">
           <label className="sr-only" htmlFor="filter-category">Category</label>
           <select
             id="filter-category"
@@ -800,7 +800,7 @@ export const HoldingsTable = memo(function HoldingsTable({
           </select>
         </div>
         {/* Table: toolbar with column/row count */}
-        <div className="flex flex-wrap items-center gap-3 mb-2">
+        <div className="flex flex-wrap items-center gap-3 mb-2 no-print">
           <span className="text-xs text-muted-foreground font-medium tabular-nums">
             {visibleColumnOrder.length} visible columns | {tableRows.length} rows
           </span>
@@ -810,7 +810,7 @@ export const HoldingsTable = memo(function HoldingsTable({
         </div>
         <div className="min-w-0 -mx-5 sm:-mx-6 w-full">
           <div
-            className="rounded border border-border/30 scroll-smooth touch-pan-x overflow-auto min-h-[320px]"
+            className="rounded border border-border/30 scroll-smooth touch-pan-x overflow-auto min-h-[320px] print-full-table"
             style={{
               width: "100%",
               maxWidth: "100%",
@@ -827,12 +827,12 @@ export const HoldingsTable = memo(function HoldingsTable({
                 ))}
               </colgroup>
               <TableHeader>
-                  <TableRow className="bg-muted border-b border-border">
-                    {visibleColumnOrder.map((colId, p) => {
-                      const col = COLUMNS[colId]
-                      const w = getScaledWidth(colId)
-                      const stickyLeft = getStickyLeft(p, visibleColumnOrder)
-                      return (
+                <TableRow className="bg-muted border-b border-border">
+                  {visibleColumnOrder.map((colId, p) => {
+                    const col = COLUMNS[colId]
+                    const w = getScaledWidth(colId)
+                    const stickyLeft = getStickyLeft(p, visibleColumnOrder)
+                    return (
                       <TableHead
                         key={col.key ?? "row-num"}
                         data-position={p}
@@ -864,16 +864,17 @@ export const HoldingsTable = memo(function HoldingsTable({
                           <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-foreground shrink-0" aria-hidden />
                         </button>
                       </TableHead>
-                    )})}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {tableRows.map((row, index) => {
-                    const rowNum = index + 1
-                    if (row.type === "section") return renderSectionRow(rowNum, row.label)
-                    if (row.type === "subtotal") return renderSubtotalRow(rowNum, row.label, row.subtotal, row.investedSubtotal)
-                    return renderHoldingRow(row.holding, row.key, rowNum)
+                    )
                   })}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {tableRows.map((row, index) => {
+                  const rowNum = index + 1
+                  if (row.type === "section") return renderSectionRow(rowNum, row.label)
+                  if (row.type === "subtotal") return renderSubtotalRow(rowNum, row.label, row.subtotal, row.investedSubtotal)
+                  return renderHoldingRow(row.holding, row.key, rowNum)
+                })}
               </TableBody>
             </table>
           </div>

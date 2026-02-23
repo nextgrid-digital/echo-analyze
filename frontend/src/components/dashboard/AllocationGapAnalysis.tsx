@@ -38,10 +38,10 @@ function AllocationGapAnalysisInner({ summary }: AllocationGapAnalysisProps) {
           Math.abs(gap) <= 2
             ? "within"
             : gap > 5
-            ? "above"
-            : gap < -5
-            ? "below"
-            : "slightly-off",
+              ? "above"
+              : gap < -5
+                ? "below"
+                : "slightly-off",
       }
     })
 
@@ -108,7 +108,7 @@ function AllocationGapAnalysisInner({ summary }: AllocationGapAnalysisProps) {
         <div className="mb-4 border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900">
           Template guidance: target allocations are model recommendations and should be treated as advisory, not prescriptive.
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto print-full-table">
           <Table>
             <TableHeader>
               <TableRow>
@@ -130,13 +130,12 @@ function AllocationGapAnalysisInner({ summary }: AllocationGapAnalysisProps) {
                     {formatPercent(item.target)}
                   </TableCell>
                   <TableCell
-                    className={`text-right font-mono ${
-                      item.gap > 0
+                    className={`text-right font-mono ${item.gap > 0
                         ? "text-amber-600"
                         : item.gap < 0
-                        ? "text-blue-600"
-                        : "text-foreground"
-                    }`}
+                          ? "text-blue-600"
+                          : "text-foreground"
+                      }`}
                   >
                     {item.gap > 0 ? "+" : ""}
                     {formatPercent(item.gap)}

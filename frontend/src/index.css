@@ -121,11 +121,13 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground font-sans;
     font-family: var(--font-sans);
     background-color: oklch(0.96 0 0);
   }
+
   /* Ensure proper character rendering for em dashes and hyphens */
   html {
     -webkit-font-smoothing: antialiased;
@@ -139,12 +141,12 @@
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
-  
+
   /* Smooth scroll behavior for section navigation */
   html {
     scroll-behavior: smooth;
   }
-  
+
   /* Section scroll margin for proper offset */
   section[id] {
     scroll-margin-top: 100px;
@@ -235,49 +237,108 @@
   body {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
-    background-color: #ffffff !important; /* Light theme background */
-    color: #0a0a0a !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
   }
 
-  /* Hide navigation/upload buttons when printing */
+  /* Hide navigation, buttons, and interactive elements */
   .no-print,
   button,
+  input,
+  select,
   .animate-pulse,
-  .absolute.top-6.right-6.z-20 /* Hide tooltips in print */,
-  aside /* Hide table of contents in print */ {
+  .absolute.top-6.right-6.z-20,
+  aside {
     display: none !important;
   }
 
-  /* Ensure cards and charts look good */
-  .card, 
+  /* Ensure the holdings table expands to full height in print */
+  .print-full-table {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    min-height: 0 !important;
+    display: block !important;
+  }
+
+  .print-full-table table {
+    width: 100% !important;
+    min-width: 100% !important;
+    table-layout: auto !important;
+    /* Allow table to fit content in print */
+  }
+
+  /* Reset sticky positioning in print to prevent overlapping */
+  .sticky {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    z-index: auto !important;
+    background-color: transparent !important;
+  }
+
+  /* Remove scroll-related styles in print */
+  [class*="overflow-auto"],
+  [class*="overflow-y-auto"],
+  [class*="overflow-x-auto"] {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  /* Ensure cards look good and don't break in the middle */
+  .card,
   .border,
   [class*="bg-card"],
-  [class*="bg-muted"] {
+  [class*="bg-muted"],
+  section {
     break-inside: avoid;
+    page-break-inside: avoid;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
-  }
-
-  /* Force background colors for cards in print (light theme) */
-  .bg-card,
-  [class*="bg-card"] {
-    background-color: #ffffff !important;
     border-color: #e5e5e5 !important;
+    box-shadow: none !important;
   }
 
-  /* Make sure the text is visible */
+  /* Forced high-contrast text for print */
   .text-muted-foreground {
-    color: #666666 !important;
+    color: #4b5563 !important;
   }
 
-  /* Expand the dashboard to full width */
-  .max-w-7xl {
+  .text-foreground,
+  h1,
+  h2,
+  h3,
+  h4,
+  p,
+  span,
+  td,
+  th {
+    color: #000000 !important;
+  }
+
+  /* Hide table tooltips/resizers in print */
+  [aria-label*="Resize"],
+  [aria-label*="Drag"] {
+    display: none !important;
+  }
+
+  /* Remove horizontal padding for print to maximize space */
+  .max-w-7xl,
+  .max-w-\[1600px\] {
     max-width: 100% !important;
     padding: 0 !important;
+    margin: 0 !important;
   }
 
-  /* Prevent huge gaps */
-  .mb-12, .mb-16, .mb-20 {
-    margin-bottom: 2rem !important;
+  /* Smaller fonts for table in print to fit more columns */
+  table {
+    font-size: 8pt !important;
+  }
+
+  th,
+  td {
+    padding: 4px 2px !important;
+    border-bottom: 1px solid #e5e5e5 !important;
   }
 }

@@ -89,7 +89,7 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
               <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-4">
                 Asset Allocation
               </h4>
-              <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+              <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0 print-full-table">
                 <Table>
                   <TableBody>
                     {(rec.asset_allocation ?? []).map((i, idx) => (
@@ -131,12 +131,12 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
                             <Cell key={i} fill={CHART_COLORS_3[i]} />
                           ))}
                         </Pie>
-                        <Tooltip 
+                        <Tooltip
                           contentStyle={{
                             fontSize: "11px",
                             padding: "6px 10px",
                           }}
-                          formatter={(v: number | undefined) => v != null ? `${v}%` : ""} 
+                          formatter={(v: number | undefined) => v != null ? `${v}%` : ""}
                         />
                       </PieChart>
                     </ResponsiveContainer>
@@ -199,7 +199,7 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
               <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-4">
                 Asset Allocation
               </h4>
-              <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+              <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0 print-full-table">
                 <Table>
                   <TableBody>
                     {(rec.asset_allocation ?? []).map((i, idx) => (
@@ -241,12 +241,12 @@ export const Guidelines = memo(function Guidelines({ guidelines }: GuidelinesPro
                             <Cell key={i} fill={CHART_COLORS_3[i]} />
                           ))}
                         </Pie>
-                        <Tooltip 
+                        <Tooltip
                           contentStyle={{
                             fontSize: "11px",
                             padding: "6px 10px",
                           }}
-                          formatter={(v: number | undefined) => v != null ? `${v}%` : ""} 
+                          formatter={(v: number | undefined) => v != null ? `${v}%` : ""}
                         />
                       </PieChart>
                     </ResponsiveContainer>

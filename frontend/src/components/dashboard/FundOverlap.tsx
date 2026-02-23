@@ -89,74 +89,74 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
       </div>
       <WideCard className="overflow-hidden p-0">
         {hasData ? (
-          <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted border-b border-border">
-                    <TableHead className="text-[9px] font-bold uppercase tracking-wide px-2 py-1.5 sticky left-0 bg-muted z-20 min-w-[100px] border-r border-border/30">
-                      Fund
+          <div className="overflow-x-auto print-full-table">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted border-b border-border">
+                  <TableHead className="text-[9px] font-bold uppercase tracking-wide px-2 py-1.5 sticky left-0 bg-muted z-20 min-w-[100px] border-r border-border/30">
+                    Fund
+                  </TableHead>
+                  {fund_names.map((name, j) => (
+                    <TableHead
+                      key={fund_codes[j]}
+                      className="text-[9px] font-bold uppercase tracking-wide px-1 py-1.5 text-center whitespace-nowrap min-w-[50px]"
+                      title={name}
+                    >
+                      {abbreviate(name)}
                     </TableHead>
-                    {fund_names.map((name, j) => (
-                      <TableHead
-                        key={fund_codes[j]}
-                        className="text-[9px] font-bold uppercase tracking-wide px-1 py-1.5 text-center whitespace-nowrap min-w-[50px]"
-                        title={name}
-                      >
-                        {abbreviate(name)}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {matrix.map((row, i) => (
-                    <TableRow key={fund_codes[i]} className="hover:bg-muted/30">
-                      <TableCell
-                        className="sticky left-0 bg-card border-r border-border/30 px-2 py-1.5 font-semibold text-foreground text-[10px] whitespace-nowrap min-w-[100px] truncate z-10"
-                        title={fund_names[i]}
-                      >
-                        {abbreviate(fund_names[i])}
-                      </TableCell>
-                      {row.map((val, j) => {
-                        const isDiagonal = i === j
-                        const cellClass = isDiagonal
-                          ? "bg-muted text-muted-foreground font-medium"
-                          : overlapColor(val)
-
-                        return (
-                          <TableCell
-                            key={j}
-                            className={`px-1 py-1.5 text-center align-middle font-mono text-[10px] ${cellClass}`}
-                          >
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="inline-block w-full h-full cursor-default">
-                                  {isDiagonal ? "–" : `${val}%`}
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="max-w-[280px] bg-popover text-popover-foreground border border-border text-xs">
-                                <p className="font-semibold text-xs mb-1">
-                                  {fund_names[i]} vs {fund_names[j]}
-                                </p>
-                                <p className="text-muted-foreground text-xs">
-                                  {isDiagonal
-                                    ? "Same fund"
-                                    : `Overlap: ${val}%`}
-                                </p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                        )
-                      })}
-                    </TableRow>
                   ))}
-                </TableBody>
-              </Table>
-            </div>
-          ) : (
-            <div className="text-center py-12 text-muted-foreground">
-              <p className="text-sm">No fund overlap data available. Upload a portfolio to see overlap analysis.</p>
-            </div>
-          )}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {matrix.map((row, i) => (
+                  <TableRow key={fund_codes[i]} className="hover:bg-muted/30">
+                    <TableCell
+                      className="sticky left-0 bg-card border-r border-border/30 px-2 py-1.5 font-semibold text-foreground text-[10px] whitespace-nowrap min-w-[100px] truncate z-10"
+                      title={fund_names[i]}
+                    >
+                      {abbreviate(fund_names[i])}
+                    </TableCell>
+                    {row.map((val, j) => {
+                      const isDiagonal = i === j
+                      const cellClass = isDiagonal
+                        ? "bg-muted text-muted-foreground font-medium"
+                        : overlapColor(val)
+
+                      return (
+                        <TableCell
+                          key={j}
+                          className={`px-1 py-1.5 text-center align-middle font-mono text-[10px] ${cellClass}`}
+                        >
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-block w-full h-full cursor-default">
+                                {isDiagonal ? "–" : `${val}%`}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-[280px] bg-popover text-popover-foreground border border-border text-xs">
+                              <p className="font-semibold text-xs mb-1">
+                                {fund_names[i]} vs {fund_names[j]}
+                              </p>
+                              <p className="text-muted-foreground text-xs">
+                                {isDiagonal
+                                  ? "Same fund"
+                                  : `Overlap: ${val}%`}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                      )
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        ) : (
+          <div className="text-center py-12 text-muted-foreground">
+            <p className="text-sm">No fund overlap data available. Upload a portfolio to see overlap analysis.</p>
+          </div>
+        )}
       </WideCard>
     </div>
   )
