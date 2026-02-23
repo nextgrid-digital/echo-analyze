@@ -20,8 +20,19 @@
       "dest": "/static/assets/$1"
     },
     {
+      "src": "/Images/(.*)",
+      "dest": "/static/Images/$1"
+    },
+    {
+      "src": "/vite.svg",
+      "dest": "/static/vite.svg"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
       "src": "/(.*)",
-      "dest": "/static/$1"
+      "dest": "/static/index.html"
     }
   ]
 }

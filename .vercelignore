@@ -7,4 +7,5 @@ data/
 __pycache__/
 *.pyc
 run_local.bat
+# Frontend source is excluded from upload; Vercel serves prebuilt files in /static.
 frontend/

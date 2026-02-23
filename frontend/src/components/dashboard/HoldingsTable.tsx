@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
-import { Search, Download, ArrowUp, ArrowDown, GripVertical } from "lucide-react"
+import { Search, Download, ArrowUp, ArrowDown, GripVertical, Eye, EyeOff } from "lucide-react"
 import { formatCurrency } from "@/lib/format"
 import type { Holding } from "@/types/api"
 
@@ -24,22 +24,30 @@ export const HoldingsTable = memo(function HoldingsTable({
   holdings,
   totalMarketValue,
 }: HoldingsTableProps) {
+  const FOLIO_COL_ID = 1
+  const DEFAULT_COLUMN_SCALE = 100
+  const MIN_COLUMN_SCALE = 80
+  const MAX_COLUMN_SCALE = 140
+
   const [searchQuery, setSearchQuery] = useState("")
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
   const [filterCategory, setFilterCategory] = useState("")
   const [filterSubCategory, setFilterSubCategory] = useState("")
   const [filterStyle, setFilterStyle] = useState("")
+  const [showFolio, setShowFolio] = useState(false)
   const total = totalMarketValue || 1
 
-  const DEFAULT_COL_WIDTHS = [44, 88, 200, 100, 72, 88, 96, 84, 106, 116, 88, 92, 112]
-  const MIN_COL_WIDTHS = [36, 64, 100, 72, 56, 72, 64, 80, 80, 80, 72, 72, 80]
+  const DEFAULT_COL_WIDTHS = [44, 88, 200, 100, 72, 88, 96, 84, 106, 116, 88, 92, 92, 92]
+  const MIN_COL_WIDTHS = [36, 64, 100, 72, 56, 72, 64, 80, 80, 80, 72, 72, 72, 72]
   const [columnWidths, setColumnWidths] = useState<number[]>(() => DEFAULT_COL_WIDTHS)
-  const [resizingIndex, setResizingIndex] = useState<number | null>(null)
+  const [resizingColId, setResizingColId] = useState<number | null>(null)
   const resizeStartX = useRef(0)
   const resizeStartWidths = useRef<number[]>([])
+  const [columnScalePct, setColumnScalePct] = useState(DEFAULT_COLUMN_SCALE)
+  const columnScale = columnScalePct / 100
 
-  type SortKey = "folio" | "scheme_name" | "sub_category" | "style_category" | "benchmark" | "date_of_entry" | "holding_period" | "cost_value" | "market_value" | "return_pct" | "missed_gains" | "xirr"
+  type SortKey = "folio" | "scheme_name" | "sub_category" | "style_category" | "benchmark" | "date_of_entry" | "holding_period" | "cost_value" | "market_value" | "return_pct" | "missed_gains" | "xirr" | "benchmark_xirr"
   const COLUMNS: { key: SortKey | null; label: string; align: "left" | "right" }[] = [
     { key: null, label: "#", align: "right" },
     { key: "folio", label: "Folio number", align: "left" },
@@ -53,16 +61,31 @@ export const HoldingsTable = memo(function HoldingsTable({
     { key: "market_value", label: "Current Value", align: "right" },
     { key: "return_pct", label: "Abs Returns", align: "right" },
     { key: "missed_gains", label: "Missed Gains", align: "right" },
-    { key: "xirr", label: "XIRR / BM", align: "right" },
+    { key: "xirr", label: "XIRR", align: "right" },
+    { key: "benchmark_xirr", label: "BM XIRR", align: "right" },
   ]
   const [columnOrder, setColumnOrder] = useState<number[]>(() => COLUMNS.map((_, i) => i))
-  const [draggedColPosition, setDraggedColPosition] = useState<number | null>(null)
+  const [draggedColId, setDraggedColId] = useState<number | null>(null)
+  const visibleColumnOrder = useMemo(
+    () => columnOrder.filter(colId => showFolio || colId !== FOLIO_COL_ID),
+    [columnOrder, showFolio]
+  )
+  const exportColumnOrder = useMemo(() => {
+    const uniqueColumnOrder = Array.from(new Set(columnOrder))
+    if (uniqueColumnOrder.includes(FOLIO_COL_ID)) {
+      return uniqueColumnOrder
+    }
+    return [FOLIO_COL_ID, ...uniqueColumnOrder]
+  }, [columnOrder])
+  const stickyColumnCount = showFolio ? 3 : 2
+  const rowLabelColId = visibleColumnOrder[1] ?? null
 
-  const handleColumnDragStart = useCallback((position: number, e: React.DragEvent) => {
-    e.dataTransfer.setData("text/plain", String(position))
+  const handleColumnDragStart = useCallback((colId: number, e: React.DragEvent) => {
+    if (colId === 0) return
+    e.dataTransfer.setData("text/plain", String(colId))
     e.dataTransfer.effectAllowed = "move"
     e.dataTransfer.setDragImage((e.target as HTMLElement).closest("th") ?? e.target as HTMLElement, 0, 0)
-    setDraggedColPosition(position)
+    setDraggedColId(colId)
   }, [])
 
   const handleColumnDragOver = useCallback((e: React.DragEvent) => {
@@ -70,48 +93,62 @@ export const HoldingsTable = memo(function HoldingsTable({
     e.dataTransfer.dropEffect = "move"
   }, [])
 
-  const handleColumnDrop = useCallback((targetPosition: number, e: React.DragEvent) => {
+  const handleColumnDrop = useCallback((targetColId: number, e: React.DragEvent) => {
     e.preventDefault()
-    if (draggedColPosition === null) return
-    if (draggedColPosition === targetPosition) {
-      setDraggedColPosition(null)
+    if (draggedColId === null) return
+    if (draggedColId === targetColId || draggedColId === 0 || targetColId === 0) {
+      setDraggedColId(null)
       return
     }
     setColumnOrder(prev => {
-      const next = [...prev]
-      const [removed] = next.splice(draggedColPosition, 1)
-      next.splice(targetPosition, 0, removed)
+      const next = prev.filter(id => id !== draggedColId)
+      const targetIndex = next.indexOf(targetColId)
+      if (targetIndex < 0) return prev
+      next.splice(targetIndex, 0, draggedColId)
       return next
     })
-    setDraggedColPosition(null)
-  }, [draggedColPosition])
+    setDraggedColId(null)
+  }, [draggedColId])
 
   const handleColumnDragEnd = useCallback(() => {
-    setDraggedColPosition(null)
+    setDraggedColId(null)
   }, [])
 
-  const handleResizeStart = useCallback((colIndex: number, e: React.MouseEvent) => {
+  const getScaledMinWidth = useCallback((colId: number) => {
+    return Math.round((MIN_COL_WIDTHS[colId] ?? 0) * columnScale)
+  }, [columnScale])
+
+  const getScaledWidth = useCallback((colId: number) => {
+    const base = columnWidths[colId] ?? 0
+    return Math.round(base * columnScale)
+  }, [columnWidths, columnScale])
+
+  const getStickyLeft = useCallback((position: number, activeOrder: number[]) => {
+    if (position <= 0) return 0
+    return activeOrder.slice(0, position).reduce((sum, id) => sum + getScaledWidth(id), 0)
+  }, [getScaledWidth])
+
+  const handleResizeStart = useCallback((colId: number, e: React.MouseEvent) => {
     e.preventDefault()
-    setResizingIndex(colIndex)
+    setResizingColId(colId)
     resizeStartX.current = e.clientX
     resizeStartWidths.current = [...columnWidths]
   }, [columnWidths])
 
   useEffect(() => {
-    if (resizingIndex === null) return
-    const colId = columnOrder[resizingIndex]
-    if (colId === undefined) return
+    if (resizingColId === null) return
     const onMove = (e: MouseEvent) => {
       const delta = e.clientX - resizeStartX.current
+      const adjustedDelta = delta / columnScale
       setColumnWidths(prev => {
         const next = [...prev]
-        const minW = MIN_COL_WIDTHS[colId]
-        const newWi = Math.max(minW, (resizeStartWidths.current[colId] ?? minW) + delta)
-        next[colId] = newWi
+        const minW = MIN_COL_WIDTHS[resizingColId]
+        const newWi = Math.max(minW, (resizeStartWidths.current[resizingColId] ?? minW) + adjustedDelta)
+        next[resizingColId] = newWi
         return next
       })
     }
-    const onUp = () => setResizingIndex(null)
+    const onUp = () => setResizingColId(null)
     document.addEventListener("mousemove", onMove)
     document.addEventListener("mouseup", onUp)
     document.body.style.cursor = "col-resize"
@@ -122,7 +159,13 @@ export const HoldingsTable = memo(function HoldingsTable({
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
     }
-  }, [resizingIndex, columnOrder])
+  }, [resizingColId, columnScale])
+
+  const handleColumnScaleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const next = Number(e.target.value)
+    const clamped = Math.max(MIN_COLUMN_SCALE, Math.min(MAX_COLUMN_SCALE, next))
+    setColumnScalePct(clamped)
+  }, [])
 
   const filterOptions = useMemo(() => {
     const categories = Array.from(new Set(holdings.map(h => h.category).filter(Boolean))).sort()
@@ -369,6 +412,14 @@ export const HoldingsTable = memo(function HoldingsTable({
         if (Number.isNaN(xb)) return -mult
         return mult * (xa - xb)
       }
+      case "benchmark_xirr": {
+        const xa = num(a.benchmark_xirr)
+        const xb = num(b.benchmark_xirr)
+        if (Number.isNaN(xa) && Number.isNaN(xb)) return 0
+        if (Number.isNaN(xa)) return mult
+        if (Number.isNaN(xb)) return -mult
+        return mult * (xa - xb)
+      }
       default:
         return 0
     }
@@ -428,7 +479,7 @@ export const HoldingsTable = memo(function HoldingsTable({
     const missedGains = calculateMissedGains(h)
     const allocPct = (((h.market_value || 0) / total) * 100).toFixed(2)
     const xirrStr = h.xirr != null ? `${(h.xirr as number).toFixed(1)}%` : ""
-    const bmStr = h.benchmark_xirr != null ? `BM ${(h.benchmark_xirr as number).toFixed(1)}%` : ""
+    const bmStr = h.benchmark_xirr != null ? `${(h.benchmark_xirr as number).toFixed(1)}%` : ""
     switch (colId) {
       case 0: return rowNum != null ? String(rowNum) : ""
       case 1: return h.folio || ""
@@ -442,13 +493,14 @@ export const HoldingsTable = memo(function HoldingsTable({
       case 9: return formatCurrency(h.market_value || 0) + " (" + allocPct + "%)"
       case 10: return (h.return_pct ?? 0) + "%"
       case 11: return missedGains != null ? formatCurrency(missedGains) : ""
-      case 12: return bmStr ? `${xirrStr} / ${bmStr}` : xirrStr
+      case 12: return xirrStr
+      case 13: return bmStr
       default: return ""
     }
   }
 
   const handleDownloadCSV = () => {
-    const headers = columnOrder.map(colId => COLUMNS[colId].label)
+    const headers = exportColumnOrder.map(colId => COLUMNS[colId].label)
 
     const rows: string[][] = []
 
@@ -456,7 +508,7 @@ export const HoldingsTable = memo(function HoldingsTable({
     const pushHoldings = (list: Holding[]) => {
       list.forEach(h => {
         rowNum += 1
-        rows.push(columnOrder.map(colId => getCsvCellValue(h, colId, rowNum)))
+        rows.push(exportColumnOrder.map(colId => getCsvCellValue(h, colId, rowNum)))
       })
     }
 
@@ -494,13 +546,14 @@ export const HoldingsTable = memo(function HoldingsTable({
   }
 
   const renderSectionRow = (rowNum: number, label: string) => {
-    const firstColWidth = columnWidths[columnOrder[0]]
+    const firstVisibleColId = visibleColumnOrder[0]
+    const firstColWidth = firstVisibleColId != null ? getScaledWidth(firstVisibleColId) : getScaledWidth(0)
     return (
     <TableRow key={`section-${label}`} className="bg-primary/10">
       <TableCell className="sticky left-0 z-10 bg-primary/10 border-r border-border/30 px-2 py-1.5 sm:px-3 font-mono text-xs text-muted-foreground text-right align-middle" style={{ width: firstColWidth, minWidth: firstColWidth, maxWidth: firstColWidth }}>
         {rowNum}
       </TableCell>
-      <TableCell colSpan={12} className="px-2 py-1.5 sm:px-3 font-bold text-sm uppercase tracking-wider text-primary whitespace-nowrap">
+      <TableCell colSpan={Math.max(visibleColumnOrder.length - 1, 1)} className="px-2 py-1.5 sm:px-3 font-bold text-sm uppercase tracking-wider text-primary whitespace-nowrap">
         {label}
       </TableCell>
     </TableRow>
@@ -511,12 +564,12 @@ export const HoldingsTable = memo(function HoldingsTable({
     const allocPct = ((subtotal / total) * 100).toFixed(1)
     return (
       <TableRow key={`subtotal-${label}`} className="bg-muted/30 border-t-2 border-border">
-        {columnOrder.map((colId, p) => {
-          const w = columnWidths[colId]
-          const stickyLeft = p === 0 ? 0 : p === 1 ? columnWidths[columnOrder[0]] : columnWidths[columnOrder[0]] + columnWidths[columnOrder[1]]
-          const isSticky = p <= 2
+        {visibleColumnOrder.map((colId, p) => {
+          const w = getScaledWidth(colId)
+          const stickyLeft = getStickyLeft(p, visibleColumnOrder)
+          const isSticky = p < stickyColumnCount
           const stickyClass = isSticky ? "sticky z-10 bg-muted/30 border-r border-border/30" : ""
-          const leftStyle = p > 0 ? { left: `${stickyLeft}px` as const } : {}
+          const leftStyle = isSticky ? { left: `${stickyLeft}px` as const } : {}
           if (colId === 0) {
             return (
               <TableCell key={colId} className={`px-2 py-2 sm:px-3 font-mono text-xs text-muted-foreground text-right align-middle ${p === 0 ? "left-0 " : ""}${stickyClass}`} style={{ width: w, minWidth: w, maxWidth: w, ...leftStyle }}>
@@ -524,7 +577,7 @@ export const HoldingsTable = memo(function HoldingsTable({
               </TableCell>
             )
           }
-          if (colId === 1) {
+          if (rowLabelColId !== null && colId === rowLabelColId) {
             return (
               <TableCell key={colId} className={`px-2 py-2 sm:px-3 font-bold text-foreground text-xs whitespace-nowrap ${stickyClass}`} style={{ width: w, minWidth: w, maxWidth: w, ...leftStyle }}>
                 {label} Total
@@ -558,11 +611,11 @@ export const HoldingsTable = memo(function HoldingsTable({
     const missedGains = calculateMissedGains(h)
     const isBelowBenchmark = hasXirr && hasBenchmarkXirr ? (h.xirr as number) < (h.benchmark_xirr as number) : null
     const xirrColorClass = hasXirr ? (hasBenchmarkXirr ? (isBelowBenchmark ? "text-red-500" : "text-green-500") : (h.xirr as number) < 0 ? "text-red-500" : "text-green-500") : "text-muted-foreground"
+    const benchmarkXirrColorClass = "text-muted-foreground"
     const missedGainsColorClass = isBelowBenchmark === null ? "text-muted-foreground" : isBelowBenchmark ? "text-red-500" : "text-green-500"
     const allocPct = (((h.market_value || 0) / total) * 100).toFixed(1)
     const xirrLine = hasXirr ? `${(h.xirr as number).toFixed(1)}%` : "-"
-    const bmLine = hasBenchmarkXirr ? `BM ${(h.benchmark_xirr as number).toFixed(1)}%` : ""
-    const xirrBmLine = bmLine ? `${xirrLine} / ${bmLine}` : xirrLine
+    const bmLine = hasBenchmarkXirr ? `${(h.benchmark_xirr as number).toFixed(1)}%` : "-"
     const benchmarkName = getBenchmarkName(h) ?? "-"
     switch (colId) {
       case 0: return rowNum
@@ -584,19 +637,20 @@ export const HoldingsTable = memo(function HoldingsTable({
       case 9: return <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(h.market_value || 0)} ({allocPct}%)</span>
       case 10: return <span className={`font-bold font-mono text-xs whitespace-nowrap truncate ${(h.gain_loss ?? 0) >= 0 ? "text-primary" : "text-destructive"}`}>{h.return_pct ?? 0}%</span>
       case 11: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${missedGainsColorClass}`}>{missedGains !== null ? `₹${formatCurrency(missedGains)}` : "-"}</span>
-      case 12: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${xirrColorClass}`}>{xirrBmLine}</span>
+      case 12: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${xirrColorClass}`}>{xirrLine}</span>
+      case 13: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${benchmarkXirrColorClass}`}>{bmLine}</span>
       default: return null
     }
   }
 
   const renderHoldingRow = (h: Holding, rowKey: string, rowNum: number) => (
     <TableRow key={rowKey} className="hover:bg-muted/50">
-      {columnOrder.map((colId, p) => {
-        const w = columnWidths[colId]
-        const stickyLeft = p === 0 ? 0 : p === 1 ? columnWidths[columnOrder[0]] : columnWidths[columnOrder[0]] + columnWidths[columnOrder[1]]
-        const isSticky = p <= 2
+      {visibleColumnOrder.map((colId, p) => {
+        const w = getScaledWidth(colId)
+        const stickyLeft = getStickyLeft(p, visibleColumnOrder)
+        const isSticky = p < stickyColumnCount
         const stickyClass = isSticky ? "sticky z-10 bg-card border-r border-border/30" : ""
-        const leftStyle = p > 0 ? { left: `${stickyLeft}px` as const } : {}
+        const leftStyle = isSticky ? { left: `${stickyLeft}px` as const } : {}
         const alignRight = COLUMNS[colId].align === "right"
         return (
           <TableCell
@@ -656,7 +710,54 @@ export const HoldingsTable = memo(function HoldingsTable({
             Download CSV
           </Button>
         </div>
-        {/* Row 2: Filters */}
+        {/* Row 2: View controls */}
+        <div className="mb-4 flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              onClick={() => setShowFolio(prev => !prev)}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2"
+              aria-pressed={showFolio}
+            >
+              {showFolio ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              {showFolio ? "Hide folio column" : "Show folio column"}
+            </Button>
+            <div className="flex min-w-[220px] flex-1 items-center gap-2 sm:max-w-[360px]">
+              <label htmlFor="column-size-range" className="text-xs text-muted-foreground whitespace-nowrap">
+                Column size
+              </label>
+              <input
+                id="column-size-range"
+                type="range"
+                min={MIN_COLUMN_SCALE}
+                max={MAX_COLUMN_SCALE}
+                step={5}
+                value={columnScalePct}
+                onChange={handleColumnScaleChange}
+                className="h-2 w-full cursor-pointer accent-primary"
+                aria-label="Adjust column size"
+              />
+              <span className="text-xs text-muted-foreground font-mono tabular-nums">{columnScalePct}%</span>
+            </div>
+            <Button
+              onClick={() => {
+                setColumnOrder(COLUMNS.map((_, i) => i))
+                setColumnWidths(DEFAULT_COL_WIDTHS)
+                setColumnScalePct(DEFAULT_COLUMN_SCALE)
+              }}
+              variant="ghost"
+              size="sm"
+              className="text-xs"
+            >
+              Reset table layout
+            </Button>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            Folio is hidden by default in the table view, but CSV export always includes folio values.
+          </span>
+        </div>
+        {/* Row 3: Filters */}
         <div className="mb-4 flex min-w-0 max-w-full flex-wrap items-center gap-3">
           <label className="sr-only" htmlFor="filter-category">Category</label>
           <select
@@ -698,13 +799,13 @@ export const HoldingsTable = memo(function HoldingsTable({
             ))}
           </select>
         </div>
-        {/* Table: Clay-style toolbar with column/row count */}
+        {/* Table: toolbar with column/row count */}
         <div className="flex flex-wrap items-center gap-3 mb-2">
           <span className="text-xs text-muted-foreground font-medium tabular-nums">
-            {columnWidths.length} columns · {tableRows.length} rows
+            {visibleColumnOrder.length} visible columns | {tableRows.length} rows
           </span>
           <span className="text-xs text-muted-foreground">
-            Drag the grip to reorder columns; drag column border to resize. Scroll to see all columns.
+            Drag the grip to reorder columns, drag column borders to resize widths, and use the column-size slider to scale all columns equally.
           </span>
         </div>
         <div className="min-w-0 -mx-5 sm:-mx-6 w-full">
@@ -719,45 +820,47 @@ export const HoldingsTable = memo(function HoldingsTable({
             }}
             aria-label="Detailed holdings; scroll horizontally and vertically to see all columns"
           >
-            <table className="caption-bottom text-sm table-fixed" style={{ width: columnWidths.reduce((a, b) => a + b, 0), minWidth: columnWidths.reduce((a, b) => a + b, 0) }}>
+            <table className="caption-bottom text-sm table-fixed" style={{ width: visibleColumnOrder.reduce((sum, colId) => sum + getScaledWidth(colId), 0), minWidth: visibleColumnOrder.reduce((sum, colId) => sum + getScaledWidth(colId), 0) }}>
               <colgroup>
-                {columnOrder.map((colId) => (
-                  <col key={colId} style={{ width: columnWidths[colId], minWidth: MIN_COL_WIDTHS[colId] }} />
+                {visibleColumnOrder.map((colId) => (
+                  <col key={colId} style={{ width: getScaledWidth(colId), minWidth: getScaledMinWidth(colId) }} />
                 ))}
               </colgroup>
               <TableHeader>
                   <TableRow className="bg-muted border-b border-border">
-                    {columnOrder.map((colId, p) => {
+                    {visibleColumnOrder.map((colId, p) => {
                       const col = COLUMNS[colId]
-                      const w = columnWidths[colId]
-                      const stickyLeft = p === 0 ? 0 : p === 1 ? columnWidths[columnOrder[0]] : columnWidths[columnOrder[0]] + columnWidths[columnOrder[1]]
+                      const w = getScaledWidth(colId)
+                      const stickyLeft = getStickyLeft(p, visibleColumnOrder)
                       return (
                       <TableHead
                         key={col.key ?? "row-num"}
                         data-position={p}
-                        className={`relative sticky top-0 z-20 bg-muted text-[9px] sm:text-[10px] font-semibold uppercase tracking-wider p-0 whitespace-nowrap overflow-hidden ${p <= 2 ? "sticky border-r border-border/50 z-30" : ""} ${p === 0 ? "left-0" : ""} ${col.align === "right" ? "text-right" : ""} ${draggedColPosition === p ? "opacity-60" : ""}`}
-                        style={{ width: w, minWidth: w, maxWidth: w, ...(p > 0 ? { left: `${stickyLeft}px` } : {}) }}
+                        className={`relative sticky top-0 z-20 bg-muted text-[9px] sm:text-[10px] font-semibold uppercase tracking-wider p-0 whitespace-nowrap overflow-hidden ${p < stickyColumnCount ? "sticky border-r border-border/50 z-30" : ""} ${p === 0 ? "left-0" : ""} ${col.align === "right" ? "text-right" : ""} ${draggedColId === colId ? "opacity-60" : ""}`}
+                        style={{ width: w, minWidth: w, maxWidth: w, ...(p < stickyColumnCount ? { left: `${stickyLeft}px` } : {}) }}
                         onDragOver={handleColumnDragOver}
-                        onDrop={(e) => handleColumnDrop(p, e)}
+                        onDrop={(e) => handleColumnDrop(colId, e)}
                         onDragEnd={handleColumnDragEnd}
                       >
-                        <span
-                          draggable
-                          onDragStart={(e) => handleColumnDragStart(p, e)}
-                          className="absolute left-0 top-0 bottom-0 w-5 flex items-center justify-center cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground hover:bg-muted/80 shrink-0 z-10"
-                          aria-label="Drag to reorder column"
-                        >
-                          <GripVertical className="h-3.5 w-3.5" aria-hidden />
-                        </span>
+                        {colId !== 0 && (
+                          <span
+                            draggable
+                            onDragStart={(e) => handleColumnDragStart(colId, e)}
+                            className="absolute left-0 top-0 bottom-0 w-5 flex items-center justify-center cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground hover:bg-muted/80 shrink-0 z-10"
+                            aria-label="Drag to reorder column"
+                          >
+                            <GripVertical className="h-3.5 w-3.5" aria-hidden />
+                          </span>
+                        )}
                         {col.key != null ? (
-                          <button type="button" onClick={() => handleSort(col.key!)} className={`flex w-full min-w-0 items-center gap-1 py-2.5 pl-6 pr-2 sm:pl-7 sm:pr-3 text-left hover:bg-muted/80 transition-colors whitespace-nowrap truncate overflow-hidden ${col.align === "right" ? "justify-end" : ""}`} aria-sort={sortKey === col.key ? (sortDir === "asc" ? "ascending" : "descending") : undefined}>
+                          <button type="button" onClick={() => handleSort(col.key!)} className={`flex w-full min-w-0 items-center gap-1 py-2.5 ${colId === 0 ? "pl-2 sm:pl-3" : "pl-6 sm:pl-7"} pr-2 sm:pr-3 text-left hover:bg-muted/80 transition-colors whitespace-nowrap truncate overflow-hidden ${col.align === "right" ? "justify-end" : ""}`} aria-sort={sortKey === col.key ? (sortDir === "asc" ? "ascending" : "descending") : undefined}>
                             {col.label}
                             {sortKey === col.key && (sortDir === "asc" ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />)}
                           </button>
                         ) : (
-                          <span className="block min-w-0 py-2.5 pl-6 pr-2 sm:pl-7 sm:px-3 text-muted-foreground font-semibold truncate overflow-hidden">{col.label}</span>
+                          <span className={`block min-w-0 py-2.5 ${colId === 0 ? "pl-2 sm:pl-3" : "pl-6 sm:pl-7"} pr-2 sm:px-3 text-muted-foreground font-semibold truncate overflow-hidden`}>{col.label}</span>
                         )}
-                        <button type="button" aria-label={`Resize column`} className="absolute top-0 bottom-0 right-0 w-2 flex items-center justify-center cursor-col-resize border-l border-border/60 hover:border-primary/50 hover:bg-muted transition-colors group" style={{ touchAction: "none" }} onMouseDown={(e) => handleResizeStart(p, e)}>
+                        <button type="button" aria-label={`Resize column`} className="absolute top-0 bottom-0 right-0 w-2 flex items-center justify-center cursor-col-resize border-l border-border/60 hover:border-primary/50 hover:bg-muted transition-colors group" style={{ touchAction: "none" }} onMouseDown={(e) => handleResizeStart(colId, e)}>
                           <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-foreground shrink-0" aria-hidden />
                         </button>
                       </TableHead>
@@ -779,3 +882,5 @@ export const HoldingsTable = memo(function HoldingsTable({
     </div>
   )
 })
+
+

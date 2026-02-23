@@ -84,6 +84,16 @@ echo-analyze/
 └── run_local.bat             # Windows startup script
 ```
 
+## Deployment Note (Vercel)
+
+- The deployed UI is served from `static/` (not directly from `frontend/src`).
+- Before deploying, rebuild frontend assets so `static/` stays in sync:
+  ```cmd
+  cd frontend
+  npm run build
+  ```
+- `vercel.json` routes `/api/*` to FastAPI and sends SPA paths (like `/dashboard`) to `static/index.html`.
+
 ## Dependencies
 
 - **fastapi** - Web framework
