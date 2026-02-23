@@ -55,33 +55,28 @@ export function DashboardPage() {
     setIsDownloading(true)
 
     try {
-      // Small delay to ensure any transient states (like tooltips disappearing) are resolved
-      await new Promise(resolve => setTimeout(resolve, 150))
+      // Delay to ensure all charts and assets are stable
+      await new Promise(resolve => setTimeout(resolve, 300))
 
       const element = dashboardRef.current
 
-      // Capture at a fixed width to prevent smushing, then scale to fit landscape A4
       const canvas = await html2canvas(element, {
         scale: 2, // High resolution
         useCORS: true,
         logging: false,
         backgroundColor: "#ffffff",
-        width: 1400, // Fixed width for clear layout
+        width: 1400, // Fixed width for landscape
         windowWidth: 1400,
-        ignoreElements: (el: Element) => {
-          if (el.classList.contains("no-print")) return true
-          if (el.tagName === "BUTTON") {
-            // Don't ignore buttons that are actually table headers (sort buttons)
-            return !el.closest("th")
-          }
-          return false
-        },
+        // Only ignore deliberate "no-print" elements
+        ignoreElements: (el: Element) => el.classList.contains("no-print"),
         onclone: (clonedDoc: Document) => {
+          // Reliable ID-based selector for the capture container
           const container = clonedDoc.getElementById("dashboard-capture-root")
           if (container) {
             container.style.width = "1400px"
           }
 
+          // Ensure all scrolling tables are expanded to full height
           const fullTables = clonedDoc.querySelectorAll(".print-full-table")
           fullTables.forEach((table: Element) => {
             const t = table as HTMLElement
@@ -90,19 +85,10 @@ export function DashboardPage() {
             t.style.overflow = "visible"
             t.style.display = "block"
           })
-
-          // Force header visibility in the clone
-          const tableHeaders = clonedDoc.querySelectorAll("thead, th, thead button")
-          tableHeaders.forEach((el: any) => {
-            el.style.display = "table-header-group"
-            if (el.tagName === "TH" || el.tagName === "BUTTON") {
-              el.style.display = "table-cell"
-            }
-          })
         }
       })
 
-      const imgData = canvas.toDataURL("image/jpeg", 1.0)
+      const imgData = canvas.toDataURL("image/jpeg", 0.95)
       const pdf = new jsPDF({
         orientation: "landscape",
         unit: "mm",
@@ -110,18 +96,16 @@ export function DashboardPage() {
       })
 
       const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = pdf.internal.pageSize.getHeight()
-
       const imgProps = pdf.getImageProperties(imgData)
       const ratio = imgProps.width / imgProps.height
       const renderWidth = pdfWidth
       const renderHeight = pdfWidth / ratio
 
-      // Add image, scaling to fit width
       pdf.addImage(imgData, "JPEG", 0, 0, renderWidth, renderHeight)
       pdf.save(`ECHO_Analysis_${displaySummary.statement_date || "Report"}.pdf`)
     } catch (error) {
       console.error("PDF generation failed:", error)
+      // Final fallback to print if library fails
       window.print()
     } finally {
       setIsDownloading(false)

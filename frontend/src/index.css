@@ -313,7 +313,8 @@
   p,
   span,
   td,
-  th {
+  th,
+  button {
     color: #000000 !important;
   }
 
@@ -354,5 +355,12 @@
   /* Force numeric columns to stay on one line if possible */
   td:has(span.font-mono) {
     white-space: nowrap !important;
+  }
+
+  /* Ensure table header buttons maintain their layout and stay visible */
+  thead th button {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
   }
 }
