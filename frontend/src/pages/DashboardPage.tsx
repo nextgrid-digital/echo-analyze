@@ -68,7 +68,14 @@ export function DashboardPage() {
         backgroundColor: "#ffffff",
         width: 1400, // Fixed width for clear layout
         windowWidth: 1400,
-        ignoreElements: (el: Element) => el.classList.contains("no-print") || el.tagName === "BUTTON",
+        ignoreElements: (el: Element) => {
+          if (el.classList.contains("no-print")) return true
+          if (el.tagName === "BUTTON") {
+            // Don't ignore buttons that are actually table headers (sort buttons)
+            return !el.closest("th")
+          }
+          return false
+        },
         onclone: (clonedDoc: Document) => {
           const container = clonedDoc.getElementById("dashboard-capture-root")
           if (container) {
