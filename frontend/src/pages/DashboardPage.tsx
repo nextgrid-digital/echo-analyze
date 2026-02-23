@@ -70,7 +70,7 @@ export function DashboardPage() {
         windowWidth: 1400,
         ignoreElements: (el: Element) => el.classList.contains("no-print") || el.tagName === "BUTTON",
         onclone: (clonedDoc: Document) => {
-          const container = clonedDoc.querySelector('[ref="dashboardRef"]') as HTMLElement
+          const container = clonedDoc.getElementById("dashboard-capture-root")
           if (container) {
             container.style.width = "1400px"
           }
@@ -82,6 +82,15 @@ export function DashboardPage() {
             t.style.maxHeight = "none"
             t.style.overflow = "visible"
             t.style.display = "block"
+          })
+
+          // Force header visibility in the clone
+          const tableHeaders = clonedDoc.querySelectorAll("thead, th, thead button")
+          tableHeaders.forEach((el: any) => {
+            el.style.display = "table-header-group"
+            if (el.tagName === "TH" || el.tagName === "BUTTON") {
+              el.style.display = "table-cell"
+            }
           })
         }
       })
@@ -248,7 +257,7 @@ export function DashboardPage() {
         </div>
       )}
 
-      <div ref={dashboardRef}>
+      <div ref={dashboardRef} id="dashboard-capture-root">
         <Dashboard summary={displaySummary} holdings={displayHoldings} />
       </div>
       <Footer />
