@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { WideCard } from "./cards/WideCard"
 import {
   TableBody,
@@ -7,12 +7,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
-import { Search, Download, ArrowUp, ArrowDown } from "lucide-react"
+import { Search, Download, ArrowUp, ArrowDown, GripVertical } from "lucide-react"
 import { formatCurrency } from "@/lib/format"
 import type { Holding } from "@/types/api"
 
@@ -32,6 +31,98 @@ export const HoldingsTable = memo(function HoldingsTable({
   const [filterSubCategory, setFilterSubCategory] = useState("")
   const [filterStyle, setFilterStyle] = useState("")
   const total = totalMarketValue || 1
+
+  const DEFAULT_COL_WIDTHS = [44, 88, 200, 100, 72, 88, 96, 84, 106, 116, 88, 92, 112]
+  const MIN_COL_WIDTHS = [36, 64, 100, 72, 56, 72, 64, 80, 80, 80, 72, 72, 80]
+  const [columnWidths, setColumnWidths] = useState<number[]>(() => DEFAULT_COL_WIDTHS)
+  const [resizingIndex, setResizingIndex] = useState<number | null>(null)
+  const resizeStartX = useRef(0)
+  const resizeStartWidths = useRef<number[]>([])
+
+  type SortKey = "folio" | "scheme_name" | "sub_category" | "style_category" | "benchmark" | "date_of_entry" | "holding_period" | "cost_value" | "market_value" | "return_pct" | "missed_gains" | "xirr"
+  const COLUMNS: { key: SortKey | null; label: string; align: "left" | "right" }[] = [
+    { key: null, label: "#", align: "right" },
+    { key: "folio", label: "Folio number", align: "left" },
+    { key: "scheme_name", label: "Fund name", align: "left" },
+    { key: "sub_category", label: "Sub-category", align: "left" },
+    { key: "style_category", label: "Style", align: "left" },
+    { key: "benchmark", label: "Benchmark", align: "left" },
+    { key: "date_of_entry", label: "Entry Date", align: "left" },
+    { key: "holding_period", label: "Holding Period", align: "right" },
+    { key: "cost_value", label: "Invested Value", align: "right" },
+    { key: "market_value", label: "Current Value", align: "right" },
+    { key: "return_pct", label: "Abs Returns", align: "right" },
+    { key: "missed_gains", label: "Missed Gains", align: "right" },
+    { key: "xirr", label: "XIRR / BM", align: "right" },
+  ]
+  const [columnOrder, setColumnOrder] = useState<number[]>(() => COLUMNS.map((_, i) => i))
+  const [draggedColPosition, setDraggedColPosition] = useState<number | null>(null)
+
+  const handleColumnDragStart = useCallback((position: number, e: React.DragEvent) => {
+    e.dataTransfer.setData("text/plain", String(position))
+    e.dataTransfer.effectAllowed = "move"
+    e.dataTransfer.setDragImage((e.target as HTMLElement).closest("th") ?? e.target as HTMLElement, 0, 0)
+    setDraggedColPosition(position)
+  }, [])
+
+  const handleColumnDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "move"
+  }, [])
+
+  const handleColumnDrop = useCallback((targetPosition: number, e: React.DragEvent) => {
+    e.preventDefault()
+    if (draggedColPosition === null) return
+    if (draggedColPosition === targetPosition) {
+      setDraggedColPosition(null)
+      return
+    }
+    setColumnOrder(prev => {
+      const next = [...prev]
+      const [removed] = next.splice(draggedColPosition, 1)
+      next.splice(targetPosition, 0, removed)
+      return next
+    })
+    setDraggedColPosition(null)
+  }, [draggedColPosition])
+
+  const handleColumnDragEnd = useCallback(() => {
+    setDraggedColPosition(null)
+  }, [])
+
+  const handleResizeStart = useCallback((colIndex: number, e: React.MouseEvent) => {
+    e.preventDefault()
+    setResizingIndex(colIndex)
+    resizeStartX.current = e.clientX
+    resizeStartWidths.current = [...columnWidths]
+  }, [columnWidths])
+
+  useEffect(() => {
+    if (resizingIndex === null) return
+    const colId = columnOrder[resizingIndex]
+    if (colId === undefined) return
+    const onMove = (e: MouseEvent) => {
+      const delta = e.clientX - resizeStartX.current
+      setColumnWidths(prev => {
+        const next = [...prev]
+        const minW = MIN_COL_WIDTHS[colId]
+        const newWi = Math.max(minW, (resizeStartWidths.current[colId] ?? minW) + delta)
+        next[colId] = newWi
+        return next
+      })
+    }
+    const onUp = () => setResizingIndex(null)
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    return () => {
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+    }
+  }, [resizingIndex, columnOrder])
 
   const filterOptions = useMemo(() => {
     const categories = Array.from(new Set(holdings.map(h => h.category).filter(Boolean))).sort()
@@ -173,12 +264,6 @@ export const HoldingsTable = memo(function HoldingsTable({
     return null
   }
 
-  const formatOptionalPercent = (value: number | null | undefined): string =>
-    value !== null && value !== undefined ? value.toFixed(2) : ""
-
-  const formatOptionalCurrency = (value: number | null | undefined): string =>
-    value !== null && value !== undefined ? formatCurrency(value) : ""
-
   const getYearsFromEntryDate = (entryDate: string | null | undefined): number | null => {
     if (!entryDate) return null
     const parsed = new Date(entryDate)
@@ -217,7 +302,6 @@ export const HoldingsTable = memo(function HoldingsTable({
     return Math.abs(benchmarkValueByXirr - fundValueByXirr)
   }
 
-  type SortKey = "folio" | "scheme_name" | "date_of_entry" | "holding_period" | "cost_value" | "market_value" | "return_pct" | "missed_gains" | "xirr"
   const compareHoldings = (a: Holding, b: Holding, key: SortKey, dir: "asc" | "desc"): number => {
     const mult = dir === "asc" ? 1 : -1
     const num = (v: number | null | undefined): number => (v ?? null) === null ? Number.NaN : (v as number)
@@ -232,6 +316,15 @@ export const HoldingsTable = memo(function HoldingsTable({
         return mult * (str(a.folio).toLowerCase().localeCompare(str(b.folio).toLowerCase()))
       case "scheme_name":
         return mult * (str(a.scheme_name).toLowerCase().localeCompare(str(b.scheme_name).toLowerCase()))
+      case "sub_category":
+        return mult * (str(a.sub_category).toLowerCase().localeCompare(str(b.sub_category).toLowerCase()))
+      case "style_category":
+        return mult * (str(a.style_category).toLowerCase().localeCompare(str(b.style_category).toLowerCase()))
+      case "benchmark": {
+        const bmA = getBenchmarkName(a) ?? ""
+        const bmB = getBenchmarkName(b) ?? ""
+        return mult * (bmA.toLowerCase().localeCompare(bmB.toLowerCase()))
+      }
       case "date_of_entry": {
         const ta = dateMs(a.date_of_entry)
         const tb = dateMs(b.date_of_entry)
@@ -297,6 +390,30 @@ export const HoldingsTable = memo(function HoldingsTable({
     }
   }, [equityHoldings, debtHoldings, otherHoldings, sortKey, sortDir])
 
+  type TableRowItem =
+    | { type: "section"; label: string }
+    | { type: "holding"; holding: Holding; key: string }
+    | { type: "subtotal"; label: string; subtotal: number; investedSubtotal: number }
+  const tableRows = useMemo((): TableRowItem[] => {
+    const rows: TableRowItem[] = []
+    if (sortedEquityHoldings.length > 0) {
+      rows.push({ type: "section", label: "Equity" })
+      sortedEquityHoldings.forEach((h, i) => rows.push({ type: "holding", holding: h, key: `eq-${i}` }))
+      rows.push({ type: "subtotal", label: "Equity", subtotal: equityTotal, investedSubtotal: equityInvestedTotal })
+    }
+    if (sortedDebtHoldings.length > 0) {
+      rows.push({ type: "section", label: "Fixed Income / Debt" })
+      sortedDebtHoldings.forEach((h, i) => rows.push({ type: "holding", holding: h, key: `debt-${i}` }))
+      rows.push({ type: "subtotal", label: "Debt", subtotal: debtTotal, investedSubtotal: debtInvestedTotal })
+    }
+    if (sortedOtherHoldings.length > 0) {
+      rows.push({ type: "section", label: "Others" })
+      sortedOtherHoldings.forEach((h, i) => rows.push({ type: "holding", holding: h, key: `other-${i}` }))
+      rows.push({ type: "subtotal", label: "Others", subtotal: otherTotal, investedSubtotal: otherInvestedTotal })
+    }
+    return rows
+  }, [sortedEquityHoldings, sortedDebtHoldings, sortedOtherHoldings, equityTotal, equityInvestedTotal, debtTotal, debtInvestedTotal, otherTotal, otherInvestedTotal])
+
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
       setSortDir(d => (d === "asc" ? "desc" : "asc"))
@@ -306,103 +423,56 @@ export const HoldingsTable = memo(function HoldingsTable({
     }
   }
 
-  // CSV download handler
+  // CSV download: respect current column order
+  const getCsvCellValue = (h: Holding, colId: number, rowNum?: number): string => {
+    const missedGains = calculateMissedGains(h)
+    const allocPct = (((h.market_value || 0) / total) * 100).toFixed(2)
+    const xirrStr = h.xirr != null ? `${(h.xirr as number).toFixed(1)}%` : ""
+    const bmStr = h.benchmark_xirr != null ? `BM ${(h.benchmark_xirr as number).toFixed(1)}%` : ""
+    switch (colId) {
+      case 0: return rowNum != null ? String(rowNum) : ""
+      case 1: return h.folio || ""
+      case 2: return h.scheme_name
+      case 3: return h.sub_category
+      case 4: return h.style_category || ""
+      case 5: return getBenchmarkName(h) ?? ""
+      case 6: return h.date_of_entry || ""
+      case 7: return formatYearsFromEntryDate(h.date_of_entry) ?? ""
+      case 8: return formatCurrency(h.cost_value || 0)
+      case 9: return formatCurrency(h.market_value || 0) + " (" + allocPct + "%)"
+      case 10: return (h.return_pct ?? 0) + "%"
+      case 11: return missedGains != null ? formatCurrency(missedGains) : ""
+      case 12: return bmStr ? `${xirrStr} / ${bmStr}` : xirrStr
+      default: return ""
+    }
+  }
+
   const handleDownloadCSV = () => {
-    const headers = [
-      "Folio number",
-      "Fund Name",
-      "Category",
-      "Sub Category",
-      "Style",
-      "Entry Date",
-      "Holding Period",
-      "Invested Value (₹)",
-      "Market Value (₹)",
-      "Allocation (%)",
-      "Absolute Returns (%)",
-      "Missed Gains (Rs)",
-      "XIRR (%)",
-      "Benchmark XIRR (%)",
-      "Benchmark Name"
-    ]
+    const headers = columnOrder.map(colId => COLUMNS[colId].label)
 
     const rows: string[][] = []
 
-    // Add equity holdings
+    let rowNum = 0
+    const pushHoldings = (list: Holding[]) => {
+      list.forEach(h => {
+        rowNum += 1
+        rows.push(columnOrder.map(colId => getCsvCellValue(h, colId, rowNum)))
+      })
+    }
+
     if (sortedEquityHoldings.length > 0) {
       rows.push(["EQUITY"])
-      sortedEquityHoldings.forEach(h => {
-        const benchmarkName = getBenchmarkName(h) || ""
-        rows.push([
-          h.folio || "",
-          h.scheme_name,
-          h.category,
-          h.sub_category,
-          h.style_category || "",
-          h.date_of_entry || "",
-          formatYearsFromEntryDate(h.date_of_entry) ?? "",
-          formatCurrency(h.cost_value || 0),
-          formatCurrency(h.market_value || 0),
-          (((h.market_value || 0) / total) * 100).toFixed(2),
-          (h.return_pct ?? 0).toFixed(2),
-          formatOptionalCurrency(calculateMissedGains(h)),
-          formatOptionalPercent(h.xirr),
-          formatOptionalPercent(h.benchmark_xirr),
-          benchmarkName
-        ])
-      })
-      rows.push([]) // Empty row after equity
+      pushHoldings(sortedEquityHoldings)
+      rows.push([])
     }
-
-    // Add debt holdings
     if (sortedDebtHoldings.length > 0) {
       rows.push(["FIXED INCOME / DEBT"])
-      sortedDebtHoldings.forEach(h => {
-        const benchmarkName = getBenchmarkName(h) || ""
-        rows.push([
-          h.folio || "",
-          h.scheme_name,
-          h.category,
-          h.sub_category,
-          h.style_category || "",
-          h.date_of_entry || "",
-          formatYearsFromEntryDate(h.date_of_entry) ?? "",
-          formatCurrency(h.cost_value || 0),
-          formatCurrency(h.market_value || 0),
-          (((h.market_value || 0) / total) * 100).toFixed(2),
-          (h.return_pct ?? 0).toFixed(2),
-          formatOptionalCurrency(calculateMissedGains(h)),
-          formatOptionalPercent(h.xirr),
-          formatOptionalPercent(h.benchmark_xirr),
-          benchmarkName
-        ])
-      })
-      rows.push([]) // Empty row after debt
+      pushHoldings(sortedDebtHoldings)
+      rows.push([])
     }
-
-    // Add other holdings
     if (sortedOtherHoldings.length > 0) {
       rows.push(["OTHERS"])
-      sortedOtherHoldings.forEach(h => {
-        const benchmarkName = getBenchmarkName(h) || ""
-        rows.push([
-          h.folio || "",
-          h.scheme_name,
-          h.category,
-          h.sub_category,
-          h.style_category || "",
-          h.date_of_entry || "",
-          formatYearsFromEntryDate(h.date_of_entry) ?? "",
-          formatCurrency(h.cost_value || 0),
-          formatCurrency(h.market_value || 0),
-          (((h.market_value || 0) / total) * 100).toFixed(2),
-          (h.return_pct ?? 0).toFixed(2),
-          formatOptionalCurrency(calculateMissedGains(h)),
-          formatOptionalPercent(h.xirr),
-          formatOptionalPercent(h.benchmark_xirr),
-          benchmarkName
-        ])
-      })
+      pushHoldings(sortedOtherHoldings)
     }
 
     // Convert to CSV string
@@ -423,30 +493,65 @@ export const HoldingsTable = memo(function HoldingsTable({
     document.body.removeChild(link)
   }
 
-  const renderSubtotalRow = (label: string, subtotal: number, investedSubtotal: number) => (
-    <TableRow className="bg-muted/30 border-t-2 border-border">
-      <TableCell colSpan={4} className="px-4 py-3 sm:px-8 sm:py-5 font-bold text-foreground">
-        {label} Total
+  const renderSectionRow = (rowNum: number, label: string) => {
+    const firstColWidth = columnWidths[columnOrder[0]]
+    return (
+    <TableRow key={`section-${label}`} className="bg-primary/10">
+      <TableCell className="sticky left-0 z-10 bg-primary/10 border-r border-border/30 px-2 py-1.5 sm:px-3 font-mono text-xs text-muted-foreground text-right align-middle" style={{ width: firstColWidth, minWidth: firstColWidth, maxWidth: firstColWidth }}>
+        {rowNum}
       </TableCell>
-      <TableCell className="px-4 py-3 sm:px-8 sm:py-5 text-right">
-        <div className="font-bold text-foreground font-mono text-base">
-          ₹{formatCurrency(investedSubtotal)}
-        </div>
+      <TableCell colSpan={12} className="px-2 py-1.5 sm:px-3 font-bold text-sm uppercase tracking-wider text-primary whitespace-nowrap">
+        {label}
       </TableCell>
-      <TableCell className="px-4 py-3 sm:px-8 sm:py-5 text-right">
-        <div className="font-bold text-foreground font-mono text-base">
-          ₹{formatCurrency(subtotal)}
-        </div>
-        <div className="text-[10px] text-muted-foreground font-bold font-mono">
-          {((subtotal / total) * 100).toFixed(1)}%
-        </div>
-      </TableCell>
-      <TableCell colSpan={3} />
     </TableRow>
-  )
+    )
+  }
 
-  const renderHoldingCard = (h: Holding, i: string | number) => {
-    const benchmarkName = getBenchmarkName(h)
+  const renderSubtotalRow = (rowNum: number, label: string, subtotal: number, investedSubtotal: number) => {
+    const allocPct = ((subtotal / total) * 100).toFixed(1)
+    return (
+      <TableRow key={`subtotal-${label}`} className="bg-muted/30 border-t-2 border-border">
+        {columnOrder.map((colId, p) => {
+          const w = columnWidths[colId]
+          const stickyLeft = p === 0 ? 0 : p === 1 ? columnWidths[columnOrder[0]] : columnWidths[columnOrder[0]] + columnWidths[columnOrder[1]]
+          const isSticky = p <= 2
+          const stickyClass = isSticky ? "sticky z-10 bg-muted/30 border-r border-border/30" : ""
+          const leftStyle = p > 0 ? { left: `${stickyLeft}px` as const } : {}
+          if (colId === 0) {
+            return (
+              <TableCell key={colId} className={`px-2 py-2 sm:px-3 font-mono text-xs text-muted-foreground text-right align-middle ${p === 0 ? "left-0 " : ""}${stickyClass}`} style={{ width: w, minWidth: w, maxWidth: w, ...leftStyle }}>
+                {rowNum}
+              </TableCell>
+            )
+          }
+          if (colId === 1) {
+            return (
+              <TableCell key={colId} className={`px-2 py-2 sm:px-3 font-bold text-foreground text-xs whitespace-nowrap ${stickyClass}`} style={{ width: w, minWidth: w, maxWidth: w, ...leftStyle }}>
+                {label} Total
+              </TableCell>
+            )
+          }
+          if (colId === 8) {
+            return (
+              <TableCell key={colId} className="px-2 py-2 sm:px-3 text-right" style={{ width: w, minWidth: w, maxWidth: w }}>
+                <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(investedSubtotal)}</span>
+              </TableCell>
+            )
+          }
+          if (colId === 9) {
+            return (
+              <TableCell key={colId} className="px-2 py-2 sm:px-3 text-right" style={{ width: w, minWidth: w, maxWidth: w }}>
+                <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(subtotal)} ({allocPct}%)</span>
+              </TableCell>
+            )
+          }
+          return <TableCell key={colId} className="px-2 py-2 sm:px-3" style={{ width: w, minWidth: w, maxWidth: w }} />
+        })}
+      </TableRow>
+    )
+  }
+
+  const getHoldingCellContent = (h: Holding, colId: number, rowNum: number): ReactNode => {
     const hasXirr = h.xirr !== null && h.xirr !== undefined
     const hasBenchmarkXirr = h.benchmark_xirr !== null && h.benchmark_xirr !== undefined
     const yearsFromEntry = formatYearsFromEntryDate(h.date_of_entry)
@@ -454,198 +559,66 @@ export const HoldingsTable = memo(function HoldingsTable({
     const isBelowBenchmark = hasXirr && hasBenchmarkXirr ? (h.xirr as number) < (h.benchmark_xirr as number) : null
     const xirrColorClass = hasXirr ? (hasBenchmarkXirr ? (isBelowBenchmark ? "text-red-500" : "text-green-500") : (h.xirr as number) < 0 ? "text-red-500" : "text-green-500") : "text-muted-foreground"
     const missedGainsColorClass = isBelowBenchmark === null ? "text-muted-foreground" : isBelowBenchmark ? "text-red-500" : "text-green-500"
-    const returnColorClass = (h.gain_loss ?? 0) >= 0 ? "text-primary" : "text-destructive"
-    return (
-      <div key={i} className="rounded-lg border border-border/50 bg-card p-4 space-y-3">
-        <div>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Folio number</p>
-          <p className="text-xs font-mono text-foreground">{h.folio || "-"}</p>
-        </div>
-        <div>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Fund name</p>
-          <p className="font-bold text-foreground text-sm break-words">{h.scheme_name}</p>
-          <div className="flex flex-wrap gap-1.5 mt-1">
-            {h.style_category && <Badge variant="secondary" className="text-[10px] uppercase">{h.style_category}</Badge>}
-            <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">{h.sub_category}</span>
-            {benchmarkName && <Badge variant="outline" className="text-[10px] uppercase">{benchmarkName}</Badge>}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Entry date</p>
-            <p className="text-xs font-mono">{h.date_of_entry || "-"}</p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Holding period</p>
-            <p className="text-xs font-mono">{yearsFromEntry ?? "-"}</p>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm border-t border-border/50 pt-3">
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Invested</p>
-            <p className="font-mono font-semibold">₹{formatCurrency(h.cost_value || 0)}</p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Current value</p>
-            <p className="font-mono font-semibold">₹{formatCurrency(h.market_value || 0)}</p>
-            <p className="text-[10px] text-muted-foreground font-mono">{(((h.market_value || 0) / total) * 100).toFixed(1)}%</p>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Abs returns</p>
-            <p className={`font-mono font-semibold ${returnColorClass}`}>{h.return_pct ?? 0}%</p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Missed gains</p>
-            <p className={`font-mono font-semibold ${missedGainsColorClass}`}>{missedGains !== null ? `₹${formatCurrency(missedGains)}` : "-"}</p>
-          </div>
-        </div>
-        <div className="border-t border-border/50 pt-3">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">XIRR / Benchmark</p>
-          <p className={`font-mono font-semibold text-sm ${xirrColorClass}`}>{hasXirr ? `${(h.xirr as number).toFixed(1)}%` : "-"}</p>
-          {hasBenchmarkXirr && <p className="text-[10px] text-muted-foreground font-mono">BM: {(h.benchmark_xirr as number).toFixed(1)}%</p>}
-        </div>
-      </div>
-    )
+    const allocPct = (((h.market_value || 0) / total) * 100).toFixed(1)
+    const xirrLine = hasXirr ? `${(h.xirr as number).toFixed(1)}%` : "-"
+    const bmLine = hasBenchmarkXirr ? `BM ${(h.benchmark_xirr as number).toFixed(1)}%` : ""
+    const xirrBmLine = bmLine ? `${xirrLine} / ${bmLine}` : xirrLine
+    const benchmarkName = getBenchmarkName(h) ?? "-"
+    switch (colId) {
+      case 0: return rowNum
+      case 1: return <span className="block text-xs font-mono text-muted-foreground whitespace-nowrap truncate">{h.folio || "-"}</span>
+      case 2: return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="block font-medium text-foreground text-xs cursor-help whitespace-nowrap truncate" title={h.scheme_name}>{h.scheme_name}</span>
+          </TooltipTrigger>
+          <TooltipContent><p className="max-w-sm break-words">{h.scheme_name}</p></TooltipContent>
+        </Tooltip>
+      )
+      case 3: return <span className="block text-xs text-muted-foreground whitespace-nowrap truncate">{h.sub_category}</span>
+      case 4: return <span className="block text-xs text-muted-foreground whitespace-nowrap truncate">{h.style_category || "-"}</span>
+      case 5: return <span className="block text-xs text-muted-foreground whitespace-nowrap truncate">{benchmarkName}</span>
+      case 6: return <span className="block text-xs font-mono text-muted-foreground whitespace-nowrap truncate">{h.date_of_entry || "-"}</span>
+      case 7: return <span className="block text-xs font-mono text-muted-foreground whitespace-nowrap truncate">{yearsFromEntry ?? "-"}</span>
+      case 8: return <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(h.cost_value || 0)}</span>
+      case 9: return <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(h.market_value || 0)} ({allocPct}%)</span>
+      case 10: return <span className={`font-bold font-mono text-xs whitespace-nowrap truncate ${(h.gain_loss ?? 0) >= 0 ? "text-primary" : "text-destructive"}`}>{h.return_pct ?? 0}%</span>
+      case 11: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${missedGainsColorClass}`}>{missedGains !== null ? `₹${formatCurrency(missedGains)}` : "-"}</span>
+      case 12: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${xirrColorClass}`}>{xirrBmLine}</span>
+      default: return null
+    }
   }
 
-  const renderSubtotalCard = (label: string, subtotal: number, investedSubtotal: number) => (
-    <div className="rounded-lg border-2 border-border bg-muted/30 p-4">
-      <p className="font-bold text-foreground text-sm">{label} Total</p>
-      <div className="mt-2 flex justify-between items-baseline">
-        <span className="text-xs text-muted-foreground">Invested</span>
-        <span className="font-mono font-bold">₹{formatCurrency(investedSubtotal)}</span>
-      </div>
-      <div className="flex justify-between items-baseline">
-        <span className="text-xs text-muted-foreground">Current</span>
-        <span className="font-mono font-bold">₹{formatCurrency(subtotal)}</span>
-      </div>
-      <p className="text-[10px] text-muted-foreground font-mono mt-1">{((subtotal / total) * 100).toFixed(1)}% of portfolio</p>
-    </div>
+  const renderHoldingRow = (h: Holding, rowKey: string, rowNum: number) => (
+    <TableRow key={rowKey} className="hover:bg-muted/50">
+      {columnOrder.map((colId, p) => {
+        const w = columnWidths[colId]
+        const stickyLeft = p === 0 ? 0 : p === 1 ? columnWidths[columnOrder[0]] : columnWidths[columnOrder[0]] + columnWidths[columnOrder[1]]
+        const isSticky = p <= 2
+        const stickyClass = isSticky ? "sticky z-10 bg-card border-r border-border/30" : ""
+        const leftStyle = p > 0 ? { left: `${stickyLeft}px` as const } : {}
+        const alignRight = COLUMNS[colId].align === "right"
+        return (
+          <TableCell
+            key={colId}
+            className={`px-2 py-2 sm:px-3 align-middle overflow-hidden ${p === 0 ? "left-0 font-mono text-xs text-muted-foreground " : ""}${stickyClass} ${alignRight ? "text-right" : ""}`}
+            style={{ width: w, minWidth: w, maxWidth: w, ...leftStyle }}
+          >
+            {getHoldingCellContent(h, colId, rowNum)}
+          </TableCell>
+        )
+      })}
+    </TableRow>
   )
-
-  const renderHoldingRow = (h: Holding, i: string | number) => {
-    const benchmarkName = getBenchmarkName(h)
-    const hasXirr = h.xirr !== null && h.xirr !== undefined
-    const hasBenchmarkXirr = h.benchmark_xirr !== null && h.benchmark_xirr !== undefined
-    const yearsFromEntry = formatYearsFromEntryDate(h.date_of_entry)
-    const missedGains = calculateMissedGains(h)
-    const isBelowBenchmark = hasXirr && hasBenchmarkXirr
-      ? (h.xirr as number) < (h.benchmark_xirr as number)
-      : null
-    const xirrColorClass = hasXirr
-      ? hasBenchmarkXirr
-        ? isBelowBenchmark
-          ? "text-red-500"
-          : "text-green-500"
-        : (h.xirr as number) < 0
-          ? "text-red-500"
-          : "text-green-500"
-      : "text-muted-foreground"
-    const missedGainsColorClass =
-      isBelowBenchmark === null
-        ? "text-muted-foreground"
-        : isBelowBenchmark
-          ? "text-red-500"
-          : "text-green-500"
-    return (
-      <TableRow key={i} className="hover:bg-muted/50">
-        <TableCell className="px-4 py-3 sm:px-8 sm:py-5 min-w-[72px] whitespace-nowrap">
-          <div className="text-xs font-mono text-muted-foreground">
-            {h.folio || "-"}
-          </div>
-        </TableCell>
-        <TableCell className="px-4 py-3 sm:px-8 sm:py-5 whitespace-normal max-w-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div
-                  className="font-bold text-foreground text-sm flex-1 min-w-0 cursor-help break-words leading-tight overflow-hidden"
-                  style={{
-                    display: "-webkit-box",
-                    WebkitBoxOrient: "vertical",
-                    WebkitLineClamp: 2,
-                  }}
-                >
-                  {h.scheme_name}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="max-w-xs break-words">{h.scheme_name}</p>
-              </TooltipContent>
-            </Tooltip>
-            {h.style_category && (
-              <Badge variant="secondary" className="text-[10px] uppercase flex-shrink-0">
-                {h.style_category}
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            <div className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider truncate" title={h.sub_category}>
-              {h.sub_category}
-            </div>
-            {benchmarkName && (
-              <Badge variant="outline" className="text-[10px] uppercase flex-shrink-0">
-                {benchmarkName}
-              </Badge>
-            )}
-          </div>
-        </TableCell>
-        <TableCell className="px-4 py-3 sm:px-8 sm:py-5">
-          <div className="text-xs font-mono text-muted-foreground">
-            {h.date_of_entry || "-"}
-          </div>
-        </TableCell>
-        <TableCell className="px-4 py-3 sm:px-8 sm:py-5 text-right">
-          <div className="text-[10px] font-mono text-muted-foreground">
-            {yearsFromEntry ?? "-"}
-          </div>
-        </TableCell>
-        <TableCell className="px-4 py-3 sm:px-8 sm:py-5 text-right">
-          <div className="font-bold text-foreground font-mono">
-            ₹{formatCurrency(h.cost_value || 0)}
-          </div>
-        </TableCell>
-        <TableCell className="px-4 py-3 sm:px-8 sm:py-5 text-right">
-          <div className="font-bold text-foreground font-mono">
-            ₹{formatCurrency(h.market_value || 0)}
-          </div>
-          <div className="text-[10px] text-muted-foreground font-bold font-mono">
-            {(((h.market_value || 0) / total) * 100).toFixed(1)}%
-          </div>
-        </TableCell>
-        <TableCell
-          className={`px-4 py-3 sm:px-8 sm:py-5 text-right font-bold font-mono ${(h.gain_loss ?? 0) >= 0 ? "text-primary" : "text-destructive"
-            }`}
-        >
-          {h.return_pct ?? 0}%
-        </TableCell>
-        <TableCell className="px-4 py-3 sm:px-8 sm:py-5 text-right">
-          <div className={`font-bold font-mono text-sm ${missedGainsColorClass}`}>
-            {missedGains !== null ? `\u20B9${formatCurrency(missedGains)}` : "-"}
-          </div>
-        </TableCell>
-        <TableCell className="px-4 py-3 sm:px-8 sm:py-5 text-right">
-          <div className={`font-bold font-mono text-sm ${xirrColorClass}`}>
-            {hasXirr ? `${(h.xirr as number).toFixed(1)}%` : "-"}
-          </div>
-          <div className="text-[10px] text-muted-foreground font-bold font-mono">
-            BM: {hasBenchmarkXirr ? `${(h.benchmark_xirr as number).toFixed(1)}%` : "-"}
-          </div>
-        </TableCell>
-      </TableRow>
-    )
-  }
 
   return (
     <div className="mt-12 pt-12 border-t border-border">
       <div className="flex items-center justify-between gap-2 mb-6">
         <h3 className="font-bold text-xl text-foreground">
-          Full Holding List
+          Proposed Allocation
         </h3>
         <SectionInfoTooltip
-          title="Full Holding List"
+          title="Proposed Allocation"
           formula={
             <>
               Value = Units × NAV<br />
@@ -660,200 +633,146 @@ export const HoldingsTable = memo(function HoldingsTable({
           }
         />
       </div>
-      <WideCard>
-        {/* Search, filters, and Download Button */}
-        <div className="mb-4 flex items-center gap-3 flex-wrap">
-          <div className="relative flex-1 min-w-[200px]">
+      <WideCard className="min-w-0">
+        {/* Row 1: Search + Download */}
+        <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-3">
+          <div className="relative flex-1 min-w-0 max-w-md">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               type="text"
               placeholder="Search by fund name, category, style, or folio number..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 w-full max-w-md"
+              className="pl-9 w-full"
             />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="sr-only" htmlFor="filter-category">Category</label>
-            <select
-              id="filter-category"
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
-              className="h-9 rounded-none border border-input bg-transparent px-3 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              aria-label="Filter by category"
-            >
-              <option value="">All categories</option>
-              {filterOptions.categories.map(c => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-            <label className="sr-only" htmlFor="filter-subcategory">Sub-category</label>
-            <select
-              id="filter-subcategory"
-              value={filterSubCategory}
-              onChange={(e) => setFilterSubCategory(e.target.value)}
-              className="h-9 rounded-none border border-input bg-transparent px-3 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-w-[120px]"
-              aria-label="Filter by sub-category"
-            >
-              <option value="">All sub-categories</option>
-              {filterOptions.subCategories.map(c => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-            <label className="sr-only" htmlFor="filter-style">Style</label>
-            <select
-              id="filter-style"
-              value={filterStyle}
-              onChange={(e) => setFilterStyle(e.target.value)}
-              className="h-9 rounded-none border border-input bg-transparent px-3 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              aria-label="Filter by style"
-            >
-              <option value="">All styles</option>
-              {filterOptions.styles.map(s => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
           </div>
           <Button
             onClick={handleDownloadCSV}
             variant="outline"
             size="default"
-            className="flex items-center gap-2"
+            className="flex shrink-0 items-center gap-2"
           >
             <Download className="w-4 h-4" />
             Download CSV
           </Button>
         </div>
-        {/* Mobile: card layout (no horizontal scroll, readable on small screens) */}
-        <div className="md:hidden space-y-6">
-          {sortedEquityHoldings.length > 0 && (
-            <div className="space-y-3">
-              <p className="text-sm font-bold uppercase tracking-wider text-primary">Equity</p>
-              {sortedEquityHoldings.map((h, i) => renderHoldingCard(h, `eq-${i}`))}
-              {renderSubtotalCard("Equity", equityTotal, equityInvestedTotal)}
-            </div>
-          )}
-          {sortedDebtHoldings.length > 0 && (
-            <div className="space-y-3">
-              <p className="text-sm font-bold uppercase tracking-wider text-primary">Fixed Income / Debt</p>
-              {sortedDebtHoldings.map((h, i) => renderHoldingCard(h, `debt-${i}`))}
-              {renderSubtotalCard("Debt", debtTotal, debtInvestedTotal)}
-            </div>
-          )}
-          {sortedOtherHoldings.length > 0 && (
-            <div className="space-y-3">
-              <p className="text-sm font-bold uppercase tracking-wider text-primary">Others</p>
-              {sortedOtherHoldings.map((h, i) => renderHoldingCard(h, `other-${i}`))}
-              {renderSubtotalCard("Others", otherTotal, otherInvestedTotal)}
-            </div>
-          )}
+        {/* Row 2: Filters */}
+        <div className="mb-4 flex min-w-0 max-w-full flex-wrap items-center gap-3">
+          <label className="sr-only" htmlFor="filter-category">Category</label>
+          <select
+            id="filter-category"
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+            className="h-9 min-w-0 max-w-[180px] shrink rounded-none border border-input bg-transparent px-3 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            aria-label="Filter by category"
+          >
+            <option value="">All categories</option>
+            {filterOptions.categories.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <label className="sr-only" htmlFor="filter-subcategory">Sub-category</label>
+          <select
+            id="filter-subcategory"
+            value={filterSubCategory}
+            onChange={(e) => setFilterSubCategory(e.target.value)}
+            className="h-9 min-w-0 max-w-[180px] shrink rounded-none border border-input bg-transparent px-3 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            aria-label="Filter by sub-category"
+          >
+            <option value="">All sub-categories</option>
+            {filterOptions.subCategories.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <label className="sr-only" htmlFor="filter-style">Style</label>
+          <select
+            id="filter-style"
+            value={filterStyle}
+            onChange={(e) => setFilterStyle(e.target.value)}
+            className="h-9 min-w-0 max-w-[180px] shrink rounded-none border border-input bg-transparent px-3 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            aria-label="Filter by style"
+          >
+            <option value="">All styles</option>
+            {filterOptions.styles.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
         </div>
-
-        {/* Desktop: table with horizontal scroll */}
-        <div className="hidden md:block">
-          <p className="text-xs text-muted-foreground mb-2">
-            Scroll horizontally to see all columns.
-          </p>
-          <div className="w-full max-w-full -mx-1 sm:-mx-2 overflow-x-auto overflow-y-visible scroll-smooth touch-pan-x rounded border border-border/30" aria-label="Holdings table - scroll horizontally for more columns">
-            <div className="inline-block min-w-[880px] align-middle">
-              <table className="w-full caption-bottom text-sm min-w-[880px] table-fixed">
-                <TableHeader>
+        {/* Table: Clay-style toolbar with column/row count */}
+        <div className="flex flex-wrap items-center gap-3 mb-2">
+          <span className="text-xs text-muted-foreground font-medium tabular-nums">
+            {columnWidths.length} columns · {tableRows.length} rows
+          </span>
+          <span className="text-xs text-muted-foreground">
+            Drag the grip to reorder columns; drag column border to resize. Scroll to see all columns.
+          </span>
+        </div>
+        <div className="min-w-0 -mx-5 sm:-mx-6 w-full">
+          <div
+            className="rounded border border-border/30 scroll-smooth touch-pan-x overflow-auto min-h-[320px]"
+            style={{
+              width: "100%",
+              maxWidth: "100%",
+              minWidth: 0,
+              height: "calc(100vh - 240px)",
+              minHeight: 320,
+            }}
+            aria-label="Detailed holdings; scroll horizontally and vertically to see all columns"
+          >
+            <table className="caption-bottom text-sm table-fixed" style={{ width: columnWidths.reduce((a, b) => a + b, 0), minWidth: columnWidths.reduce((a, b) => a + b, 0) }}>
+              <colgroup>
+                {columnOrder.map((colId) => (
+                  <col key={colId} style={{ width: columnWidths[colId], minWidth: MIN_COL_WIDTHS[colId] }} />
+                ))}
+              </colgroup>
+              <TableHeader>
                   <TableRow className="bg-muted border-b border-border">
-                    <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 w-[10%] min-w-[72px] p-0">
-                      <button type="button" onClick={() => handleSort("folio")} className="flex w-full items-center gap-1 py-3 px-4 sm:px-8 text-left hover:bg-muted/80 transition-colors" aria-sort={sortKey === "folio" ? (sortDir === "asc" ? "ascending" : "descending") : undefined}>
-                        Folio number
-                        {sortKey === "folio" && (sortDir === "asc" ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />)}
-                      </button>
-                    </TableHead>
-                    <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 w-[25%] p-0">
-                      <button type="button" onClick={() => handleSort("scheme_name")} className="flex w-full items-center gap-1 py-3 px-4 sm:px-8 text-left hover:bg-muted/80 transition-colors" aria-sort={sortKey === "scheme_name" ? (sortDir === "asc" ? "ascending" : "descending") : undefined}>
-                        Fund Name / Category
-                        {sortKey === "scheme_name" && (sortDir === "asc" ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />)}
-                      </button>
-                    </TableHead>
-                    <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 w-[12%] p-0">
-                      <button type="button" onClick={() => handleSort("date_of_entry")} className="flex w-full items-center gap-1 py-3 px-4 sm:px-8 text-left hover:bg-muted/80 transition-colors" aria-sort={sortKey === "date_of_entry" ? (sortDir === "asc" ? "ascending" : "descending") : undefined}>
-                        Entry Date
-                        {sortKey === "date_of_entry" && (sortDir === "asc" ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />)}
-                      </button>
-                    </TableHead>
-                    <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 text-right w-[9%] p-0">
-                      <button type="button" onClick={() => handleSort("holding_period")} className="flex w-full items-center justify-end gap-1 py-3 px-4 sm:px-8 text-left hover:bg-muted/80 transition-colors" aria-sort={sortKey === "holding_period" ? (sortDir === "asc" ? "ascending" : "descending") : undefined}>
-                        Holding Period
-                        {sortKey === "holding_period" && (sortDir === "asc" ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />)}
-                      </button>
-                    </TableHead>
-                    <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 text-right w-[14%] p-0">
-                      <button type="button" onClick={() => handleSort("cost_value")} className="flex w-full items-center justify-end gap-1 py-3 px-4 sm:px-8 text-left hover:bg-muted/80 transition-colors" aria-sort={sortKey === "cost_value" ? (sortDir === "asc" ? "ascending" : "descending") : undefined}>
-                        Invested Value
-                        {sortKey === "cost_value" && (sortDir === "asc" ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />)}
-                      </button>
-                    </TableHead>
-                    <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 text-right w-[14%] p-0">
-                      <button type="button" onClick={() => handleSort("market_value")} className="flex w-full items-center justify-end gap-1 py-3 px-4 sm:px-8 text-left hover:bg-muted/80 transition-colors" aria-sort={sortKey === "market_value" ? (sortDir === "asc" ? "ascending" : "descending") : undefined}>
-                        Current Value
-                        {sortKey === "market_value" && (sortDir === "asc" ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />)}
-                      </button>
-                    </TableHead>
-                    <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 text-right w-[11%] p-0">
-                      <button type="button" onClick={() => handleSort("return_pct")} className="flex w-full items-center justify-end gap-1 py-3 px-4 sm:px-8 text-left hover:bg-muted/80 transition-colors" aria-sort={sortKey === "return_pct" ? (sortDir === "asc" ? "ascending" : "descending") : undefined}>
-                        Abs Returns
-                        {sortKey === "return_pct" && (sortDir === "asc" ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />)}
-                      </button>
-                    </TableHead>
-                    <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 text-right w-[10%] p-0">
-                      <button type="button" onClick={() => handleSort("missed_gains")} className="flex w-full items-center justify-end gap-1 py-3 px-4 sm:px-8 text-left hover:bg-muted/80 transition-colors" aria-sort={sortKey === "missed_gains" ? (sortDir === "asc" ? "ascending" : "descending") : undefined}>
-                        Missed Gains
-                        {sortKey === "missed_gains" && (sortDir === "asc" ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />)}
-                      </button>
-                    </TableHead>
-                    <TableHead className="text-[10px] sm:text-xs font-bold uppercase tracking-widest px-4 py-3 sm:px-8 sm:py-5 text-right w-[14%] p-0">
-                      <button type="button" onClick={() => handleSort("xirr")} className="flex w-full items-center justify-end gap-1 py-3 px-4 sm:px-8 text-left hover:bg-muted/80 transition-colors" aria-sort={sortKey === "xirr" ? (sortDir === "asc" ? "ascending" : "descending") : undefined}>
-                        XIRR / BM
-                        {sortKey === "xirr" && (sortDir === "asc" ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />)}
-                      </button>
-                    </TableHead>
+                    {columnOrder.map((colId, p) => {
+                      const col = COLUMNS[colId]
+                      const w = columnWidths[colId]
+                      const stickyLeft = p === 0 ? 0 : p === 1 ? columnWidths[columnOrder[0]] : columnWidths[columnOrder[0]] + columnWidths[columnOrder[1]]
+                      return (
+                      <TableHead
+                        key={col.key ?? "row-num"}
+                        data-position={p}
+                        className={`relative sticky top-0 z-20 bg-muted text-[9px] sm:text-[10px] font-semibold uppercase tracking-wider p-0 whitespace-nowrap overflow-hidden ${p <= 2 ? "sticky border-r border-border/50 z-30" : ""} ${p === 0 ? "left-0" : ""} ${col.align === "right" ? "text-right" : ""} ${draggedColPosition === p ? "opacity-60" : ""}`}
+                        style={{ width: w, minWidth: w, maxWidth: w, ...(p > 0 ? { left: `${stickyLeft}px` } : {}) }}
+                        onDragOver={handleColumnDragOver}
+                        onDrop={(e) => handleColumnDrop(p, e)}
+                        onDragEnd={handleColumnDragEnd}
+                      >
+                        <span
+                          draggable
+                          onDragStart={(e) => handleColumnDragStart(p, e)}
+                          className="absolute left-0 top-0 bottom-0 w-5 flex items-center justify-center cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground hover:bg-muted/80 shrink-0 z-10"
+                          aria-label="Drag to reorder column"
+                        >
+                          <GripVertical className="h-3.5 w-3.5" aria-hidden />
+                        </span>
+                        {col.key != null ? (
+                          <button type="button" onClick={() => handleSort(col.key!)} className={`flex w-full min-w-0 items-center gap-1 py-2.5 pl-6 pr-2 sm:pl-7 sm:pr-3 text-left hover:bg-muted/80 transition-colors whitespace-nowrap truncate overflow-hidden ${col.align === "right" ? "justify-end" : ""}`} aria-sort={sortKey === col.key ? (sortDir === "asc" ? "ascending" : "descending") : undefined}>
+                            {col.label}
+                            {sortKey === col.key && (sortDir === "asc" ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />)}
+                          </button>
+                        ) : (
+                          <span className="block min-w-0 py-2.5 pl-6 pr-2 sm:pl-7 sm:px-3 text-muted-foreground font-semibold truncate overflow-hidden">{col.label}</span>
+                        )}
+                        <button type="button" aria-label={`Resize column`} className="absolute top-0 bottom-0 right-0 w-2 flex items-center justify-center cursor-col-resize border-l border-border/60 hover:border-primary/50 hover:bg-muted transition-colors group" style={{ touchAction: "none" }} onMouseDown={(e) => handleResizeStart(p, e)}>
+                          <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-foreground shrink-0" aria-hidden />
+                        </button>
+                      </TableHead>
+                    )})}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sortedEquityHoldings.length > 0 && (
-                    <>
-                      <TableRow className="bg-primary/10">
-                        <TableCell colSpan={9} className="px-4 py-2 sm:px-8 sm:py-3 font-bold text-sm uppercase tracking-wider text-primary">
-                          Equity
-                        </TableCell>
-                      </TableRow>
-                      {sortedEquityHoldings.map((h, i) => renderHoldingRow(h, `eq-${i}`))}
-                      {renderSubtotalRow("Equity", equityTotal, equityInvestedTotal)}
-                    </>
-                  )}
-
-                  {sortedDebtHoldings.length > 0 && (
-                    <>
-                      <TableRow className="bg-primary/10">
-                        <TableCell colSpan={9} className="px-4 py-2 sm:px-8 sm:py-3 font-bold text-sm uppercase tracking-wider text-primary">
-                          Fixed Income / Debt
-                        </TableCell>
-                      </TableRow>
-                      {sortedDebtHoldings.map((h, i) => renderHoldingRow(h, `debt-${i}`))}
-                      {renderSubtotalRow("Debt", debtTotal, debtInvestedTotal)}
-                    </>
-                  )}
-
-                  {sortedOtherHoldings.length > 0 && (
-                    <>
-                      <TableRow className="bg-primary/10">
-                        <TableCell colSpan={9} className="px-4 py-2 sm:px-8 sm:py-3 font-bold text-sm uppercase tracking-wider text-primary">
-                          Others
-                        </TableCell>
-                      </TableRow>
-                      {sortedOtherHoldings.map((h, i) => renderHoldingRow(h, `other-${i}`))}
-                      {renderSubtotalRow("Others", otherTotal, otherInvestedTotal)}
-                    </>
-                  )}
-                </TableBody>
-              </table>
-            </div>
+                  {tableRows.map((row, index) => {
+                    const rowNum = index + 1
+                    if (row.type === "section") return renderSectionRow(rowNum, row.label)
+                    if (row.type === "subtotal") return renderSubtotalRow(rowNum, row.label, row.subtotal, row.investedSubtotal)
+                    return renderHoldingRow(row.holding, row.key, rowNum)
+                  })}
+              </TableBody>
+            </table>
           </div>
         </div>
       </WideCard>

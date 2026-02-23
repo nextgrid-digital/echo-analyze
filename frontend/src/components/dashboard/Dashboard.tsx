@@ -277,7 +277,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           >
             <div className="mb-4 sm:mb-6">
               <h2 className="text-section-header text-foreground mb-1">
-                Detailed Holdings
+                Proposed Allocation
               </h2>
               <p className="text-sm text-muted-foreground">
                 Complete holdings breakdown for detailed review
