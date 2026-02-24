@@ -75,10 +75,15 @@ export function DashboardPage() {
       const pdfHeight = pdf.internal.pageSize.getHeight()
 
       // Detect dashboard background color dynamically
-      const bgColor = window.getComputedStyle(dashboardRef.current).backgroundColor || "#ffffff"
+      const rawBgColor = window.getComputedStyle(dashboardRef.current).backgroundColor
+      // Fallback for oklch or weird color formats that html2canvas 1.x doesn't handle well
+      const bgColor = (rawBgColor && !rawBgColor.includes("oklch")) ? rawBgColor : "#09090b"
 
       for (let i = 0; i < sections.length; i++) {
         const section = sections[i] as HTMLElement
+
+        // Dynamically determine capture width based on content (for wide tables)
+        const captureWidth = Math.max(1400, section.scrollWidth)
 
         const canvas = await html2canvas(section, {
           scale: 1.5,
@@ -86,8 +91,8 @@ export function DashboardPage() {
           logging: false,
           backgroundColor: bgColor,
           allowTaint: true,
-          windowWidth: 1400,
-          width: 1400,
+          windowWidth: captureWidth,
+          width: captureWidth,
           ignoreElements: (el: Element) => el.classList.contains("no-print"),
           onclone: (clonedDoc: Document) => {
             const expandableElements = clonedDoc.querySelectorAll(".print-full-table, .overflow-auto, .overflow-y-auto")
@@ -96,6 +101,7 @@ export function DashboardPage() {
               h.style.height = "auto"
               h.style.maxHeight = "none"
               h.style.overflow = "visible"
+              h.style.width = "auto" // Ensure it takes full scroll width
               h.style.display = "block"
             })
           }
