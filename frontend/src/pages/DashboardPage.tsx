@@ -74,6 +74,9 @@ export function DashboardPage() {
       const pdfWidth = pdf.internal.pageSize.getWidth()
       const pdfHeight = pdf.internal.pageSize.getHeight()
 
+      // Detect dashboard background color dynamically
+      const bgColor = window.getComputedStyle(dashboardRef.current).backgroundColor || "#ffffff"
+
       for (let i = 0; i < sections.length; i++) {
         const section = sections[i] as HTMLElement
 
@@ -81,7 +84,7 @@ export function DashboardPage() {
           scale: 1.5,
           useCORS: true,
           logging: false,
-          backgroundColor: "#ffffff",
+          backgroundColor: bgColor,
           allowTaint: true,
           windowWidth: 1400,
           width: 1400,
