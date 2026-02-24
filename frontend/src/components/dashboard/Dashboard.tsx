@@ -66,7 +66,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Section 1: Executive Summary */}
           <section
             id="executive-summary"
-            className="scroll-mt-24 section-spacing"
+            className="scroll-mt-24 section-spacing pdf-section"
           >
             <div className="mb-4 sm:mb-6">
               <h2 className="text-section-header text-foreground mb-1">
@@ -76,7 +76,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
                 Key portfolio metrics and insights at a glance
               </p>
             </div>
-            
+
             {/* Key Metrics Bar */}
             <TopCards summary={summary} />
 
@@ -118,7 +118,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Section 2: Risk & Performance Analysis */}
           <section
             id="risk-performance"
-            className="scroll-mt-24 section-spacing"
+            className="scroll-mt-24 section-spacing pdf-section"
           >
             <div className="mb-4 sm:mb-6">
               <h2 className="text-section-header text-foreground mb-1">
@@ -163,7 +163,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Section 3: Portfolio Health & Structure */}
           <section
             id="portfolio-health"
-            className="scroll-mt-24 section-spacing"
+            className="scroll-mt-24 section-spacing pdf-section"
           >
             <div className="mb-4 sm:mb-6">
               <h2 className="text-section-header text-foreground mb-1">
@@ -208,7 +208,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Section 4: Cost & Tax Analysis */}
           <section
             id="cost-tax-analysis"
-            className="scroll-mt-24 section-spacing"
+            className="scroll-mt-24 section-spacing pdf-section"
           >
             <div className="mb-4 sm:mb-6">
               <h2 className="text-section-header text-foreground mb-1">
@@ -228,7 +228,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Section 5: Fixed Income Analysis */}
           <section
             id="fixed-income"
-            className="scroll-mt-24 section-spacing"
+            className="scroll-mt-24 section-spacing pdf-section"
           >
             <div className="mb-4 sm:mb-6">
               <h2 className="text-section-header text-foreground mb-1">
@@ -257,7 +257,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Section 7: Key Observations */}
           <section
             id="key-observations"
-            className="scroll-mt-24 section-spacing"
+            className="scroll-mt-24 section-spacing pdf-section"
           >
             <div className="mb-4 sm:mb-6">
               <h2 className="text-section-header text-foreground mb-1">
@@ -273,7 +273,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Section 8: Detailed Holdings (Reference) */}
           <section
             id="detailed-holdings"
-            className="scroll-mt-24 section-spacing"
+            className="scroll-mt-24 section-spacing pdf-section"
           >
             <div className="mb-4 sm:mb-6">
               <h2 className="text-section-header text-foreground mb-1">
@@ -292,7 +292,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Notes & Feedback Section */}
           <section
             id="notes-feedback"
-            className="scroll-mt-24 section-spacing"
+            className="scroll-mt-24 section-spacing pdf-section"
           >
             <div className="mb-4 sm:mb-6">
               <h2 className="text-section-header text-foreground mb-1">

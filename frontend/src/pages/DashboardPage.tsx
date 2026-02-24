@@ -56,39 +56,15 @@ export function DashboardPage() {
 
     try {
       // Delay to ensure all charts and assets are stable
-      await new Promise(resolve => setTimeout(resolve, 300))
+      await new Promise(resolve => setTimeout(resolve, 500))
 
-      const element = dashboardRef.current
+      // Identify all sections to capture
+      const sections = Array.from(dashboardRef.current.querySelectorAll(".pdf-section"))
+      if (sections.length === 0) {
+        // Fallback to capturing the whole container if no sections tagged
+        sections.push(dashboardRef.current)
+      }
 
-      const canvas = await html2canvas(element, {
-        scale: 2, // High resolution
-        useCORS: true,
-        logging: false,
-        backgroundColor: "#ffffff",
-        width: 1400, // Fixed width for landscape
-        windowWidth: 1400,
-        // Only ignore deliberate "no-print" elements
-        ignoreElements: (el: Element) => el.classList.contains("no-print"),
-        onclone: (clonedDoc: Document) => {
-          // Reliable ID-based selector for the capture container
-          const container = clonedDoc.getElementById("dashboard-capture-root")
-          if (container) {
-            container.style.width = "1400px"
-          }
-
-          // Ensure all scrolling tables are expanded to full height
-          const fullTables = clonedDoc.querySelectorAll(".print-full-table")
-          fullTables.forEach((table: Element) => {
-            const t = table as HTMLElement
-            t.style.height = "auto"
-            t.style.maxHeight = "none"
-            t.style.overflow = "visible"
-            t.style.display = "block"
-          })
-        }
-      })
-
-      const imgData = canvas.toDataURL("image/jpeg", 0.95)
       const pdf = new jsPDF({
         orientation: "landscape",
         unit: "mm",
@@ -96,12 +72,52 @@ export function DashboardPage() {
       })
 
       const pdfWidth = pdf.internal.pageSize.getWidth()
-      const imgProps = pdf.getImageProperties(imgData)
-      const ratio = imgProps.width / imgProps.height
-      const renderWidth = pdfWidth
-      const renderHeight = pdfWidth / ratio
+      const pdfHeight = pdf.internal.pageSize.getHeight()
 
-      pdf.addImage(imgData, "JPEG", 0, 0, renderWidth, renderHeight)
+      for (let i = 0; i < sections.length; i++) {
+        const section = sections[i] as HTMLElement
+
+        const canvas = await html2canvas(section, {
+          scale: 1.5,
+          useCORS: true,
+          logging: false,
+          backgroundColor: "#ffffff",
+          allowTaint: true,
+          windowWidth: 1400,
+          width: 1400,
+          ignoreElements: (el: Element) => el.classList.contains("no-print"),
+          onclone: (clonedDoc: Document) => {
+            const expandableElements = clonedDoc.querySelectorAll(".print-full-table, .overflow-auto, .overflow-y-auto")
+            expandableElements.forEach((el: Element) => {
+              const h = el as HTMLElement
+              h.style.height = "auto"
+              h.style.maxHeight = "none"
+              h.style.overflow = "visible"
+              h.style.display = "block"
+            })
+          }
+        })
+
+        const imgData = canvas.toDataURL("image/jpeg", 0.85)
+        const imgProps = pdf.getImageProperties(imgData)
+        const renderHeight = (imgProps.height * pdfWidth) / imgProps.width
+
+        let heightLeft = renderHeight
+        let position = 0
+
+        // If a section is taller than one PDF page, slice it across multiple pages
+        while (heightLeft > 0) {
+          if (i > 0 || position < 0) {
+            pdf.addPage()
+          }
+
+          pdf.addImage(imgData, "JPEG", 0, position, pdfWidth, renderHeight)
+
+          heightLeft -= pdfHeight
+          position -= pdfHeight
+        }
+      }
+
       pdf.save(`ECHO_Analysis_${displaySummary.statement_date || "Report"}.pdf`)
     } catch (error) {
       console.error("PDF generation failed:", error)
@@ -142,13 +158,13 @@ export function DashboardPage() {
   }, [isNoticesModalMounted, isNoticesModalVisible])
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground" ref={dashboardRef} id="dashboard-capture-root">
       {hasData && (
-        <div className="mb-4 px-4 sm:px-6 pt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 min-h-[44px] no-print">
-          <p className="text-muted-foreground font-medium text-sm">
+        <div className="mb-4 px-4 sm:px-6 pt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 min-h-[44px]">
+          <p className="text-muted-foreground font-medium text-sm pdf-section">
             Portfolio as on {displaySummary.statement_date ?? "N/A"}
           </p>
-          <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-4 no-print">
             <Button
               type="button"
               variant="default"
@@ -248,10 +264,12 @@ export function DashboardPage() {
         </div>
       )}
 
-      <div ref={dashboardRef} id="dashboard-capture-root">
+      <div>
         <Dashboard summary={displaySummary} holdings={displayHoldings} />
       </div>
-      <Footer />
+      <div className="pdf-section">
+        <Footer />
+      </div>
     </div>
   )
 }
