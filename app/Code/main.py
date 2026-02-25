@@ -525,31 +525,33 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 if "REINVEST" in desc:
                     continue
                 date_str = txn.get("date")
-                amt = _parse_amount(txn.get("amount"))
-                if date_str is None or amt is None or amt == 0:
+                raw_amt = _parse_amount(txn.get("amount"))
+                if date_str is None or raw_amt is None or raw_amt == 0:
                     continue
                 dt = _parse_iso_date(date_str)
                 if not dt:
                     continue
 
+                # Use absolute amount as base; signs are dictated by transaction type.
+                amt = abs(raw_amt)
+
                 # XIRR convention: Outflow (investment) is negative, Inflow (withdrawal/redemption) is positive.
-                # Most CAS parsers give positive 'amount' values.
-                # Redemptions, Sell, Switch-Out, STP-Out, SWP, Dividends (except Reinvest) are Inflows.
-                withdrawal_keywords = ["REDEMPTION", "SELL", "SWITCH-OUT", "STP-OUT", "SWP", "PAYOUT", "DIVIDEND PAYOUT"]
+                withdrawal_keywords = [
+                    "REDEMPTION", "SELL", "REPURCHASE", "SWITCH-OUT", "SWITCH OUT", 
+                    "STP-OUT", "STP OUT", "SWP", "PAYOUT", "DIVIDEND PAYOUT", "INTEREST PAYOUT"
+                ]
                 is_withdrawal = any(kw in desc for kw in withdrawal_keywords) or any(kw in txn_type for kw in withdrawal_keywords)
                 
-                # Check for sign of 'amt' - if it's already negative, it might be a redemption in some parsers.
-                # But usually it's positive.
                 cashflow = amt if is_withdrawal else -amt
+                log_debug(f"TXN_DEBUG: '{desc[:25]}', raw={raw_amt}, final_cf={cashflow}, type={txn_type}")
 
                 scheme_cashflows.append((dt, cashflow))
                 scheme_tx_dates.append(dt)
                 if not is_withdrawal:
                     scheme_cost += amt
                 else:
-                    # Optional: scheme_cost -= amt if you want 'Net Invested' 
-                    # but usually 'Cost' is Gross Invested. Let's keep it as is or slightly adjust.
-                    pass
+                    # For redemptions, we reduce the 'cost' basis to reflect 'Net Invested' if using for graph
+                    scheme_cost -= amt
                 
                 portfolio_cashflows.append((dt, cashflow))
 
@@ -637,10 +639,10 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
                 s_bm_units = 0.0
                 s_bm_nav_miss = 0
-                for dt, amt in scheme_cashflows:
+                for dt, amt_val in scheme_cashflows:
                     b_nav, _ = _benchmark_nav_for_date(dt.strftime("%Y-%m-%d"), benchmark_history, benchmark_sorted_keys, benchmark_sorted_dates)
                     if b_nav:
-                        s_bm_units += (-amt) / b_nav
+                        s_bm_units += (-amt_val) / b_nav
                     else:
                         s_bm_nav_miss += 1
                 s_bm_val = s_bm_units * bench_nav_now
@@ -703,7 +705,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         [x[0] for x in (portfolio_cashflows + [(now_dt, benchmark_val_now)])],
         [x[1] for x in (portfolio_cashflows + [(now_dt, benchmark_val_now)])],
     )
-    log_debug(f"Summary BM XIRR result: bm_xirr={bm_xirr}, pf_xirr={pf_xirr}")
+    log_debug(f"XIRR_RESULT_DEBUG: pf_xirr={pf_xirr}, bm_xirr={bm_xirr}, total_mkt={total_mkt_live}, bm_val={benchmark_val_now}")
     if bm_xirr is None:
         add_warning("BENCHMARK_XIRR_UNAVAILABLE", "benchmark", "warn", "Benchmark XIRR could not be computed reliably for this dataset.")
 
