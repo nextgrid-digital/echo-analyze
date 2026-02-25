@@ -1,3 +1,4 @@
+
 import { memo, useRef } from "react"
 import html2canvas from "html2canvas"
 import { jsPDF } from "jspdf"
@@ -113,9 +114,16 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
         backgroundColor: "#ffffff",
         logging: false,
         onclone: (document) => {
-          // Hide buttons in the clone
+          // Hide buttons in the clone but keep the title
           const buttons = document.querySelectorAll(".no-print")
           buttons.forEach((b) => ((b as HTMLElement).style.display = "none"))
+
+          // Ensure the table is fully expanded in the clone
+          const tableContainer = document.querySelector(".overflow-x-auto")
+          if (tableContainer) {
+            (tableContainer as HTMLElement).style.overflow = "visible";
+            (tableContainer as HTMLElement).style.width = "auto";
+          }
         },
       })
       const image = canvas.toDataURL("image/png", 1.0)
@@ -139,6 +147,12 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
         onclone: (document) => {
           const buttons = document.querySelectorAll(".no-print")
           buttons.forEach((b) => ((b as HTMLElement).style.display = "none"))
+
+          const tableContainer = document.querySelector(".overflow-x-auto")
+          if (tableContainer) {
+            (tableContainer as HTMLElement).style.overflow = "visible";
+            (tableContainer as HTMLElement).style.width = "auto";
+          }
         },
       })
       const imgData = canvas.toDataURL("image/png")
@@ -160,7 +174,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
   }
 
   return (
-    <div className="mb-6 sm:mb-8">
+    <div className="mb-6 sm:mb-8 bg-card border border-border p-4 sm:p-6" ref={matrixRef}>
       <div className="flex items-center justify-between gap-2 mb-4">
         <h2 className="text-xl sm:text-2xl font-bold text-foreground">
           Fund Overlap
@@ -216,8 +230,8 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
           />
         </div>
       </div>
-      <WideCard className="overflow-hidden p-0">
-        <div ref={matrixRef}>
+      <WideCard className="overflow-hidden p-0 border-0 shadow-none">
+        <div>
           {hasData ? (
             <div className="overflow-x-auto print-full-table">
               <Table>
