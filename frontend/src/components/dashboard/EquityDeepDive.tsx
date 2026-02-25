@@ -34,7 +34,8 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
       : false
 
   const missed =
-    (summary.benchmark_gains ?? 0) - (summary.equity_gain_loss ?? 0)
+    (summary.equity_benchmark_gains ?? 0) - (summary.equity_gain_loss ?? 0)
+
 
   const mcData = useMemo(() => {
     const mc: MarketCapAllocation = summary.market_cap
@@ -270,7 +271,8 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                     <p className="text-sm text-muted-foreground">XIRR</p>
                   </div>
                   <p className="text-sm font-semibold text-muted-foreground font-mono mt-1">
-                    {toLakhs(summary.benchmark_gains)} gains
+                    {toLakhs(summary.equity_benchmark_gains ?? 0)} gains
+
                   </p>
                 </div>
               </div>

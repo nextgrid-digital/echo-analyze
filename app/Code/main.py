@@ -381,6 +381,8 @@ class AnalysisSummary(BaseModel):
     equity_xirr: Optional[float] = None
     equity_benchmark_xirr: Optional[float] = None
     benchmark_gains: float
+    equity_benchmark_gains: float = 0.0
+
 
     holdings_count: int
     statement_date: Optional[str]
@@ -1030,7 +1032,9 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         benchmark_xirr=round(bm_xirr, 2) if bm_xirr is not None else None,
         equity_xirr=round(eq_xirr, 2) if eq_xirr is not None else None,
         equity_benchmark_xirr=round(eq_bm_xirr, 2) if eq_bm_xirr is not None else None,
-        benchmark_gains=round(total_equity_bm_gain, 2),
+        benchmark_gains=round(benchmark_val_now - total_cost, 2),
+        equity_benchmark_gains=round(total_equity_bm_gain, 2),
+
         holdings_count=len(holdings),
         statement_date=statement_date,
         asset_allocation=alloc_list,

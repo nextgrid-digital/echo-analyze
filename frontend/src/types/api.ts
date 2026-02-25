@@ -177,6 +177,7 @@ export interface AnalysisSummary {
   equity_xirr?: number | null
   equity_benchmark_xirr?: number | null
   benchmark_gains: number
+  equity_benchmark_gains?: number
 
   holdings_count: number
   statement_date?: string | null
