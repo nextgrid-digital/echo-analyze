@@ -174,19 +174,20 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
   }
 
   return (
-    <div className="mb-6 sm:mb-8 bg-card border border-border p-4 sm:p-6" ref={matrixRef}>
-      <div className="flex items-center justify-between gap-2 mb-4">
+    <div className="mb-6 sm:mb-8 bg-card border border-border p-4 sm:p-6 shadow-sm" ref={matrixRef}>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <h2 className="text-xl sm:text-2xl font-bold text-foreground">
           Fund Overlap
         </h2>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+
+        <div className="flex flex-wrap items-center gap-3">
           {hasData && (
-            <div className="flex flex-wrap items-center gap-2 no-print">
+            <div className="flex flex-wrap items-center gap-2 no-print border-r border-border/50 pr-3 mr-1">
               <Button
                 onClick={handleDownloadCSV}
                 variant="outline"
                 size="sm"
-                className="flex items-center gap-2 h-9 px-3 text-xs border-primary/30 bg-primary/5 hover:bg-primary/10 transition-all duration-200 shadow-sm font-medium"
+                className="flex items-center gap-2 h-9 px-3 text-xs bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary font-semibold transition-all shadow-sm"
                 title="Download CSV"
               >
                 <Download className="w-3.5 h-3.5" />
@@ -196,17 +197,17 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
                 onClick={handleDownloadImage}
                 variant="outline"
                 size="sm"
-                className="flex items-center gap-2 h-9 px-3 text-xs border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-all duration-200 shadow-sm font-medium"
+                className="flex items-center gap-2 h-9 px-3 text-xs bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700 font-semibold transition-all shadow-sm"
                 title="Download Image"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Download Image</span>
+                <span>Image</span>
               </Button>
               <Button
                 onClick={handleDownloadPDF}
                 variant="outline"
                 size="sm"
-                className="flex items-center gap-2 h-9 px-3 text-xs border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-all duration-200 shadow-sm font-medium"
+                className="flex items-center gap-2 h-9 px-3 text-xs bg-red-50 hover:bg-red-100 border-red-200 text-red-700 font-semibold transition-all shadow-sm"
                 title="Download PDF"
               >
                 <Download className="w-3.5 h-3.5" />
@@ -214,17 +215,17 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
               </Button>
             </div>
           )}
+
           <SectionInfoTooltip
             title="Fund Overlap"
             formula={
               <>
-                Overlap % = Σ min(Weight_A, Weight_B) for each common holding<br />
-                Range: 0% (no overlap) to 100% (identical portfolios)
+                Overlap % = (Common Holding Value ÷ Total Combined Value) × 100
               </>
             }
             content={
               <>
-                Overlap is how much of two funds&apos; portfolios is in the same stocks. High overlap means less diversification between those funds.
+                Shows the portfolio overlap between your funds. Higher % indicates duplication in stocks. Colors: Red (&gt;50%), Orange (30-50%), Yellow (15-30%), Green (&lt;15%).
               </>
             }
           />

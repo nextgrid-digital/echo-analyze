@@ -202,7 +202,8 @@ async def fetch_nav_history(amfi_code: str) -> dict:
         
         try:
             client = await _get_client()
-            response = await client.get(url, timeout=3.0)
+            # Increased timeout to 6s for better reliability on Vercel
+            response = await client.get(url, timeout=6.0)
             if response.status_code == 200:
                 data = response.json()
                 if data.get("data"):

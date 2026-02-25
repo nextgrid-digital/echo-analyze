@@ -485,17 +485,17 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     benchmark_code = "120716"
 
     try:
+        # Increase timeout to 15s to be more resilient to MFAPI slowness, as this affects BM XIRR and Missed Gains
         tasks = [fetch_nav_history(benchmark_code)] + [fetch_live_nav(code) for code in all_amfis]
-        results = await asyncio.wait_for(asyncio.gather(*tasks), timeout=8.0)
+        results = await asyncio.wait_for(asyncio.gather(*tasks), timeout=15.0)
         benchmark_history_raw = results[0]
         nav_map = dict(zip(all_amfis, results[1:]))
         benchmark_history, benchmark_sorted_keys, benchmark_sorted_dates, bench_nav_now = _prepare_benchmark_history(benchmark_history_raw)
-        log_debug(f"Benchmark NAV fetch OK: history_entries={len(benchmark_history)}, bench_nav_now={bench_nav_now}, sorted_keys_range={benchmark_sorted_keys[0] if benchmark_sorted_keys else 'EMPTY'}..{benchmark_sorted_keys[-1] if benchmark_sorted_keys else 'EMPTY'}")
+        log_debug(f"Benchmark NAV fetch OK: history_entries={len(benchmark_history)}, bench_nav_now={bench_nav_now}")
         await save_cache_async()
     except Exception as e:
-        add_warning("LIVE_NAV_FETCH_FAILED", "valuation", "warn", "Live NAV fetch failed for one or more schemes; statement NAV fallback applied where needed.")
-        log_debug(f"Pre-fetch error: {type(e).__name__}: {e}")
-        log_debug(f"BENCHMARK DATA EMPTY after fetch failure: history={len(benchmark_history)}, bench_nav_now={bench_nav_now}")
+        add_warning("LIVE_NAV_FETCH_FAILED", "valuation", "warn", "Live NAV fetch failed or timed out; benchmark metrics may be missing.")
+        log_debug(f"Pre-fetch error or timeout: {type(e).__name__}: {e}")
 
     nav_missing_schemes = set()
     benchmark_fallback_by_scheme: Dict[str, int] = {}
@@ -656,9 +656,11 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                     else:
                         s_bm_nav_miss += 1
                 s_bm_val = s_bm_units * bench_nav_now
-                if s_bm_val > 0:
-                    s_bm_flows = scheme_cashflows + [(now_dt, s_bm_val)]
-                    s_bm_xirr = calculate_xirr([x[0] for x in s_bm_flows], [x[1] for x in s_bm_flows])
+                s_flows_bm = [(dt, amt_val) for dt, amt_val in scheme_cashflows] + [(now_dt, s_bm_val)]
+                s_bm_xirr = calculate_xirr([x[0] for x in s_flows_bm], [x[1] for x in s_flows_bm])
+                
+                if s_bm_xirr is None:
+                    log_debug(f"BM_XIRR_FAIL: {name[:20]}, units={s_bm_units:.2f}, val={s_bm_val:.2f}, flows={len(s_flows_bm)}, nav_miss={s_bm_nav_miss}")
 
                 if s_bm_xirr is None:
                     log_debug(f"BM_XIRR_NULL for '{name[:40]}': s_bm_units={s_bm_units:.4f}, bench_nav_now={bench_nav_now}, s_bm_val={s_bm_val:.2f}, cashflows={len(scheme_cashflows)}, nav_misses={s_bm_nav_miss}, s_xirr={s_xirr}")
