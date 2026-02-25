@@ -1,6 +1,8 @@
 import { memo } from "react"
 import { WideCard } from "./cards/WideCard"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
+import { Button } from "@/components/ui/button"
+import { Download } from "lucide-react"
 import type { OverlapData } from "@/types/api"
 import {
   Table,
@@ -66,26 +68,72 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
   const n = fund_codes.length
   const hasData = n >= 2 && matrix.length >= 2
 
+  const handleDownloadCSV = () => {
+    // Header row: "Fund" followed by each fund name
+    const headers = ["Fund", ...fund_names]
+
+    const rows: string[][] = []
+
+    matrix.forEach((row, i) => {
+      const csvRow = [fund_names[i]]
+      row.forEach((val, j) => {
+        // Use raw value, diagonal is 100% or "-" representation, but CSV should be simple
+        csvRow.push(i === j ? "100" : String(val))
+      })
+      rows.push(csvRow)
+    })
+
+    // Convert to CSV string: values are already numbers or simple strings, but quoting fund names is safer
+    const csvContent = [
+      headers.map(h => `"${h.replace(/"/g, '""')}"`).join(","),
+      ...rows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(","))
+    ].join("\n")
+
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+    const link = document.createElement("a")
+    const url = URL.createObjectURL(blob)
+    link.setAttribute("href", url)
+    link.setAttribute("download", `fund_overlap_${new Date().toISOString().split("T")[0]}.csv`)
+    link.style.visibility = "hidden"
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   return (
     <div className="mb-6 sm:mb-8">
       <div className="flex items-center justify-between gap-2 mb-4">
         <h2 className="text-xl sm:text-2xl font-bold text-foreground">
           Fund Overlap
         </h2>
-        <SectionInfoTooltip
-          title="Fund Overlap"
-          formula={
-            <>
-              Overlap % = Σ min(Weight_A, Weight_B) for each common holding<br />
-              Range: 0% (no overlap) to 100% (identical portfolios)
-            </>
-          }
-          content={
-            <>
-              Overlap is how much of two funds&apos; portfolios is in the same stocks. High overlap means less diversification between those funds.
-            </>
-          }
-        />
+        <div className="flex items-center gap-2">
+          {hasData && (
+            <Button
+              onClick={handleDownloadCSV}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2 h-8 px-2 text-xs no-print"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download CSV</span>
+            </Button>
+          )}
+          <SectionInfoTooltip
+            title="Fund Overlap"
+            formula={
+              <>
+                Overlap % = Σ min(Weight_A, Weight_B) for each common holding<br />
+                Range: 0% (no overlap) to 100% (identical portfolios)
+              </>
+            }
+            content={
+              <>
+                Overlap is how much of two funds&apos; portfolios is in the same stocks. High overlap means less diversification between those funds.
+              </>
+            }
+          />
+        </div>
       </div>
       <WideCard className="overflow-hidden p-0">
         {hasData ? (
