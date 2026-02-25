@@ -196,47 +196,6 @@ export const HoldingsTable = memo(function HoldingsTable({
     )
   }, [filteredByFilters, searchQuery])
 
-  // Group holdings by category
-  const { equityHoldings, debtHoldings, otherHoldings, equityTotal, debtTotal, otherTotal, equityInvestedTotal, debtInvestedTotal, otherInvestedTotal } = useMemo(() => {
-    const equity: Holding[] = []
-    const debt: Holding[] = []
-    const other: Holding[] = []
-    let eqTotal = 0
-    let dbTotal = 0
-    let otTotal = 0
-    let eqInvestedTotal = 0
-    let dbInvestedTotal = 0
-    let otInvestedTotal = 0
-
-    filteredHoldings.forEach(h => {
-      if (h.category === "Equity") {
-        equity.push(h)
-        eqTotal += h.market_value
-        eqInvestedTotal += h.cost_value || 0
-      } else if (h.category === "Fixed Income") {
-        debt.push(h)
-        dbTotal += h.market_value
-        dbInvestedTotal += h.cost_value || 0
-      } else {
-        other.push(h)
-        otTotal += h.market_value
-        otInvestedTotal += h.cost_value || 0
-      }
-    })
-
-    return {
-      equityHoldings: equity,
-      debtHoldings: debt,
-      otherHoldings: other,
-      equityTotal: eqTotal,
-      debtTotal: dbTotal,
-      otherTotal: otTotal,
-      equityInvestedTotal: eqInvestedTotal,
-      debtInvestedTotal: dbInvestedTotal,
-      otherInvestedTotal: otInvestedTotal
-    }
-  }, [filteredHoldings])
-
   // Helper function to get benchmark name based on category/sub_category
   const getBenchmarkName = (holding: Holding): string | null => {
     const category = holding.category.toLowerCase()
@@ -346,6 +305,62 @@ export const HoldingsTable = memo(function HoldingsTable({
     return Math.abs(benchmarkValueByXirr - fundValueByXirr)
   }
 
+  // Group holdings by category
+  const {
+    equityHoldings, debtHoldings, otherHoldings,
+    equityTotal, debtTotal, otherTotal,
+    equityInvestedTotal, debtInvestedTotal, otherInvestedTotal,
+    equityMissedGains, debtMissedGains, otherMissedGains
+  } = useMemo(() => {
+    const equity: Holding[] = []
+    const debt: Holding[] = []
+    const other: Holding[] = []
+    let eqTotal = 0
+    let dbTotal = 0
+    let otTotal = 0
+    let eqInvestedTotal = 0
+    let dbInvestedTotal = 0
+    let otInvestedTotal = 0
+    let eqMissedGains = 0
+    let dbMissedGains = 0
+    let otMissedGains = 0
+
+    filteredHoldings.forEach(h => {
+      const mg = calculateMissedGains(h) || 0
+      if (h.category === "Equity") {
+        equity.push(h)
+        eqTotal += h.market_value
+        eqInvestedTotal += h.cost_value || 0
+        eqMissedGains += mg
+      } else if (h.category === "Fixed Income") {
+        debt.push(h)
+        dbTotal += h.market_value
+        dbInvestedTotal += h.cost_value || 0
+        dbMissedGains += mg
+      } else {
+        other.push(h)
+        otTotal += h.market_value
+        otInvestedTotal += h.cost_value || 0
+        otMissedGains += mg
+      }
+    })
+
+    return {
+      equityHoldings: equity,
+      debtHoldings: debt,
+      otherHoldings: other,
+      equityTotal: eqTotal,
+      debtTotal: dbTotal,
+      otherTotal: otTotal,
+      equityInvestedTotal: eqInvestedTotal,
+      debtInvestedTotal: dbInvestedTotal,
+      otherInvestedTotal: otInvestedTotal,
+      equityMissedGains: eqMissedGains,
+      debtMissedGains: dbMissedGains,
+      otherMissedGains: otMissedGains
+    }
+  }, [filteredHoldings])
+
   const compareHoldings = (a: Holding, b: Holding, key: SortKey, dir: "asc" | "desc"): number => {
     const mult = dir === "asc" ? 1 : -1
     const num = (v: number | null | undefined): number => (v ?? null) === null ? Number.NaN : (v as number)
@@ -446,26 +461,26 @@ export const HoldingsTable = memo(function HoldingsTable({
   type TableRowItem =
     | { type: "section"; label: string }
     | { type: "holding"; holding: Holding; key: string }
-    | { type: "subtotal"; label: string; subtotal: number; investedSubtotal: number }
+    | { type: "subtotal"; label: string; subtotal: number; investedSubtotal: number; missedGainsSubtotal: number }
   const tableRows = useMemo((): TableRowItem[] => {
     const rows: TableRowItem[] = []
     if (sortedEquityHoldings.length > 0) {
       rows.push({ type: "section", label: "Equity" })
       sortedEquityHoldings.forEach((h, i) => rows.push({ type: "holding", holding: h, key: `eq-${i}` }))
-      rows.push({ type: "subtotal", label: "Equity", subtotal: equityTotal, investedSubtotal: equityInvestedTotal })
+      rows.push({ type: "subtotal", label: "Equity", subtotal: equityTotal, investedSubtotal: equityInvestedTotal, missedGainsSubtotal: equityMissedGains })
     }
     if (sortedDebtHoldings.length > 0) {
       rows.push({ type: "section", label: "Fixed Income / Debt" })
       sortedDebtHoldings.forEach((h, i) => rows.push({ type: "holding", holding: h, key: `debt-${i}` }))
-      rows.push({ type: "subtotal", label: "Debt", subtotal: debtTotal, investedSubtotal: debtInvestedTotal })
+      rows.push({ type: "subtotal", label: "Debt", subtotal: debtTotal, investedSubtotal: debtInvestedTotal, missedGainsSubtotal: debtMissedGains })
     }
     if (sortedOtherHoldings.length > 0) {
       rows.push({ type: "section", label: "Others" })
       sortedOtherHoldings.forEach((h, i) => rows.push({ type: "holding", holding: h, key: `other-${i}` }))
-      rows.push({ type: "subtotal", label: "Others", subtotal: otherTotal, investedSubtotal: otherInvestedTotal })
+      rows.push({ type: "subtotal", label: "Others", subtotal: otherTotal, investedSubtotal: otherInvestedTotal, missedGainsSubtotal: otherMissedGains })
     }
     return rows
-  }, [sortedEquityHoldings, sortedDebtHoldings, sortedOtherHoldings, equityTotal, equityInvestedTotal, debtTotal, debtInvestedTotal, otherTotal, otherInvestedTotal])
+  }, [sortedEquityHoldings, sortedDebtHoldings, sortedOtherHoldings, equityTotal, equityInvestedTotal, debtTotal, debtInvestedTotal, otherTotal, otherInvestedTotal, equityMissedGains, debtMissedGains, otherMissedGains])
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -563,7 +578,7 @@ export const HoldingsTable = memo(function HoldingsTable({
     )
   }
 
-  const renderSubtotalRow = (rowNum: number, label: string, subtotal: number, investedSubtotal: number) => {
+  const renderSubtotalRow = (rowNum: number, label: string, subtotal: number, investedSubtotal: number, missedGainsSubtotal: number = 0) => {
     const allocPct = ((subtotal / total) * 100).toFixed(1)
     return (
       <TableRow key={`subtotal-${label}`} className="bg-muted/30 border-t-2 border-border">
@@ -605,6 +620,13 @@ export const HoldingsTable = memo(function HoldingsTable({
             return (
               <TableCell key={colId} className="px-2 py-2 sm:px-3 text-right" style={{ width: w, minWidth: w, maxWidth: w }}>
                 <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">{allocPct}%</span>
+              </TableCell>
+            )
+          }
+          if (colId === 12) {
+            return (
+              <TableCell key={colId} className="px-2 py-2 sm:px-3 text-right" style={{ width: w, minWidth: w, maxWidth: w }}>
+                <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">{missedGainsSubtotal > 0 ? `₹${formatCurrency(missedGainsSubtotal)}` : "-"}</span>
               </TableCell>
             )
           }
@@ -883,7 +905,7 @@ export const HoldingsTable = memo(function HoldingsTable({
                 {tableRows.map((row, index) => {
                   const rowNum = index + 1
                   if (row.type === "section") return renderSectionRow(rowNum, row.label)
-                  if (row.type === "subtotal") return renderSubtotalRow(rowNum, row.label, row.subtotal, row.investedSubtotal)
+                  if (row.type === "subtotal") return renderSubtotalRow(rowNum, row.label, row.subtotal, row.investedSubtotal, row.missedGainsSubtotal)
                   return renderHoldingRow(row.holding, row.key, rowNum)
                 })}
               </TableBody>
