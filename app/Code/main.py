@@ -490,10 +490,12 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         benchmark_history_raw = results[0]
         nav_map = dict(zip(all_amfis, results[1:]))
         benchmark_history, benchmark_sorted_keys, benchmark_sorted_dates, bench_nav_now = _prepare_benchmark_history(benchmark_history_raw)
+        log_debug(f"Benchmark NAV fetch OK: history_entries={len(benchmark_history)}, bench_nav_now={bench_nav_now}, sorted_keys_range={benchmark_sorted_keys[0] if benchmark_sorted_keys else 'EMPTY'}..{benchmark_sorted_keys[-1] if benchmark_sorted_keys else 'EMPTY'}")
         await save_cache_async()
     except Exception as e:
         add_warning("LIVE_NAV_FETCH_FAILED", "valuation", "warn", "Live NAV fetch failed for one or more schemes; statement NAV fallback applied where needed.")
         log_debug(f"Pre-fetch error: {type(e).__name__}: {e}")
+        log_debug(f"BENCHMARK DATA EMPTY after fetch failure: history={len(benchmark_history)}, bench_nav_now={bench_nav_now}")
 
     nav_missing_schemes = set()
     benchmark_fallback_by_scheme: Dict[str, int] = {}
@@ -617,14 +619,20 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 s_xirr = calculate_xirr([x[0] for x in s_flows], [x[1] for x in s_flows])
 
                 s_bm_units = 0.0
+                s_bm_nav_miss = 0
                 for dt, amt in scheme_cashflows:
                     b_nav, _ = _benchmark_nav_for_date(dt.strftime("%Y-%m-%d"), benchmark_history, benchmark_sorted_keys, benchmark_sorted_dates)
                     if b_nav:
                         s_bm_units += (-amt) / b_nav
+                    else:
+                        s_bm_nav_miss += 1
                 s_bm_val = s_bm_units * bench_nav_now
                 if s_bm_val > 0:
                     s_bm_flows = scheme_cashflows + [(now_dt, s_bm_val)]
                     s_bm_xirr = calculate_xirr([x[0] for x in s_bm_flows], [x[1] for x in s_bm_flows])
+
+                if s_bm_xirr is None:
+                    log_debug(f"BM_XIRR_NULL for '{name[:40]}': s_bm_units={s_bm_units:.4f}, bench_nav_now={bench_nav_now}, s_bm_val={s_bm_val:.2f}, cashflows={len(scheme_cashflows)}, nav_misses={s_bm_nav_miss}, s_xirr={s_xirr}")
 
             if s_xirr is not None and s_bm_xirr is not None and mkt_val > 0:
                 comparable_perf_count += 1
@@ -673,10 +681,12 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         [x[1] for x in (portfolio_cashflows + [(now_dt, total_mkt_live)])],
     )
     benchmark_val_now = benchmark_units * bench_nav_now
+    log_debug(f"Summary BM XIRR inputs: benchmark_units={benchmark_units:.4f}, bench_nav_now={bench_nav_now}, benchmark_val_now={benchmark_val_now:.2f}, portfolio_cashflows={len(portfolio_cashflows)}")
     bm_xirr = calculate_xirr(
         [x[0] for x in (portfolio_cashflows + [(now_dt, benchmark_val_now)])],
         [x[1] for x in (portfolio_cashflows + [(now_dt, benchmark_val_now)])],
     )
+    log_debug(f"Summary BM XIRR result: bm_xirr={bm_xirr}, pf_xirr={pf_xirr}")
     if bm_xirr is None:
         add_warning("BENCHMARK_XIRR_UNAVAILABLE", "benchmark", "warn", "Benchmark XIRR could not be computed reliably for this dataset.")
 
