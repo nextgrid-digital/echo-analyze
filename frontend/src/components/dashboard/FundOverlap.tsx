@@ -167,35 +167,35 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
         </h2>
         <div className="flex items-center gap-2">
           {hasData && (
-            <div className="flex items-center gap-1 no-print">
+            <div className="flex items-center gap-2 no-print mr-2">
               <Button
                 onClick={handleDownloadCSV}
                 variant="outline"
                 size="sm"
-                className="flex items-center gap-2 h-7 px-2 text-[10px]"
+                className="flex items-center gap-2 h-8 px-3 text-xs border-primary/20 bg-background/50 backdrop-blur-sm hover:bg-primary/5 transition-all duration-200"
                 title="Download CSV"
               >
-                <Download className="w-3 h-3" />
+                <Download className="w-3.5 h-3.5 text-muted-foreground" />
                 <span>CSV</span>
               </Button>
               <Button
                 onClick={handleDownloadImage}
                 variant="outline"
                 size="sm"
-                className="flex items-center gap-2 h-7 px-2 text-[10px]"
+                className="flex items-center gap-2 h-8 px-3 text-xs border-primary/20 bg-background/50 backdrop-blur-sm hover:bg-primary/5 transition-all duration-200"
                 title="Download PNG Image"
               >
-                <Download className="w-3 h-3 text-primary" />
+                <Download className="w-3.5 h-3.5 text-blue-500" />
                 <span>PNG</span>
               </Button>
               <Button
                 onClick={handleDownloadPDF}
                 variant="outline"
                 size="sm"
-                className="flex items-center gap-2 h-7 px-2 text-[10px]"
+                className="flex items-center gap-2 h-8 px-3 text-xs border-primary/20 bg-background/50 backdrop-blur-sm hover:bg-primary/5 transition-all duration-200"
                 title="Download PDF"
               >
-                <Download className="w-3 h-3 text-destructive" />
+                <Download className="w-3.5 h-3.5 text-destructive" />
                 <span>PDF</span>
               </Button>
             </div>
