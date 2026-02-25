@@ -4,10 +4,11 @@ import json
 import os
 import re
 import uuid
+from dataclasses import dataclass
 from bisect import bisect_right
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -194,6 +195,215 @@ def _benchmark_nav_for_date(
     return None, False
 
 
+@dataclass(frozen=True)
+class BenchmarkComponent:
+    code: str
+    weight: float
+    label: str
+
+
+@dataclass
+class TaxLot:
+    acquired_on: datetime
+    units: float
+    cost_per_unit: float
+
+
+def _resolve_benchmark_components(
+    scheme_name: str,
+    scheme_type: str,
+    sub_category: str,
+    category: str,
+) -> List[BenchmarkComponent]:
+    name = (scheme_name or "").upper()
+    typ = (scheme_type or "").upper()
+    sub = (sub_category or "").upper()
+
+    eq_nifty50 = BenchmarkComponent("120716", 1.0, "Nifty 50 TRI proxy")
+    eq_mid150 = BenchmarkComponent("148726", 1.0, "Nifty Midcap 150 TRI proxy")
+    eq_small250 = BenchmarkComponent("148519", 1.0, "Nifty Smallcap 250 TRI proxy")
+    debt_liquid = BenchmarkComponent("120197", 1.0, "Liquid debt proxy")
+    debt_corp = BenchmarkComponent("120692", 1.0, "Corporate bond proxy")
+    debt_gilt = BenchmarkComponent("120590", 1.0, "Gilt proxy")
+    debt_credit = BenchmarkComponent("120711", 1.0, "Credit risk proxy")
+
+    if any(x in name for x in ["HYBRID", "BALANCED", "AGGRESSIVE"]) or "EQUITY - HYBRID" in sub:
+        return [
+            BenchmarkComponent(eq_nifty50.code, 0.65, eq_nifty50.label),
+            BenchmarkComponent(debt_corp.code, 0.35, debt_corp.label),
+        ]
+
+    if category == "Fixed Income" or "DEBT" in typ or "FIXED INCOME" in typ:
+        fi_text = f"{name} {sub}"
+        if any(x in fi_text for x in ["LIQUID", "OVERNIGHT", "MONEY MARKET", "ULTRA SHORT"]):
+            return [debt_liquid]
+        if any(x in fi_text for x in ["GILT", "TREASURY", "CONSTANT MATURITY", "SDL"]):
+            return [debt_gilt]
+        if any(x in fi_text for x in ["CREDIT RISK", "LOW RATED", "HIGH YIELD"]):
+            return [debt_credit]
+        return [debt_corp]
+
+    if category == "Equity":
+        eq_text = f"{name} {sub}"
+        if "LARGE & MID" in eq_text or "LARGEMIDCAP" in eq_text:
+            return [
+                BenchmarkComponent(eq_nifty50.code, 0.5, eq_nifty50.label),
+                BenchmarkComponent(eq_mid150.code, 0.5, eq_mid150.label),
+            ]
+        if any(x in eq_text for x in ["SMALL CAP", "SMALL-CAP", "SMALLCAP"]):
+            return [eq_small250]
+        if any(x in eq_text for x in ["MID CAP", "MID-CAP", "MIDCAP"]):
+            return [eq_mid150]
+        return [eq_nifty50]
+
+    if any(x in name for x in ["LIQUID", "OVERNIGHT", "MONEY MARKET"]):
+        return [debt_liquid]
+    return [eq_nifty50]
+
+
+def _normalize_benchmark_components(
+    components: List[BenchmarkComponent],
+    prepared_histories: Dict[str, Tuple[Dict[str, float], List[str], List[date], float]],
+) -> List[BenchmarkComponent]:
+    active = [c for c in components if c.code in prepared_histories and prepared_histories[c.code][3] > 0]
+    total_w = sum(c.weight for c in active)
+    if total_w <= 0:
+        return []
+    return [BenchmarkComponent(code=c.code, weight=(c.weight / total_w), label=c.label) for c in active]
+
+
+def _format_benchmark_name(components: List[BenchmarkComponent]) -> Optional[str]:
+    if not components:
+        return None
+    if len(components) == 1:
+        return components[0].label
+    pieces = [f"{round(c.weight * 100)}% {c.label}" for c in components]
+    return " + ".join(pieces)
+
+
+def _nav_from_prepared_history(
+    date_str: str,
+    prepared_history: Tuple[Dict[str, float], List[str], List[date], float],
+) -> Tuple[Optional[float], bool]:
+    hist, keys, days, _ = prepared_history
+    return _benchmark_nav_for_date(date_str, hist, keys, days)
+
+
+def _units_at_cutoff(
+    units_now: float,
+    unit_events: List[Tuple[datetime, float]],
+    cutoff_dt: datetime,
+) -> float:
+    units_after_cutoff = sum(delta for dt, delta in unit_events if dt > cutoff_dt)
+    return max(0.0, units_now - units_after_cutoff)
+
+
+def _compute_period_xirr(
+    cashflows: List[Tuple[datetime, float]],
+    start_value: float,
+    end_value: float,
+    cutoff_dt: datetime,
+    as_of_dt: datetime,
+) -> Optional[float]:
+    if start_value <= 0 or end_value <= 0 or cutoff_dt >= as_of_dt:
+        return None
+    period_flows = [(cutoff_dt, -start_value)]
+    period_flows.extend((dt, amt) for dt, amt in cashflows if dt > cutoff_dt)
+    period_flows.append((as_of_dt, end_value))
+    return calculate_xirr([x[0] for x in period_flows], [x[1] for x in period_flows])
+
+
+def _parse_percentage(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        if isinstance(value, str):
+            cleaned = value.replace("%", "").replace(",", "").strip()
+            if not cleaned:
+                return None
+            return float(cleaned)
+        return float(value)
+    except Exception:
+        return None
+
+
+def _extract_scheme_ter_pct(scheme: Dict[str, Any]) -> Optional[float]:
+    keys = [
+        "ter",
+        "expense_ratio",
+        "expenseRatio",
+        "total_expense_ratio",
+        "totalExpenseRatio",
+    ]
+    for key in keys:
+        v = _parse_percentage(scheme.get(key))
+        if v is not None and 0 < v < 10:
+            return v
+    valuation = scheme.get("valuation")
+    if isinstance(valuation, dict):
+        for key in keys:
+            v = _parse_percentage(valuation.get(key))
+            if v is not None and 0 < v < 10:
+                return v
+    return None
+
+
+def _default_ter_pct(category: str, sub_category: str, scheme_name: str, is_direct: bool) -> float:
+    cat = (category or "").upper()
+    sub = (sub_category or "").upper()
+    name = (scheme_name or "").upper()
+
+    if any(x in name for x in ["INDEX", "ETF", "NIFTY", "SENSEX"]):
+        return 0.25 if is_direct else 0.60
+    if cat == "FIXED INCOME":
+        if any(x in sub or x in name for x in ["LIQUID", "OVERNIGHT", "MONEY MARKET"]):
+            return 0.20 if is_direct else 0.40
+        if "CREDIT RISK" in sub or "CREDIT RISK" in name:
+            return 0.80 if is_direct else 1.40
+        if any(x in sub or x in name for x in ["GILT", "DYNAMIC", "MEDIUM"]):
+            return 0.60 if is_direct else 1.10
+        return 0.45 if is_direct else 0.90
+    if "HYBRID" in sub or "HYBRID" in name or "BALANCED" in name:
+        return 0.90 if is_direct else 1.50
+    if cat == "EQUITY":
+        if any(x in sub or x in name for x in ["SMALL", "MID"]):
+            return 1.00 if is_direct else 1.80
+        return 0.75 if is_direct else 1.40
+    return 0.60 if is_direct else 1.10
+
+
+def _years_between(start_dt: Optional[datetime], end_dt: datetime) -> float:
+    if not start_dt or start_dt > end_dt:
+        return 0.0
+    return max(0.0, (end_dt - start_dt).days / 365.25)
+
+
+def _credit_quality_bucket(scheme_name: str, sub_category: str) -> str:
+    text = f"{scheme_name or ''} {sub_category or ''}".upper()
+    if any(x in text for x in ["CREDIT RISK", "LOW RATED", "HIGH YIELD", "BELOW AA"]):
+        return "Below AA"
+    if any(
+        x in text
+        for x in [
+            "LIQUID",
+            "OVERNIGHT",
+            "MONEY MARKET",
+            "TREASURY",
+            "T-BILL",
+            "GILT",
+            "SDL",
+            "BANKING",
+            "PSU",
+            "CORPORATE BOND",
+            "AAA",
+        ]
+    ):
+        return "AAA"
+    if any(x in text for x in ["DYNAMIC", "MEDIUM", "SHORT", "FLOATER", "DURATION", "BOND"]):
+        return "AA"
+    return "AA"
+
+
 def _validate_upload(file: UploadFile, content: bytes) -> Optional[str]:
     filename = (file.filename or "").strip()
     suffix = Path(filename).suffix.lower()
@@ -231,6 +441,8 @@ class Holding(BaseModel):
     return_pct: float = 0.0
     xirr: Optional[float] = None
     benchmark_xirr: Optional[float] = None
+    benchmark_name: Optional[str] = None
+    missed_gains: Optional[float] = None
     date_of_entry: Optional[str] = None
     style_category: Optional[str] = None
 
@@ -449,6 +661,9 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
     holdings: List[Holding] = []
     folios = cas_data.get("folios", [])
+    analysis_now_dt = datetime.now()
+    one_year_cutoff_dt = analysis_now_dt - timedelta(days=365)
+    three_year_cutoff_dt = analysis_now_dt - timedelta(days=365 * 3)
 
     total_cost = 0.0
     total_mkt_live = 0.0
@@ -463,8 +678,12 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     portfolio_cashflows: List[Tuple[datetime, float]] = []
     equity_cashflows: List[Tuple[datetime, float]] = []
     fi_cashflows: List[Tuple[datetime, float]] = []
-    benchmark_units = 0.0
-    equity_benchmark_units = 0.0
+    benchmark_cashflows: List[Tuple[datetime, float]] = []
+    equity_benchmark_cashflows: List[Tuple[datetime, float]] = []
+    benchmark_terminal_value = 0.0
+    equity_benchmark_terminal_value = 0.0
+    benchmark_cost_total = 0.0
+    equity_benchmark_cost_total = 0.0
 
     benchmark_txn_total = 0
     benchmark_txn_exact = 0
@@ -474,32 +693,75 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     fi_holdings_objs: List[Holding] = []
     fi_alloc_map: Dict[str, float] = {}
     credit_values = {"AAA": 0.0, "AA": 0.0, "Below AA": 0.0}
-    perf_diffs_weighted: List[Tuple[float, float]] = []
-    comparable_perf_count = 0
+    perf_diffs_weighted_1y: List[Tuple[float, float]] = []
+    perf_diffs_weighted_3y: List[Tuple[float, float]] = []
+    comparable_perf_count_1y = 0
+    comparable_perf_count_3y = 0
     ambiguous_category_count = 0
+    annual_cost_est = 0.0
+    total_cost_paid_est = 0.0
+    savings_value_est = 0.0
+    inferred_ter_scheme_count = 0
+    tax_short_term_gains = 0.0
+    tax_short_term_losses = 0.0
+    tax_long_term_gains = 0.0
+    tax_long_term_losses = 0.0
 
     all_amfis = set()
+    benchmark_codes_needed = set()
     for folio_data in folios:
         for scheme in folio_data.get("schemes", []):
             amfi = (scheme.get("amfi") or "").strip()
             if amfi:
                 all_amfis.add(amfi)
+            name = scheme.get("scheme", "Unknown Scheme")
+            scheme_type = (scheme.get("type") or "OTHERS").strip()
+            sub_cat = get_sub_category(name, scheme_type)
+            cat, _ = _infer_category(name, scheme_type, sub_cat)
+            comps = _resolve_benchmark_components(name, scheme_type, sub_cat, cat)
+            for comp in comps:
+                benchmark_codes_needed.add(comp.code)
 
     nav_map: Dict[str, float] = {}
-    benchmark_history: Dict[str, float] = {}
-    benchmark_sorted_keys: List[str] = []
-    benchmark_sorted_dates: List[date] = []
-    bench_nav_now = 0.0
-    benchmark_code = "120716"
+    benchmark_histories_prepared: Dict[str, Tuple[Dict[str, float], List[str], List[date], float]] = {}
+    scheme_histories_prepared: Dict[str, Tuple[Dict[str, float], List[str], List[date], float]] = {}
 
     try:
-        # Increase timeout to 15s to be more resilient to MFAPI slowness, as this affects BM XIRR and Missed Gains
-        tasks = [fetch_nav_history(benchmark_code)] + [fetch_live_nav(code) for code in all_amfis]
-        results = await asyncio.wait_for(asyncio.gather(*tasks), timeout=15.0)
-        benchmark_history_raw = results[0]
-        nav_map = dict(zip(all_amfis, results[1:]))
-        benchmark_history, benchmark_sorted_keys, benchmark_sorted_dates, bench_nav_now = _prepare_benchmark_history(benchmark_history_raw)
-        log_debug(f"Benchmark NAV fetch OK: history_entries={len(benchmark_history)}, bench_nav_now={bench_nav_now}")
+        amfi_codes = sorted(all_amfis)
+        benchmark_codes = sorted(benchmark_codes_needed)
+
+        live_nav_results, benchmark_history_results, scheme_history_results = await asyncio.gather(
+            asyncio.gather(*[fetch_live_nav(code) for code in amfi_codes], return_exceptions=True),
+            asyncio.gather(*[fetch_nav_history(code) for code in benchmark_codes], return_exceptions=True),
+            asyncio.gather(*[fetch_nav_history(code) for code in amfi_codes], return_exceptions=True),
+        )
+
+        for code, result in zip(amfi_codes, live_nav_results):
+            if isinstance(result, Exception):
+                nav_map[code] = 0.0
+            else:
+                nav_map[code] = float(result or 0.0)
+
+        for code, result in zip(benchmark_codes, benchmark_history_results):
+            if isinstance(result, Exception) or not isinstance(result, dict) or not result:
+                continue
+            prepared = _prepare_benchmark_history(result)
+            if prepared[3] > 0:
+                benchmark_histories_prepared[code] = prepared
+
+        for code, result in zip(amfi_codes, scheme_history_results):
+            if isinstance(result, Exception) or not isinstance(result, dict) or not result:
+                continue
+            prepared = _prepare_benchmark_history(result)
+            if prepared[3] > 0:
+                scheme_histories_prepared[code] = prepared
+
+        log_debug(
+            "Benchmark/NAV prefetch OK: "
+            f"live_nav={len([v for v in nav_map.values() if v > 0])}/{len(nav_map)}, "
+            f"benchmark_histories={len(benchmark_histories_prepared)}, "
+            f"scheme_histories={len(scheme_histories_prepared)}"
+        )
         await save_cache_async()
     except Exception as e:
         add_warning("LIVE_NAV_FETCH_FAILED", "valuation", "warn", "Live NAV fetch failed or timed out; benchmark metrics may be missing.")
@@ -523,6 +785,9 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             scheme_type = (scheme.get("type") or "OTHERS").strip()
             sub_cat = get_sub_category(name, scheme_type)
             cat, ambiguous = _infer_category(name, scheme_type, sub_cat)
+            benchmark_components_raw = _resolve_benchmark_components(name, scheme_type, sub_cat, cat)
+            benchmark_components = _normalize_benchmark_components(benchmark_components_raw, benchmark_histories_prepared)
+            benchmark_name = _format_benchmark_name(benchmark_components)
             if ambiguous:
                 ambiguous_category_count += 1
             schemes_seen.add(name)
@@ -531,23 +796,35 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             scheme_cost = 0.0
             scheme_cashflows: List[Tuple[datetime, float]] = []
             scheme_tx_dates: List[datetime] = []
+            scheme_unit_events: List[Tuple[datetime, float]] = []
+            lot_events: List[Tuple[datetime, float, float]] = []
+            scheme_benchmark_units: Dict[str, float] = {comp.code: 0.0 for comp in benchmark_components}
+            scheme_benchmark_unit_events: Dict[str, List[Tuple[datetime, float]]] = {comp.code: [] for comp in benchmark_components}
 
             for txn in scheme.get("transactions", []):
                 desc = (txn.get("description") or "").upper()
                 txn_type = (txn.get("type") or "").upper()
-                if "REINVEST" in desc:
-                    continue
                 date_str = txn.get("date")
-                raw_amt = _parse_amount(txn.get("amount"))
-                if date_str is None or raw_amt is None or raw_amt == 0:
+                if date_str is None:
                     continue
                 dt = _parse_iso_date(date_str)
                 if not dt:
                     continue
+                raw_units = _parse_amount(txn.get("units")) or 0.0
+                if abs(raw_units) > 0:
+                    scheme_unit_events.append((dt, raw_units))
+                    scheme_tx_dates.append(dt)
+
+                raw_amt = _parse_amount(txn.get("amount"))
+                if raw_amt is None or raw_amt == 0:
+                    continue
 
                 # Use absolute amount as base; signs are dictated by transaction units/type.
                 amt = abs(raw_amt)
-                raw_units = _parse_amount(txn.get("units")) or 0.0
+
+                # Build lot events for tax attribution; bonus/split lots are excluded due zero/uncertain cost basis.
+                if abs(raw_units) > 0 and not any(ik in desc or ik in txn_type for ik in ["BONUS", "SPLIT"]):
+                    lot_events.append((dt, raw_units, amt))
 
                 # XIRR convention: Outflow (investment) is negative, Inflow (withdrawal/redemption) is positive.
                 if raw_units > 0:
@@ -573,33 +850,40 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 # Exclude internal reinvestments and bonus units from cashflow for XIRR calculation.
                 ignore_keywords = ["REINVEST", "RE-INVEST", "BONUS", "SPLIT"]
                 is_ignored = any(ik in desc for ik in ignore_keywords) or any(ik in txn_type for ik in ignore_keywords)
-                
+
                 if is_ignored:
                     log_debug(f"TXN_IGNORE: '{desc[:20]}', amt={amt}, type={txn_type}")
-                else:
-                    cashflow = amt if is_withdrawal else -amt
-                    log_debug(f"TXN_DEBUG: '{desc[:25]}', raw={raw_amt}, units={raw_units}, cf={cashflow}, type={txn_type}")
+                    continue
 
-                    scheme_cashflows.append((dt, cashflow))
+                cashflow = amt if is_withdrawal else -amt
+                log_debug(f"TXN_DEBUG: '{desc[:25]}', raw={raw_amt}, units={raw_units}, cf={cashflow}, type={txn_type}")
+
+                scheme_cashflows.append((dt, cashflow))
+                if dt not in scheme_tx_dates:
                     scheme_tx_dates.append(dt)
-                    if not is_withdrawal:
-                        scheme_cost += amt
-                    else:
-                        scheme_cost -= amt
-                    
-                    portfolio_cashflows.append((dt, cashflow))
+                if not is_withdrawal:
+                    scheme_cost += amt
+                else:
+                    scheme_cost -= amt
 
-                    benchmark_txn_total += 1
-                    b_nav, is_exact = _benchmark_nav_for_date(date_str, benchmark_history, benchmark_sorted_keys, benchmark_sorted_dates)
-                    if b_nav:
-                        # Simulated benchmark: Outflow buys units, Inflow sells units.
-                        txn_bm_units = (-cashflow) / b_nav
-                        benchmark_units = max(0.0, benchmark_units + txn_bm_units)
-                        if cat == "Equity":
-                            equity_benchmark_units = max(0.0, equity_benchmark_units + txn_bm_units)
+                portfolio_cashflows.append((dt, cashflow))
 
+                if benchmark_components:
+                    benchmark_cashflows.append((dt, cashflow))
+                    if cat == "Equity":
+                        equity_benchmark_cashflows.append((dt, cashflow))
+                    for comp in benchmark_components:
+                        history_bundle = benchmark_histories_prepared.get(comp.code)
+                        if not history_bundle:
+                            continue
+                        benchmark_txn_total += 1
+                        b_nav, is_exact = _nav_from_prepared_history(date_str, history_bundle)
+                        if not b_nav:
+                            continue
+                        txn_bm_units = ((-cashflow) * comp.weight) / b_nav
+                        scheme_benchmark_units[comp.code] = max(0.0, scheme_benchmark_units.get(comp.code, 0.0) + txn_bm_units)
+                        scheme_benchmark_unit_events.setdefault(comp.code, []).append((dt, txn_bm_units))
                         if is_exact:
-
                             benchmark_txn_exact += 1
                         else:
                             benchmark_fallback_by_scheme[name] = benchmark_fallback_by_scheme.get(name, 0) + 1
@@ -662,43 +946,146 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 fi_amc_values[amc_name] = fi_amc_values.get(amc_name, 0.0) + mkt_val
                 fi_alloc_map[sub_cat] = fi_alloc_map.get(sub_cat, 0.0) + mkt_val
                 fi_cashflows.extend(scheme_cashflows)
+                credit_bucket = _credit_quality_bucket(name, sub_cat)
+                credit_values[credit_bucket] += mkt_val
 
-                u_sub = sub_cat.upper()
-                if any(x in u_sub for x in ["LIQUID", "GILT", "OVERNIGHT", "MONEY MARKET", "TREASURY"]):
-                    credit_values["AAA"] += mkt_val
-                elif any(x in u_sub for x in ["CREDIT RISK", "MEDIUM DURATION", "DYNAMIC"]):
-                    credit_values["AA"] += mkt_val
+            scheme_entry_dt = min(scheme_tx_dates) if scheme_tx_dates else None
+            holding_years = _years_between(scheme_entry_dt, analysis_now_dt)
+            scheme_ter = _extract_scheme_ter_pct(scheme)
+            if scheme_ter is None:
+                scheme_ter = _default_ter_pct(cat, sub_cat, name, is_direct)
+                inferred_ter_scheme_count += 1
+            avg_value_for_cost = max(0.0, (max(scheme_cost, 0.0) + max(mkt_val, 0.0)) / 2.0)
+            annual_cost_est += avg_value_for_cost * (scheme_ter / 100.0)
+            total_cost_paid_est += avg_value_for_cost * (scheme_ter / 100.0) * holding_years
+            if not is_direct:
+                direct_ter_proxy = _default_ter_pct(cat, sub_cat, name, True)
+                ter_gap = max(0.0, scheme_ter - direct_ter_proxy)
+                savings_value_est += avg_value_for_cost * (ter_gap / 100.0) * holding_years
+
+            if cat == "Equity" and units > 0 and effective_nav > 0:
+                lots: List[TaxLot] = []
+                for lot_dt, units_delta, amt_val in sorted(lot_events, key=lambda x: x[0]):
+                    if units_delta > 0:
+                        cpu = amt_val / units_delta if units_delta else 0.0
+                        if cpu > 0:
+                            lots.append(TaxLot(acquired_on=lot_dt, units=units_delta, cost_per_unit=cpu))
+                    elif units_delta < 0:
+                        units_to_sell = abs(units_delta)
+                        while units_to_sell > 1e-9 and lots:
+                            lot = lots[0]
+                            consumed = min(lot.units, units_to_sell)
+                            lot.units -= consumed
+                            units_to_sell -= consumed
+                            if lot.units <= 1e-9:
+                                lots.pop(0)
+
+                remaining_units = sum(lot.units for lot in lots)
+                fallback_dt = scheme_entry_dt or analysis_now_dt
+                if remaining_units <= 1e-9:
+                    if scheme_cost > 0:
+                        lots = [TaxLot(acquired_on=fallback_dt, units=units, cost_per_unit=scheme_cost / units)]
                 else:
-                    credit_values["AAA"] += mkt_val
+                    unit_scale = units / remaining_units
+                    if abs(unit_scale - 1.0) > 0.02:
+                        for lot in lots:
+                            lot.units *= unit_scale
+
+                lot_cost_total = sum(lot.units * lot.cost_per_unit for lot in lots)
+                if lots and lot_cost_total > 0 and scheme_cost > 0:
+                    cost_scale = scheme_cost / lot_cost_total
+                    for lot in lots:
+                        lot.cost_per_unit *= cost_scale
+
+                for lot in lots:
+                    if lot.units <= 0:
+                        continue
+                    lot_cost = lot.units * lot.cost_per_unit
+                    lot_mkt = lot.units * effective_nav
+                    lot_gain = lot_mkt - lot_cost
+                    is_long_term_lot = (analysis_now_dt.date() - lot.acquired_on.date()).days >= 365
+                    if is_long_term_lot:
+                        if lot_gain >= 0:
+                            tax_long_term_gains += lot_gain
+                        else:
+                            tax_long_term_losses += abs(lot_gain)
+                    else:
+                        if lot_gain >= 0:
+                            tax_short_term_gains += lot_gain
+                        else:
+                            tax_short_term_losses += abs(lot_gain)
 
             s_xirr = None
             s_bm_xirr = None
+            s_bm_val = 0.0
+            s_missed_gains = None
+            for comp in benchmark_components:
+                history_bundle = benchmark_histories_prepared.get(comp.code)
+                if not history_bundle:
+                    continue
+                s_bm_val += scheme_benchmark_units.get(comp.code, 0.0) * history_bundle[3]
+
             if scheme_cashflows:
-                now_dt = datetime.now()
-                s_flows = scheme_cashflows + [(now_dt, mkt_val)]
+                s_flows = scheme_cashflows + [(analysis_now_dt, mkt_val)]
                 s_xirr = calculate_xirr([x[0] for x in s_flows], [x[1] for x in s_flows])
+                if s_bm_val > 0:
+                    s_flows_bm = [(dt, amt_val) for dt, amt_val in scheme_cashflows] + [(analysis_now_dt, s_bm_val)]
+                    s_bm_xirr = calculate_xirr([x[0] for x in s_flows_bm], [x[1] for x in s_flows_bm])
+                    s_missed_gains = s_bm_val - mkt_val
 
-                s_bm_units = 0.0
-                s_bm_nav_miss = 0
-                for dt, amt_val in scheme_cashflows:
-                    b_nav, _ = _benchmark_nav_for_date(dt.strftime("%Y-%m-%d"), benchmark_history, benchmark_sorted_keys, benchmark_sorted_dates)
-                    if b_nav:
-                        s_bm_units += (-amt_val) / b_nav
-                    else:
-                        s_bm_nav_miss += 1
-                s_bm_val = s_bm_units * bench_nav_now
-                s_flows_bm = [(dt, amt_val) for dt, amt_val in scheme_cashflows] + [(now_dt, s_bm_val)]
-                s_bm_xirr = calculate_xirr([x[0] for x in s_flows_bm], [x[1] for x in s_flows_bm])
-                
-                if s_bm_xirr is None:
-                    log_debug(f"BM_XIRR_FAIL: {name[:20]}, units={s_bm_units:.2f}, val={s_bm_val:.2f}, flows={len(s_flows_bm)}, nav_miss={s_bm_nav_miss}")
+                    if s_bm_xirr is None:
+                        log_debug(
+                            f"BM_XIRR_FAIL: {name[:20]}, bm_val={s_bm_val:.2f}, flows={len(s_flows_bm)}, "
+                            f"components={len(benchmark_components)}"
+                        )
 
-                if s_bm_xirr is None:
-                    log_debug(f"BM_XIRR_NULL for '{name[:40]}': s_bm_units={s_bm_units:.4f}, bench_nav_now={bench_nav_now}, s_bm_val={s_bm_val:.2f}, cashflows={len(scheme_cashflows)}, nav_misses={s_bm_nav_miss}, s_xirr={s_xirr}")
+            if s_bm_val > 0:
+                benchmark_terminal_value += s_bm_val
+                benchmark_cost_total += scheme_cost
+                if cat == "Equity":
+                    equity_benchmark_terminal_value += s_bm_val
+                    equity_benchmark_cost_total += scheme_cost
 
-            if s_xirr is not None and s_bm_xirr is not None and mkt_val > 0:
-                comparable_perf_count += 1
-                perf_diffs_weighted.append((mkt_val, s_xirr - s_bm_xirr))
+            if scheme_cashflows and s_bm_val > 0 and mkt_val > 0 and amfi and amfi in scheme_histories_prepared:
+                fund_history_bundle = scheme_histories_prepared[amfi]
+
+                def period_diff_for_cutoff(cutoff_dt: datetime) -> Optional[float]:
+                    cutoff_str = cutoff_dt.strftime("%Y-%m-%d")
+                    fund_units_start = _units_at_cutoff(units, scheme_unit_events, cutoff_dt)
+                    fund_nav_start, _ = _nav_from_prepared_history(cutoff_str, fund_history_bundle)
+                    if not fund_nav_start:
+                        return None
+                    fund_start_val = fund_units_start * fund_nav_start
+
+                    bm_start_val = 0.0
+                    for comp in benchmark_components:
+                        history_bundle = benchmark_histories_prepared.get(comp.code)
+                        if not history_bundle:
+                            continue
+                        comp_units_start = _units_at_cutoff(
+                            scheme_benchmark_units.get(comp.code, 0.0),
+                            scheme_benchmark_unit_events.get(comp.code, []),
+                            cutoff_dt,
+                        )
+                        comp_nav_start, _ = _nav_from_prepared_history(cutoff_str, history_bundle)
+                        if comp_nav_start:
+                            bm_start_val += comp_units_start * comp_nav_start
+
+                    fund_period_xirr = _compute_period_xirr(scheme_cashflows, fund_start_val, mkt_val, cutoff_dt, analysis_now_dt)
+                    bm_period_xirr = _compute_period_xirr(scheme_cashflows, bm_start_val, s_bm_val, cutoff_dt, analysis_now_dt)
+                    if fund_period_xirr is None or bm_period_xirr is None:
+                        return None
+                    return fund_period_xirr - bm_period_xirr
+
+                diff_1y = period_diff_for_cutoff(one_year_cutoff_dt)
+                if diff_1y is not None:
+                    comparable_perf_count_1y += 1
+                    perf_diffs_weighted_1y.append((mkt_val, diff_1y))
+
+                diff_3y = period_diff_for_cutoff(three_year_cutoff_dt)
+                if diff_3y is not None:
+                    comparable_perf_count_3y += 1
+                    perf_diffs_weighted_3y.append((mkt_val, diff_3y))
 
             h_obj = Holding(
                 fund_family=amc_name,
@@ -715,6 +1102,8 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 return_pct=ret_pct,
                 xirr=round(s_xirr, 2) if s_xirr is not None else None,
                 benchmark_xirr=round(s_bm_xirr, 2) if s_bm_xirr is not None else None,
+                benchmark_name=benchmark_name,
+                missed_gains=round(s_missed_gains, 2) if s_missed_gains is not None else None,
                 date_of_entry=date_of_entry,
                 style_category="Direct" if is_direct else "Regular",
             )
@@ -737,17 +1126,24 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     if ambiguous_category_count > 0:
         add_warning("CATEGORY_AMBIGUOUS", "classification", "warn", f"{ambiguous_category_count} scheme(s) had ambiguous classification and were mapped conservatively.")
 
-    now_dt = datetime.now()
+    now_dt = analysis_now_dt
     pf_xirr = calculate_xirr(
         [x[0] for x in (portfolio_cashflows + [(now_dt, total_mkt_live)])],
         [x[1] for x in (portfolio_cashflows + [(now_dt, total_mkt_live)])],
     )
-    benchmark_val_now = benchmark_units * bench_nav_now
-    log_debug(f"Summary BM XIRR inputs: benchmark_units={benchmark_units:.4f}, bench_nav_now={bench_nav_now}, benchmark_val_now={benchmark_val_now:.2f}, portfolio_cashflows={len(portfolio_cashflows)}")
-    bm_xirr = calculate_xirr(
-        [x[0] for x in (portfolio_cashflows + [(now_dt, benchmark_val_now)])],
-        [x[1] for x in (portfolio_cashflows + [(now_dt, benchmark_val_now)])],
+    benchmark_val_now = benchmark_terminal_value
+    log_debug(
+        "Summary BM XIRR inputs: "
+        f"benchmark_val_now={benchmark_val_now:.2f}, "
+        f"benchmark_cashflows={len(benchmark_cashflows)}, "
+        f"portfolio_cashflows={len(portfolio_cashflows)}"
     )
+    bm_xirr = None
+    if benchmark_cashflows and benchmark_val_now > 0:
+        bm_xirr = calculate_xirr(
+            [x[0] for x in (benchmark_cashflows + [(now_dt, benchmark_val_now)])],
+            [x[1] for x in (benchmark_cashflows + [(now_dt, benchmark_val_now)])],
+        )
     log_debug(f"XIRR_RESULT_DEBUG: pf_xirr={pf_xirr}, bm_xirr={bm_xirr}, total_mkt={total_mkt_live}, bm_val={benchmark_val_now}")
 
     total_equity_val = sum(h.market_value for h in holdings if h.category == "Equity")
@@ -757,19 +1153,28 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         [x[0] for x in (equity_cashflows + [(now_dt, total_equity_val)])],
         [x[1] for x in (equity_cashflows + [(now_dt, total_equity_val)])],
     )
-    eq_benchmark_val_now = equity_benchmark_units * bench_nav_now
-    eq_bm_xirr = calculate_xirr(
-        [x[0] for x in (equity_cashflows + [(now_dt, eq_benchmark_val_now)])],
-        [x[1] for x in (equity_cashflows + [(now_dt, eq_benchmark_val_now)])],
-    )
+    eq_benchmark_val_now = equity_benchmark_terminal_value
+    eq_bm_xirr = None
+    if equity_benchmark_cashflows and eq_benchmark_val_now > 0:
+        eq_bm_xirr = calculate_xirr(
+            [x[0] for x in (equity_benchmark_cashflows + [(now_dt, eq_benchmark_val_now)])],
+            [x[1] for x in (equity_benchmark_cashflows + [(now_dt, eq_benchmark_val_now)])],
+        )
     log_debug(f"EQ_XIRR_DEBUG: eq_xirr={eq_xirr}, eq_bm_xirr={eq_bm_xirr}, equity_mkt={total_equity_val}, eq_bm_val={eq_benchmark_val_now}")
-    total_equity_bm_gain = eq_benchmark_val_now - total_equity_cost if eq_benchmark_val_now > 0 else 0.0
+    total_equity_bm_gain = eq_benchmark_val_now - equity_benchmark_cost_total if eq_benchmark_val_now > 0 else 0.0
 
 
 
     if bm_xirr is None:
 
         add_warning("BENCHMARK_XIRR_UNAVAILABLE", "benchmark", "warn", "Benchmark XIRR could not be computed reliably for this dataset.")
+    if benchmark_cashflows and len(benchmark_cashflows) < len(portfolio_cashflows):
+        add_warning(
+            "BENCHMARK_PARTIAL_COVERAGE",
+            "benchmark",
+            "info",
+            "Benchmark calculation excludes some scheme cashflows where benchmark proxies were unavailable.",
+        )
 
     benchmark_date_match_pct = round((benchmark_txn_exact / benchmark_txn_total) * 100, 2) if benchmark_txn_total > 0 else 100.0
     if benchmark_date_match_pct < 99.5:
@@ -803,8 +1208,6 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         for k, v in sorted_amcs
     ] if total_mkt_live > 0 else []
 
-    annual_cost_est = (direct_value * 0.0075 + regular_value * 0.015)
-    total_cost_paid_est = annual_cost_est * 5
     total_equity_gain = sum(h.gain_loss for h in holdings if h.category == "Equity")
     total_fi_cost = sum(h.cost_value for h in holdings if h.category == "Fixed Income")
     total_fi_gain = sum(h.gain_loss for h in holdings if h.category == "Fixed Income")
@@ -853,27 +1256,34 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             category_allocation=fi_alloc_list,
         )
 
-    def calc_perf_metric(weighted_diffs: List[Tuple[float, float]]) -> PerfMetric:
-        total_weight = sum(w for w, _ in weighted_diffs)
-        if total_weight <= 0:
+    def calc_perf_metric(weighted_diffs: List[Tuple[float, float]], denominator_weight: float) -> PerfMetric:
+        if denominator_weight <= 0:
             return PerfMetric(underperforming_pct=0, upto_3_pct=0, more_than_3_pct=0)
         under_w = sum(w for w, d in weighted_diffs if d < 0)
         upto_3_w = sum(w for w, d in weighted_diffs if -3 <= d < 0)
         more_3_w = sum(w for w, d in weighted_diffs if d < -3)
         return PerfMetric(
-            underperforming_pct=round((under_w / total_weight) * 100, 1),
-            upto_3_pct=round((upto_3_w / total_weight) * 100, 1),
-            more_than_3_pct=round((more_3_w / total_weight) * 100, 1),
+            underperforming_pct=round((under_w / denominator_weight) * 100, 1),
+            upto_3_pct=round((upto_3_w / denominator_weight) * 100, 1),
+            more_than_3_pct=round((more_3_w / denominator_weight) * 100, 1),
         )
 
+    comparable_1y_weight = sum(w for w, _ in perf_diffs_weighted_1y)
+    comparable_3y_weight = sum(w for w, _ in perf_diffs_weighted_3y)
     perf_summary = PerformanceSummary(
-        one_year=calc_perf_metric(perf_diffs_weighted),
-        three_year=calc_perf_metric(perf_diffs_weighted),
+        one_year=calc_perf_metric(perf_diffs_weighted_1y, total_mkt_live),
+        three_year=calc_perf_metric(perf_diffs_weighted_3y, total_mkt_live),
     )
 
-    if len([h for h in holdings if h.category == "Equity"]) > comparable_perf_count:
-        add_warning("PERFORMANCE_PARTIAL_COVERAGE", "performance", "info", "Performance attribution uses only schemes with both fund and benchmark XIRR.")
-    add_warning("PERFORMANCE_3Y_ESTIMATED", "performance", "info", "Three-year performance bucket mirrors one-year availability due source limits.")
+    if total_mkt_live > 0 and (comparable_1y_weight < total_mkt_live or comparable_3y_weight < total_mkt_live):
+        cov_1y = round((comparable_1y_weight / total_mkt_live) * 100, 1)
+        cov_3y = round((comparable_3y_weight / total_mkt_live) * 100, 1)
+        add_warning(
+            "PERFORMANCE_PARTIAL_COVERAGE",
+            "performance",
+            "info",
+            f"Performance attribution coverage: 1Y={cov_1y}% and 3Y={cov_3y}% of portfolio value had comparable fund/benchmark data.",
+        )
 
     equity_pct_actual = round((total_equity_val / total_mkt_live) * 100, 1) if total_mkt_live > 0 else 0.0
     fi_pct_actual = round((fi_mkt / total_mkt_live) * 100, 1) if total_mkt_live > 0 else 0.0
@@ -882,29 +1292,26 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     tax_stcg_rate = 20.0
     tax_ltcg_rate = 12.5
     tax_ltcg_exemption = 125000.0
-    tax_short_term_gains = 0.0
-    tax_long_term_gains = 0.0
-    tax_free_gains = 0.0
-    as_of_date = now_dt.date()
+    net_short_term = tax_short_term_gains - tax_short_term_losses
+    net_long_term = tax_long_term_gains - tax_long_term_losses
 
-    for h in holdings:
-        gain = float(h.gain_loss or 0.0)
-        if h.category != "Equity" or gain <= 0:
-            continue
-        entry_dt = _parse_iso_date(h.date_of_entry) if h.date_of_entry else None
-        is_long_term = bool(entry_dt and (as_of_date - entry_dt.date()).days >= 365)
-        if is_long_term:
-            tax_long_term_gains += gain
-        else:
-            tax_short_term_gains += gain
+    taxable_stcg = max(0.0, net_short_term)
+    taxable_ltcg_before_exemption = max(0.0, net_long_term)
 
-    taxable_ltcg = max(0.0, tax_long_term_gains - tax_ltcg_exemption)
-    tax_taxable_gains = max(0.0, tax_short_term_gains + taxable_ltcg - tax_free_gains)
-    tax_estimated_liability = (tax_short_term_gains * tax_stcg_rate / 100.0) + (taxable_ltcg * tax_ltcg_rate / 100.0)
+    # STCL can be set off against LTCG after exhausting STCG.
+    st_loss_remaining = max(0.0, -net_short_term)
+    if st_loss_remaining > 0 and taxable_ltcg_before_exemption > 0:
+        lt_offset = min(st_loss_remaining, taxable_ltcg_before_exemption)
+        taxable_ltcg_before_exemption -= lt_offset
+
+    tax_free_gains = min(tax_ltcg_exemption, taxable_ltcg_before_exemption)
+    taxable_ltcg = max(0.0, taxable_ltcg_before_exemption - tax_ltcg_exemption)
+    tax_taxable_gains = max(0.0, taxable_stcg + taxable_ltcg)
+    tax_estimated_liability = (taxable_stcg * tax_stcg_rate / 100.0) + (taxable_ltcg * tax_ltcg_rate / 100.0)
 
     tax_summary = TaxSummary(
-        short_term_gains=round(tax_short_term_gains, 2),
-        long_term_gains=round(tax_long_term_gains, 2),
+        short_term_gains=round(net_short_term, 2),
+        long_term_gains=round(net_long_term, 2),
         tax_free_gains=round(tax_free_gains, 2),
         taxable_gains=round(tax_taxable_gains, 2),
         estimated_tax_liability=round(tax_estimated_liability, 2),
@@ -913,12 +1320,19 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         equity_ltcg_exemption=tax_ltcg_exemption,
     )
 
+    if inferred_ter_scheme_count > 0:
+        add_warning(
+            "COST_TER_ESTIMATED",
+            "cost",
+            "info",
+            f"TER was unavailable for {inferred_ter_scheme_count} scheme(s); category/plan TER proxies were used for cost estimates.",
+        )
     add_warning("RISK_ESTIMATED", "risk", "info", "Risk metrics are estimated heuristics and not derived from full return series.")
     add_warning(
         "TAX_ESTIMATED",
         "tax",
         "info",
-        "Tax estimates use simplified equity rates and holding-period assumptions; verify with a tax advisor before filing.",
+        "Tax estimates are indicative, based on lot-level holding periods and unrealized gains/loss set-off; verify with a tax advisor before filing.",
     )
     add_warning("GUIDELINES_TEMPLATE", "guidelines", "info", "Guideline recommendations are template-based and should be reviewed by an advisor.")
 
@@ -1032,7 +1446,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         benchmark_xirr=round(bm_xirr, 2) if bm_xirr is not None else None,
         equity_xirr=round(eq_xirr, 2) if eq_xirr is not None else None,
         equity_benchmark_xirr=round(eq_bm_xirr, 2) if eq_bm_xirr is not None else None,
-        benchmark_gains=round(benchmark_val_now - total_cost, 2),
+        benchmark_gains=round(benchmark_val_now - benchmark_cost_total, 2),
         equity_benchmark_gains=round(total_equity_bm_gain, 2),
 
         holdings_count=len(holdings),
@@ -1052,7 +1466,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             portfolio_cost_pct=round((annual_cost_est / total_mkt_live * 100), 2) if total_mkt_live > 0 else 0.0,
             annual_cost=round(annual_cost_est, 2),
             total_cost_paid=round(total_cost_paid_est, 2),
-            savings_value=round(total_cost_paid_est * 0.6, 2),
+            savings_value=round(savings_value_est, 2),
         ),
         market_cap=mc_alloc,
         equity_value=round(total_equity_val, 2),

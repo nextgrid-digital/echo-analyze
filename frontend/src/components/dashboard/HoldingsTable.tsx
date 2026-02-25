@@ -198,6 +198,9 @@ export const HoldingsTable = memo(function HoldingsTable({
 
   // Helper function to get benchmark name based on category/sub_category
   const getBenchmarkName = (holding: Holding): string | null => {
+    if (holding.benchmark_name && holding.benchmark_name.trim()) {
+      return holding.benchmark_name
+    }
     const category = holding.category.toLowerCase()
     const subCategory = holding.sub_category.toLowerCase()
     const schemeName = holding.scheme_name.toLowerCase()
@@ -285,24 +288,11 @@ export const HoldingsTable = memo(function HoldingsTable({
   }
 
   const calculateMissedGains = (holding: Holding): number | null => {
-    const fundXirr = holding.xirr
-    const benchmarkXirr = holding.benchmark_xirr
-    if (fundXirr === null || fundXirr === undefined) return null
-    if (benchmarkXirr === null || benchmarkXirr === undefined) return null
-
-    const invested = holding.cost_value || 0
-    if (invested <= 0) return null
-
-    const years = getYearsFromEntryDate(holding.date_of_entry)
-    if (years === null) return null
-
-    const fundGrowthBase = 1 + fundXirr / 100
-    const benchmarkGrowthBase = 1 + benchmarkXirr / 100
-    if (fundGrowthBase <= 0 || benchmarkGrowthBase <= 0) return null
-
-    const fundValueByXirr = invested * Math.pow(fundGrowthBase, years)
-    const benchmarkValueByXirr = invested * Math.pow(benchmarkGrowthBase, years)
-    return Math.abs(benchmarkValueByXirr - fundValueByXirr)
+    const value = holding.missed_gains
+    if (value === null || value === undefined) return null
+    const n = Number(value)
+    if (Number.isNaN(n)) return null
+    return n
   }
 
   // Group holdings by category
@@ -624,9 +614,18 @@ export const HoldingsTable = memo(function HoldingsTable({
             )
           }
           if (colId === 12) {
+            const hasValue = Math.abs(missedGainsSubtotal) > 0.0001
+            const subtotalColorClass =
+              missedGainsSubtotal > 0
+                ? "text-red-500"
+                : missedGainsSubtotal < 0
+                  ? "text-green-500"
+                  : "text-foreground"
             return (
               <TableCell key={colId} className="px-2 py-2 sm:px-3 text-right" style={{ width: w, minWidth: w, maxWidth: w }}>
-                <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">{missedGainsSubtotal > 0 ? `₹${formatCurrency(missedGainsSubtotal)}` : "-"}</span>
+                <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${hasValue ? subtotalColorClass : "text-muted-foreground"}`}>
+                  {hasValue ? `₹${formatCurrency(missedGainsSubtotal)}` : "-"}
+                </span>
               </TableCell>
             )
           }
@@ -644,7 +643,14 @@ export const HoldingsTable = memo(function HoldingsTable({
     const isBelowBenchmark = hasXirr && hasBenchmarkXirr ? (h.xirr as number) < (h.benchmark_xirr as number) : null
     const xirrColorClass = hasXirr ? (hasBenchmarkXirr ? (isBelowBenchmark ? "text-red-500" : "text-green-500") : (h.xirr as number) < 0 ? "text-red-500" : "text-green-500") : "text-muted-foreground"
     const benchmarkXirrColorClass = "text-muted-foreground"
-    const missedGainsColorClass = isBelowBenchmark === null ? "text-muted-foreground" : isBelowBenchmark ? "text-red-500" : "text-green-500"
+    const missedGainsColorClass =
+      missedGains === null
+        ? "text-muted-foreground"
+        : missedGains > 0
+          ? "text-red-500"
+          : missedGains < 0
+            ? "text-green-500"
+            : "text-foreground"
     const allocPct = (((h.market_value || 0) / total) * 100).toFixed(1)
     const xirrLine = hasXirr ? `${(h.xirr as number).toFixed(1)}%` : "-"
     const bmLine = hasBenchmarkXirr ? `${(h.benchmark_xirr as number).toFixed(1)}%` : "-"
@@ -916,5 +922,3 @@ export const HoldingsTable = memo(function HoldingsTable({
     </div>
   )
 })
-
-

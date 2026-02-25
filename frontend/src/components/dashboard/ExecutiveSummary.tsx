@@ -23,8 +23,8 @@ function ExecutiveSummaryInner({ summary }: ExecutiveSummaryProps) {
     if (underperformingPct > 0) {
       insightsList.push({
         type: "warning",
-        label: "Underperforming Funds",
-        value: `${underperformingPct}% of portfolio`,
+        label: "Underperforming (1Y)",
+        value: `${underperformingPct}% portfolio value`,
       })
     }
 

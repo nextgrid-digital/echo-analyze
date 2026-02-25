@@ -46,7 +46,7 @@ function KeyObservationsInner({ summary }: KeyObservationsProps) {
       summary.performance_summary?.one_year.underperforming_pct ?? 0
     if (underperformingPct > 0) {
       perfItems.push(
-        `${underperformingPct}% of portfolio underperforming benchmark`
+        `${underperformingPct}% portfolio value underperforming benchmark (1Y)`
       )
     }
 
