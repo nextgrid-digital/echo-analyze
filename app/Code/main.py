@@ -532,19 +532,30 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 if not dt:
                     continue
 
-                # Use absolute amount as base; signs are dictated by transaction type.
+                # Use absolute amount as base; signs are dictated by transaction units/type.
                 amt = abs(raw_amt)
+                raw_units = _parse_amount(txn.get("units")) or 0.0
 
                 # XIRR convention: Outflow (investment) is negative, Inflow (withdrawal/redemption) is positive.
-                # SIP and PURCHASE should ALWAYS be negative (investments).
-                investment_types = ["PURCHASE", "SIP", "SIP PURCHASE", "NFO PURCHASE"]
-                is_explicit_investment = any(it in txn_type for it in investment_types) or any(it in desc for it in investment_types)
-
-                withdrawal_keywords = [
-                    "REDEMPTION", "SELL", "REPURCHASE", "SWITCH-OUT", "SWITCH OUT", 
-                    "STP-OUT", "STP OUT", "SWP", "PAYOUT", "DIVIDEND PAYOUT", "INTEREST PAYOUT",
-                    "IDCW PAYOUT", "DIVIDEND PAID", "INTEREST PAID"
-                ]
+                if raw_units > 0:
+                    # Positive units = Buy/Investment
+                    is_withdrawal = False
+                elif raw_units < 0:
+                    # Negative units = Sell/Redemption
+                    is_withdrawal = True
+                else:
+                    # Units == 0 (typically a payout or internal correction)
+                    # For payouts, amount is positive money back to user.
+                    withdrawal_keywords = [
+                        "PAYOUT", "DIVIDEND PAYOUT", "INTEREST PAYOUT",
+                        "IDCW PAYOUT", "DIVIDEND PAID", "INTEREST PAID"
+                    ]
+                    # We check keywords for 0-unit transactions
+                    is_withdrawal = any(kw in desc for kw in withdrawal_keywords) or any(kw in txn_type for kw in withdrawal_keywords)
+                    if not is_withdrawal:
+                        # Fallback for broad terms: only if they are clearly payouts and amount > 0
+                        if ("IDCW" in desc or "DIVIDEND" in desc) and ("PAYOUT" in desc or "PAID" in desc):
+                            is_withdrawal = True
                 
                 # Exclude internal reinvestments and bonus units from cashflow for XIRR calculation.
                 ignore_keywords = ["REINVEST", "RE-INVEST", "BONUS", "SPLIT"]
@@ -553,19 +564,8 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 if is_ignored:
                     log_debug(f"TXN_IGNORE: '{desc[:20]}', amt={amt}, type={txn_type}")
                 else:
-                    # Broad keywords like IDCW or DIVIDEND often appear in fund names. 
-                    # We only treat as withdrawal if it's NOT an explicit investment and matches withdrawal markers.
-                    if is_explicit_investment:
-                        is_withdrawal = False
-                    else:
-                        is_withdrawal = any(kw in desc for kw in withdrawal_keywords) or any(kw in txn_type for kw in withdrawal_keywords)
-                        # Specific check for broad terms: only if they are clearly payouts
-                        if not is_withdrawal:
-                             if ("IDCW" in desc or "DIVIDEND" in desc) and ("PAYOUT" in desc or "PAID" in desc):
-                                 is_withdrawal = True
-
                     cashflow = amt if is_withdrawal else -amt
-                    log_debug(f"TXN_DEBUG: '{desc[:25]}', raw={raw_amt}, final_cf={cashflow}, type={txn_type}")
+                    log_debug(f"TXN_DEBUG: '{desc[:25]}', raw={raw_amt}, units={raw_units}, cf={cashflow}, type={txn_type}")
 
                     scheme_cashflows.append((dt, cashflow))
                     scheme_tx_dates.append(dt)

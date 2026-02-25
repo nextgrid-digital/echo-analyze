@@ -1,4 +1,5 @@
 
+
 import { memo, useRef } from "react"
 import html2canvas from "html2canvas"
 import { jsPDF } from "jspdf"
@@ -181,40 +182,38 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
         </h2>
 
         <div className="flex flex-wrap items-center gap-4">
-          {hasData && (
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                onClick={handleDownloadCSV}
-                variant="outline"
-                size="sm"
-                className="print:hidden flex items-center gap-2 h-9 px-3 text-xs bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary font-semibold transition-all shadow-sm"
-                title="Download CSV"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>CSV</span>
-              </Button>
-              <Button
-                onClick={handleDownloadImage}
-                variant="outline"
-                size="sm"
-                className="print:hidden flex items-center gap-2 h-9 px-3 text-xs bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700 font-semibold transition-all shadow-sm"
-                title="Download Image"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Image</span>
-              </Button>
-              <Button
-                onClick={handleDownloadPDF}
-                variant="outline"
-                size="sm"
-                className="print:hidden flex items-center gap-2 h-9 px-3 text-xs bg-red-50 hover:bg-red-100 border-red-200 text-red-700 font-semibold transition-all shadow-sm"
-                title="Download PDF"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>PDF</span>
-              </Button>
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              onClick={handleDownloadCSV}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2 h-9 px-3 text-xs bg-black text-white hover:bg-black/90 font-bold shadow-md border-0"
+              title="Download CSV"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download CSV</span>
+            </Button>
+            <Button
+              onClick={handleDownloadImage}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2 h-9 px-3 text-xs bg-blue-600 text-white hover:bg-blue-700 font-bold shadow-md border-0"
+              title="Download Image"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download Image</span>
+            </Button>
+            <Button
+              onClick={handleDownloadPDF}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2 h-9 px-3 text-xs bg-red-600 text-white hover:bg-red-700 font-bold shadow-md border-0"
+              title="Download PDF"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download PDF</span>
+            </Button>
+          </div>
 
           <SectionInfoTooltip
             title="Fund Overlap"
