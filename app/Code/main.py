@@ -521,6 +521,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
             for txn in scheme.get("transactions", []):
                 desc = (txn.get("description") or "").upper()
+                txn_type = (txn.get("type") or "").upper()
                 if "REINVEST" in desc:
                     continue
                 date_str = txn.get("date")
@@ -531,16 +532,32 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 if not dt:
                     continue
 
-                scheme_cashflows.append((dt, -amt))
+                # XIRR convention: Outflow (investment) is negative, Inflow (withdrawal/redemption) is positive.
+                # Most CAS parsers give positive 'amount' values.
+                # Redemptions, Sell, Switch-Out, STP-Out, SWP, Dividends (except Reinvest) are Inflows.
+                withdrawal_keywords = ["REDEMPTION", "SELL", "SWITCH-OUT", "STP-OUT", "SWP", "PAYOUT", "DIVIDEND PAYOUT"]
+                is_withdrawal = any(kw in desc for kw in withdrawal_keywords) or any(kw in txn_type for kw in withdrawal_keywords)
+                
+                # Check for sign of 'amt' - if it's already negative, it might be a redemption in some parsers.
+                # But usually it's positive.
+                cashflow = amt if is_withdrawal else -amt
+
+                scheme_cashflows.append((dt, cashflow))
                 scheme_tx_dates.append(dt)
-                if amt > 0:
+                if not is_withdrawal:
                     scheme_cost += amt
-                portfolio_cashflows.append((dt, -amt))
+                else:
+                    # Optional: scheme_cost -= amt if you want 'Net Invested' 
+                    # but usually 'Cost' is Gross Invested. Let's keep it as is or slightly adjust.
+                    pass
+                
+                portfolio_cashflows.append((dt, cashflow))
 
                 benchmark_txn_total += 1
                 b_nav, is_exact = _benchmark_nav_for_date(date_str, benchmark_history, benchmark_sorted_keys, benchmark_sorted_dates)
                 if b_nav:
-                    benchmark_units += amt / b_nav
+                    # Simulated benchmark: Outflow buys units, Inflow sells units.
+                    benchmark_units += (-cashflow) / b_nav
                     if is_exact:
                         benchmark_txn_exact += 1
                     else:
