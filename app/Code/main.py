@@ -538,32 +538,42 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 # XIRR convention: Outflow (investment) is negative, Inflow (withdrawal/redemption) is positive.
                 withdrawal_keywords = [
                     "REDEMPTION", "SELL", "REPURCHASE", "SWITCH-OUT", "SWITCH OUT", 
-                    "STP-OUT", "STP OUT", "SWP", "PAYOUT", "DIVIDEND PAYOUT", "INTEREST PAYOUT"
+                    "STP-OUT", "STP OUT", "SWP", "PAYOUT", "DIVIDEND PAYOUT", "INTEREST PAYOUT",
+                    "IDCW PAYOUT", "IDCW", "DIVIDEND", "INTEREST"
                 ]
-                is_withdrawal = any(kw in desc for kw in withdrawal_keywords) or any(kw in txn_type for kw in withdrawal_keywords)
                 
-                cashflow = amt if is_withdrawal else -amt
-                log_debug(f"TXN_DEBUG: '{desc[:25]}', raw={raw_amt}, final_cf={cashflow}, type={txn_type}")
-
-                scheme_cashflows.append((dt, cashflow))
-                scheme_tx_dates.append(dt)
-                if not is_withdrawal:
-                    scheme_cost += amt
+                # Exclude internal reinvestments and bonus units from cashflow for XIRR calculation.
+                # These don't involve new user capital and shouldn't pollute the 'out-of-pocket' XIRR.
+                ignore_keywords = ["REINVEST", "RE-INVEST", "BONUS", "SPLIT"]
+                is_ignored = any(ik in desc for ik in ignore_keywords) or any(ik in txn_type for ik in ignore_keywords)
+                
+                if is_ignored:
+                    log_debug(f"TXN_IGNORE: '{desc[:20]}', amt={amt}, type={txn_type}")
                 else:
-                    # For redemptions, we reduce the 'cost' basis to reflect 'Net Invested' if using for graph
-                    scheme_cost -= amt
-                
-                portfolio_cashflows.append((dt, cashflow))
+                    is_withdrawal = any(kw in desc for kw in withdrawal_keywords) or any(kw in txn_type for kw in withdrawal_keywords)
+                    cashflow = amt if is_withdrawal else -amt
+                    log_debug(f"TXN_DEBUG: '{desc[:25]}', raw={raw_amt}, final_cf={cashflow}, type={txn_type}")
 
-                benchmark_txn_total += 1
-                b_nav, is_exact = _benchmark_nav_for_date(date_str, benchmark_history, benchmark_sorted_keys, benchmark_sorted_dates)
-                if b_nav:
-                    # Simulated benchmark: Outflow buys units, Inflow sells units.
-                    benchmark_units += (-cashflow) / b_nav
-                    if is_exact:
-                        benchmark_txn_exact += 1
+                    scheme_cashflows.append((dt, cashflow))
+                    scheme_tx_dates.append(dt)
+                    if not is_withdrawal:
+                        scheme_cost += amt
                     else:
-                        benchmark_fallback_by_scheme[name] = benchmark_fallback_by_scheme.get(name, 0) + 1
+                        # For redemptions (including payouts), we reduce the 'cost' basis
+                        scheme_cost -= amt
+                    
+                    portfolio_cashflows.append((dt, cashflow))
+
+                    benchmark_txn_total += 1
+                    b_nav, is_exact = _benchmark_nav_for_date(date_str, benchmark_history, benchmark_sorted_keys, benchmark_sorted_dates)
+                    if b_nav:
+                        # Simulated benchmark: Outflow buys units, Inflow sells units.
+                        # We cap units at 0 to prevent negative units causing XIRR failure if benchmark hit 0.
+                        benchmark_units = max(0.0, benchmark_units + ((-cashflow) / b_nav))
+                        if is_exact:
+                            benchmark_txn_exact += 1
+                        else:
+                            benchmark_fallback_by_scheme[name] = benchmark_fallback_by_scheme.get(name, 0) + 1
 
             val = scheme.get("valuation", {})
             if "cost" in val:
@@ -613,7 +623,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             allocation_map[sub_cat] = allocation_map.get(sub_cat, 0.0) + mkt_val
 
             gain = mkt_val - scheme_cost
-            ret_pct = round((gain / scheme_cost) * 100, 2) if scheme_cost > 0 else 0.0
+            ret_pct = round((gain / scheme_cost * 100), 2) if scheme_cost > 0 else 0.0
             date_of_entry = min(scheme_tx_dates).strftime("%Y-%m-%d") if scheme_tx_dates else None
 
             if cat == "Fixed Income":
