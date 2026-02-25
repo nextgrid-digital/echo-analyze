@@ -38,8 +38,8 @@ export const HoldingsTable = memo(function HoldingsTable({
   const [showFolio, setShowFolio] = useState(false)
   const total = totalMarketValue || 1
 
-  const DEFAULT_COL_WIDTHS = [44, 88, 200, 100, 72, 88, 96, 84, 106, 116, 88, 92, 92, 92]
-  const MIN_COL_WIDTHS = [36, 64, 100, 72, 56, 72, 64, 80, 80, 80, 72, 72, 72, 72]
+  const DEFAULT_COL_WIDTHS = [44, 88, 200, 100, 72, 88, 96, 84, 106, 116, 88, 88, 92, 92, 92]
+  const MIN_COL_WIDTHS = [36, 64, 100, 72, 56, 72, 64, 80, 80, 80, 72, 72, 72, 72, 72]
   const [columnWidths, setColumnWidths] = useState<number[]>(() => DEFAULT_COL_WIDTHS)
   const [resizingColId, setResizingColId] = useState<number | null>(null)
   const resizeStartX = useRef(0)
@@ -47,7 +47,7 @@ export const HoldingsTable = memo(function HoldingsTable({
   const [columnScalePct, setColumnScalePct] = useState(DEFAULT_COLUMN_SCALE)
   const columnScale = columnScalePct / 100
 
-  type SortKey = "folio" | "scheme_name" | "sub_category" | "style_category" | "benchmark" | "date_of_entry" | "holding_period" | "cost_value" | "market_value" | "return_pct" | "missed_gains" | "xirr" | "benchmark_xirr"
+  type SortKey = "folio" | "scheme_name" | "sub_category" | "style_category" | "benchmark" | "date_of_entry" | "holding_period" | "cost_value" | "market_value" | "weight_pct" | "return_pct" | "missed_gains" | "xirr" | "benchmark_xirr"
   const COLUMNS: { key: SortKey | null; label: string; align: "left" | "right" }[] = [
     { key: null, label: "#", align: "right" },
     { key: "folio", label: "Folio number", align: "left" },
@@ -59,6 +59,7 @@ export const HoldingsTable = memo(function HoldingsTable({
     { key: "holding_period", label: "Holding Period", align: "right" },
     { key: "cost_value", label: "Invested Value", align: "right" },
     { key: "market_value", label: "Current Value", align: "right" },
+    { key: "weight_pct", label: "Weight (%)", align: "right" },
     { key: "return_pct", label: "Abs Returns", align: "right" },
     { key: "missed_gains", label: "Missed Gains", align: "right" },
     { key: "xirr", label: "XIRR", align: "right" },
@@ -387,6 +388,7 @@ export const HoldingsTable = memo(function HoldingsTable({
       case "cost_value":
         return mult * ((a.cost_value ?? 0) - (b.cost_value ?? 0))
       case "market_value":
+      case "weight_pct":
         return mult * ((a.market_value ?? 0) - (b.market_value ?? 0))
       case "return_pct": {
         const ra = num(a.return_pct)
@@ -490,11 +492,12 @@ export const HoldingsTable = memo(function HoldingsTable({
       case 6: return h.date_of_entry || ""
       case 7: return formatYearsFromEntryDate(h.date_of_entry) ?? ""
       case 8: return formatCurrency(h.cost_value || 0)
-      case 9: return formatCurrency(h.market_value || 0) + " (" + allocPct + "%)"
-      case 10: return (h.return_pct ?? 0) + "%"
-      case 11: return missedGains != null ? formatCurrency(missedGains) : ""
-      case 12: return xirrStr
-      case 13: return bmStr
+      case 9: return formatCurrency(h.market_value || 0)
+      case 10: return allocPct + "%"
+      case 11: return (h.return_pct ?? 0) + "%"
+      case 12: return missedGains != null ? formatCurrency(missedGains) : ""
+      case 13: return xirrStr
+      case 14: return bmStr
       default: return ""
     }
   }
@@ -594,7 +597,14 @@ export const HoldingsTable = memo(function HoldingsTable({
           if (colId === 9) {
             return (
               <TableCell key={colId} className="px-2 py-2 sm:px-3 text-right" style={{ width: w, minWidth: w, maxWidth: w }}>
-                <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(subtotal)} ({allocPct}%)</span>
+                <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(subtotal)}</span>
+              </TableCell>
+            )
+          }
+          if (colId === 10) {
+            return (
+              <TableCell key={colId} className="px-2 py-2 sm:px-3 text-right" style={{ width: w, minWidth: w, maxWidth: w }}>
+                <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">{allocPct}%</span>
               </TableCell>
             )
           }
@@ -634,11 +644,12 @@ export const HoldingsTable = memo(function HoldingsTable({
       case 6: return <span className="block text-xs font-mono text-muted-foreground whitespace-nowrap truncate">{h.date_of_entry || "-"}</span>
       case 7: return <span className="block text-xs font-mono text-muted-foreground whitespace-nowrap truncate">{yearsFromEntry ?? "-"}</span>
       case 8: return <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(h.cost_value || 0)}</span>
-      case 9: return <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(h.market_value || 0)} ({allocPct}%)</span>
-      case 10: return <span className={`font-bold font-mono text-xs whitespace-nowrap truncate ${(h.gain_loss ?? 0) >= 0 ? "text-primary" : "text-destructive"}`}>{h.return_pct ?? 0}%</span>
-      case 11: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${missedGainsColorClass}`}>{missedGains !== null ? `₹${formatCurrency(missedGains)}` : "-"}</span>
-      case 12: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${xirrColorClass}`}>{xirrLine}</span>
-      case 13: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${benchmarkXirrColorClass}`}>{bmLine}</span>
+      case 9: return <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(h.market_value || 0)}</span>
+      case 10: return <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">{allocPct}%</span>
+      case 11: return <span className={`font-bold font-mono text-xs whitespace-nowrap truncate ${(h.gain_loss ?? 0) >= 0 ? "text-primary" : "text-destructive"}`}>{h.return_pct ?? 0}%</span>
+      case 12: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${missedGainsColorClass}`}>{missedGains !== null ? `₹${formatCurrency(missedGains)}` : "-"}</span>
+      case 13: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${xirrColorClass}`}>{xirrLine}</span>
+      case 14: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${benchmarkXirrColorClass}`}>{bmLine}</span>
       default: return null
     }
   }
