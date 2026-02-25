@@ -26,12 +26,13 @@ interface EquityDeepDiveProps {
 }
 
 function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
-  const hasPortfolioXirr = summary.portfolio_xirr !== null && summary.portfolio_xirr !== undefined
-  const hasBenchmarkXirr = summary.benchmark_xirr !== null && summary.benchmark_xirr !== undefined
+  const hasEquityXirr = summary.equity_xirr !== null && summary.equity_xirr !== undefined
+  const hasEquityBenchmarkXirr = summary.equity_benchmark_xirr !== null && summary.equity_benchmark_xirr !== undefined
   const isBeating =
-    hasPortfolioXirr && hasBenchmarkXirr
-      ? (summary.portfolio_xirr as number) >= (summary.benchmark_xirr as number)
+    hasEquityXirr && hasEquityBenchmarkXirr
+      ? (summary.equity_xirr as number) >= (summary.equity_benchmark_xirr as number)
       : false
+
   const missed =
     (summary.benchmark_gains ?? 0) - (summary.equity_gain_loss ?? 0)
 
@@ -157,15 +158,22 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                 content={
                   <>
                     XIRR = internal rate of return on your equity cash flows, accounting for timing of investments and redemptions. If the solver cannot find a reliable root, this metric is intentionally shown as N/A.
+                    {hasEquityXirr ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-sm font-bold font-mono ${isBeating ? "text-green-500" : "text-amber-500"}`}>
+                          {(summary.equity_xirr as number).toFixed(2)}%
+                        </span>
+                      </div>
+                    ) : null}
                   </>
                 }
               />
             </div>
             <p className={`text-lg font-bold font-mono mb-1 ${isBeating ? "text-green-600" : "text-amber-600"}`}>
-              {hasPortfolioXirr ? `${(summary.portfolio_xirr as number).toFixed(2)}%` : "N/A"}
+              {hasEquityXirr ? `${(summary.equity_xirr as number).toFixed(2)}%` : "N/A"}
             </p>
             <p className="text-xs text-muted-foreground">
-              {hasBenchmarkXirr ? (isBeating ? "Beating benchmark" : "Below benchmark") : "Benchmark unavailable"}
+              {hasEquityBenchmarkXirr ? (isBeating ? "Beating benchmark" : "Below benchmark") : "Benchmark unavailable"}
             </p>
           </CompactCard>
 
@@ -237,8 +245,9 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                   </p>
                   <div className="flex items-baseline gap-2">
                     <p className="text-xl font-bold text-foreground font-mono">
-                      {hasPortfolioXirr ? `${(summary.portfolio_xirr as number).toFixed(2)}%` : "N/A"}
+                      {hasEquityXirr ? `${(summary.equity_xirr as number).toFixed(2)}%` : "N/A"}
                     </p>
+
                     <p className="text-sm text-muted-foreground">XIRR</p>
                   </div>
                   <p className="text-sm font-semibold text-foreground font-mono mt-1">
@@ -255,8 +264,9 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                   </p>
                   <div className="flex items-baseline gap-2">
                     <p className="text-xl font-bold text-muted-foreground font-mono">
-                      {hasBenchmarkXirr ? `${(summary.benchmark_xirr as number).toFixed(2)}%` : "N/A"}
+                      {hasEquityBenchmarkXirr ? `${(summary.equity_benchmark_xirr as number).toFixed(2)}%` : "N/A"}
                     </p>
+
                     <p className="text-sm text-muted-foreground">XIRR</p>
                   </div>
                   <p className="text-sm font-semibold text-muted-foreground font-mono mt-1">
@@ -273,9 +283,8 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                   {missed > 0 ? "Missed Gains" : "Alpha Generated"}
                 </p>
                 <p
-                  className={`text-lg font-bold font-mono ${
-                    missed > 0 ? "text-amber-600" : "text-green-600"
-                  }`}
+                  className={`text-lg font-bold font-mono ${missed > 0 ? "text-amber-600" : "text-green-600"
+                    }`}
                 >
                   {missed > 0
                     ? `-${toLakhs(missed)}`

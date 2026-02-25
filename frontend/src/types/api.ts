@@ -174,7 +174,10 @@ export interface AnalysisSummary {
   portfolio_return: number
   portfolio_xirr: number | null
   benchmark_xirr: number | null
+  equity_xirr?: number | null
+  equity_benchmark_xirr?: number | null
   benchmark_gains: number
+
   holdings_count: number
   statement_date?: string | null
   asset_allocation: AssetAllocation[]

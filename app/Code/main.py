@@ -378,7 +378,10 @@ class AnalysisSummary(BaseModel):
     portfolio_return: float
     portfolio_xirr: Optional[float]
     benchmark_xirr: Optional[float]
+    equity_xirr: Optional[float] = None
+    equity_benchmark_xirr: Optional[float] = None
     benchmark_gains: float
+
     holdings_count: int
     statement_date: Optional[str]
     asset_allocation: List[AssetAllocation] = Field(default_factory=list)
@@ -456,8 +459,11 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     mc_values = {"Large-Cap": 0.0, "Mid-Cap": 0.0, "Small-Cap": 0.0}
     allocation_map: Dict[str, float] = {}
     portfolio_cashflows: List[Tuple[datetime, float]] = []
+    equity_cashflows: List[Tuple[datetime, float]] = []
     fi_cashflows: List[Tuple[datetime, float]] = []
     benchmark_units = 0.0
+    equity_benchmark_units = 0.0
+
     benchmark_txn_total = 0
     benchmark_txn_exact = 0
     fi_mkt = 0.0
@@ -513,7 +519,12 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             name = scheme.get("scheme", "Unknown Scheme")
             amfi = (scheme.get("amfi") or "").strip()
             scheme_type = (scheme.get("type") or "OTHERS").strip()
+            sub_cat = get_sub_category(name, scheme_type)
+            cat, ambiguous = _infer_category(name, scheme_type, sub_cat)
+            if ambiguous:
+                ambiguous_category_count += 1
             schemes_seen.add(name)
+
 
             scheme_cost = 0.0
             scheme_cashflows: List[Tuple[datetime, float]] = []
@@ -580,8 +591,13 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                     b_nav, is_exact = _benchmark_nav_for_date(date_str, benchmark_history, benchmark_sorted_keys, benchmark_sorted_dates)
                     if b_nav:
                         # Simulated benchmark: Outflow buys units, Inflow sells units.
-                        benchmark_units = max(0.0, benchmark_units + ((-cashflow) / b_nav))
+                        txn_bm_units = (-cashflow) / b_nav
+                        benchmark_units = max(0.0, benchmark_units + txn_bm_units)
+                        if cat == "Equity":
+                            equity_benchmark_units = max(0.0, equity_benchmark_units + txn_bm_units)
+
                         if is_exact:
+
                             benchmark_txn_exact += 1
                         else:
                             benchmark_fallback_by_scheme[name] = benchmark_fallback_by_scheme.get(name, 0) + 1
@@ -609,10 +625,8 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 nav_missing_schemes.add(name)
             mkt_val = round(units * effective_nav, 2)
 
-            sub_cat = get_sub_category(name, scheme_type)
-            cat, ambiguous = _infer_category(name, scheme_type, sub_cat)
-            if ambiguous:
-                ambiguous_category_count += 1
+            # cat, sub_cat and ambiguous_category_count were handled earlier in the loop
+
 
             if sub_cat in mc_values:
                 mc_values[sub_cat] += mkt_val
@@ -637,12 +651,16 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             ret_pct = round((gain / scheme_cost * 100), 2) if scheme_cost > 0 else 0.0
             date_of_entry = min(scheme_tx_dates).strftime("%Y-%m-%d") if scheme_tx_dates else None
 
+            if cat == "Equity":
+                equity_cashflows.extend(scheme_cashflows)
+
             if cat == "Fixed Income":
                 fi_mkt += mkt_val
                 fi_cost += scheme_cost
                 fi_amc_values[amc_name] = fi_amc_values.get(amc_name, 0.0) + mkt_val
                 fi_alloc_map[sub_cat] = fi_alloc_map.get(sub_cat, 0.0) + mkt_val
                 fi_cashflows.extend(scheme_cashflows)
+
                 u_sub = sub_cat.upper()
                 if any(x in u_sub for x in ["LIQUID", "GILT", "OVERNIGHT", "MONEY MARKET", "TREASURY"]):
                     credit_values["AAA"] += mkt_val
@@ -729,7 +747,26 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         [x[1] for x in (portfolio_cashflows + [(now_dt, benchmark_val_now)])],
     )
     log_debug(f"XIRR_RESULT_DEBUG: pf_xirr={pf_xirr}, bm_xirr={bm_xirr}, total_mkt={total_mkt_live}, bm_val={benchmark_val_now}")
+
+    total_equity_val = sum(h.market_value for h in holdings if h.category == "Equity")
+    total_equity_cost = sum(h.cost_value for h in holdings if h.category == "Equity")
+
+    eq_xirr = calculate_xirr(
+        [x[0] for x in (equity_cashflows + [(now_dt, total_equity_val)])],
+        [x[1] for x in (equity_cashflows + [(now_dt, total_equity_val)])],
+    )
+    eq_benchmark_val_now = equity_benchmark_units * bench_nav_now
+    eq_bm_xirr = calculate_xirr(
+        [x[0] for x in (equity_cashflows + [(now_dt, eq_benchmark_val_now)])],
+        [x[1] for x in (equity_cashflows + [(now_dt, eq_benchmark_val_now)])],
+    )
+    log_debug(f"EQ_XIRR_DEBUG: eq_xirr={eq_xirr}, eq_bm_xirr={eq_bm_xirr}, equity_mkt={total_equity_val}, eq_bm_val={eq_benchmark_val_now}")
+    total_equity_bm_gain = eq_benchmark_val_now - total_equity_cost if eq_benchmark_val_now > 0 else 0.0
+
+
+
     if bm_xirr is None:
+
         add_warning("BENCHMARK_XIRR_UNAVAILABLE", "benchmark", "warn", "Benchmark XIRR could not be computed reliably for this dataset.")
 
     benchmark_date_match_pct = round((benchmark_txn_exact / benchmark_txn_total) * 100, 2) if benchmark_txn_total > 0 else 100.0
@@ -766,11 +803,10 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
     annual_cost_est = (direct_value * 0.0075 + regular_value * 0.015)
     total_cost_paid_est = annual_cost_est * 5
-    total_equity_val = sum(h.market_value for h in holdings if h.category == "Equity")
-    total_equity_cost = sum(h.cost_value for h in holdings if h.category == "Equity")
     total_equity_gain = sum(h.gain_loss for h in holdings if h.category == "Equity")
     total_fi_cost = sum(h.cost_value for h in holdings if h.category == "Fixed Income")
     total_fi_gain = sum(h.gain_loss for h in holdings if h.category == "Fixed Income")
+
 
     mc_total = sum(mc_values.values())
     if mc_total > 0:
@@ -992,7 +1028,9 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         portfolio_return=round(((total_mkt_live - total_cost) / total_cost) * 100, 2) if total_cost > 0 else 0.0,
         portfolio_xirr=round(pf_xirr, 2) if pf_xirr is not None else None,
         benchmark_xirr=round(bm_xirr, 2) if bm_xirr is not None else None,
-        benchmark_gains=round(benchmark_val_now - total_cost, 2),
+        equity_xirr=round(eq_xirr, 2) if eq_xirr is not None else None,
+        equity_benchmark_xirr=round(eq_bm_xirr, 2) if eq_bm_xirr is not None else None,
+        benchmark_gains=round(total_equity_bm_gain, 2),
         holdings_count=len(holdings),
         statement_date=statement_date,
         asset_allocation=alloc_list,
