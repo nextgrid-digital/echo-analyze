@@ -165,37 +165,37 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
         <h2 className="text-xl sm:text-2xl font-bold text-foreground">
           Fund Overlap
         </h2>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           {hasData && (
-            <div className="flex items-center gap-2 no-print mr-2">
+            <div className="flex flex-wrap items-center gap-2 no-print">
               <Button
                 onClick={handleDownloadCSV}
                 variant="outline"
                 size="sm"
-                className="flex items-center gap-2 h-8 px-3 text-xs border-primary/20 bg-background/50 backdrop-blur-sm hover:bg-primary/5 transition-all duration-200"
+                className="flex items-center gap-2 h-9 px-3 text-xs border-primary/30 bg-primary/5 hover:bg-primary/10 transition-all duration-200 shadow-sm font-medium"
                 title="Download CSV"
               >
-                <Download className="w-3.5 h-3.5 text-muted-foreground" />
+                <Download className="w-3.5 h-3.5" />
                 <span>CSV</span>
               </Button>
               <Button
                 onClick={handleDownloadImage}
                 variant="outline"
                 size="sm"
-                className="flex items-center gap-2 h-8 px-3 text-xs border-primary/20 bg-background/50 backdrop-blur-sm hover:bg-primary/5 transition-all duration-200"
-                title="Download PNG Image"
+                className="flex items-center gap-2 h-9 px-3 text-xs border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-all duration-200 shadow-sm font-medium"
+                title="Download Image"
               >
-                <Download className="w-3.5 h-3.5 text-blue-500" />
-                <span>PNG</span>
+                <Download className="w-3.5 h-3.5" />
+                <span>Download Image</span>
               </Button>
               <Button
                 onClick={handleDownloadPDF}
                 variant="outline"
                 size="sm"
-                className="flex items-center gap-2 h-8 px-3 text-xs border-primary/20 bg-background/50 backdrop-blur-sm hover:bg-primary/5 transition-all duration-200"
+                className="flex items-center gap-2 h-9 px-3 text-xs border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-all duration-200 shadow-sm font-medium"
                 title="Download PDF"
               >
-                <Download className="w-3.5 h-3.5 text-destructive" />
+                <Download className="w-3.5 h-3.5" />
                 <span>PDF</span>
               </Button>
             </div>
