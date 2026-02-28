@@ -71,8 +71,8 @@ export function createEmptySummary(): AnalysisSummary {
       category_allocation: [],
     },
     performance_summary: {
-      one_year: { underperforming_pct: 0, upto_3_pct: 0, more_than_3_pct: 0 },
-      three_year: { underperforming_pct: 0, upto_3_pct: 0, more_than_3_pct: 0 },
+      one_year: { comparable_pct: 0, underperforming_pct: 0, upto_3_pct: 0, more_than_3_pct: 0 },
+      three_year: { comparable_pct: 0, underperforming_pct: 0, upto_3_pct: 0, more_than_3_pct: 0 },
     },
     guidelines: null,
     overlap: {

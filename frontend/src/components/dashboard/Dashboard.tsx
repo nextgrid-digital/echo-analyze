@@ -89,14 +89,14 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
                       title="Portfolio Performance vs Benchmark"
                       formula={
                         <>
-                          Portfolio Value(t) = Initial × (1 + Portfolio XIRR/100)^(t/12)<br />
-                          Benchmark Value(t) = Initial × (1 + Benchmark XIRR/100)^(t/12)<br />
-                          Difference = Portfolio Value − Benchmark Value
+                          Reconstructed Value(t) = terminal value scaled backward using current XIRR<br />
+                          Benchmark uses only holdings with comparable benchmark data<br />
+                          Difference = Portfolio − Benchmark
                         </>
                       }
                       content={
                         <>
-                          This chart shows how your portfolio has performed compared to the benchmark over the last 12 months. The portfolio line shows your actual performance based on XIRR, while the benchmark line shows how the benchmark index performed over the same period.
+                          This chart shows an illustrative, reconstructed comparison path based on holding entry dates, current values, and current XIRRs. It is not a transaction-level historical valuation series.
                         </>
                       }
                     />
@@ -140,11 +140,13 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
                 performance={
                   summary.performance_summary ?? {
                     one_year: {
+                      comparable_pct: 0,
                       underperforming_pct: 0,
                       upto_3_pct: 0,
                       more_than_3_pct: 0,
                     },
                     three_year: {
+                      comparable_pct: 0,
                       underperforming_pct: 0,
                       upto_3_pct: 0,
                       more_than_3_pct: 0,

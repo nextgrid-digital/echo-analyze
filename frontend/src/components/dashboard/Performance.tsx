@@ -12,18 +12,18 @@ interface PerformanceProps {
 
 export const Performance = memo(function Performance({ performance }: PerformanceProps) {
   const p = performance
+  const comparableCoverage = p.one_year.comparable_pct ?? 0
   const totalUnderperforming = p.one_year.underperforming_pct
-  const performing = 100 - totalUnderperforming
+  const performing = Math.max(0, comparableCoverage - totalUnderperforming)
   const upto3Pct = p.one_year.upto_3_pct
   const moreThan3Pct = p.one_year.more_than_3_pct
 
   return (
     <div className="mb-6 sm:mb-8">
       <div className="mb-3 border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900">
-        Coverage note: 1Y/3Y buckets use comparable scheme-benchmark data; percentages are reported against total portfolio value.
+        Coverage note: 1Y/3Y buckets use only holdings with comparable scheme-benchmark data; percentages are still reported against total portfolio value.
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-        {/* Performing card */}
         <CompactCard>
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
@@ -36,13 +36,13 @@ export const Performance = memo(function Performance({ performance }: Performanc
               title="Performing Funds"
               formula={
                 <>
-                  Performing % = 100% − Total Underperforming %<br />
-                  Funds meeting or exceeding benchmark returns
+                  Performing % = Comparable Coverage % - Total Underperforming %<br />
+                  Holdings without comparable benchmark data are excluded
                 </>
               }
               content={
                 <>
-                  Percentage of portfolio (by value) where funds are performing at or above their respective benchmark returns over 1 year.
+                  Percentage of total portfolio (by value) where holdings had comparable benchmark data and met or exceeded their benchmark over 1 year.
                 </>
               }
             />
@@ -50,10 +50,12 @@ export const Performance = memo(function Performance({ performance }: Performanc
           <p className="text-lg font-bold text-green-600 font-mono mb-1">
             {formatPercent(performing)}
           </p>
-          <p className="text-xs text-muted-foreground">Meeting/exceeding benchmark</p>
+          <p className="text-xs text-muted-foreground">Meeting/exceeding within comparable set</p>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Comparable coverage: {formatPercent(comparableCoverage)}
+          </p>
         </CompactCard>
 
-        {/* Total Underperforming card */}
         <CompactCard>
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
@@ -79,27 +81,28 @@ export const Performance = memo(function Performance({ performance }: Performanc
                 title="Total Underperforming"
                 formula={
                   <>
-                    Underperformance % = (Scheme Return − Benchmark Return) when negative<br />
-                    Portfolio Underperformance % = Σ(Underperforming Holdings Value) ÷ Total Portfolio Value × 100
+                    Underperformance % = (Scheme Return - Benchmark Return) when negative<br />
+                    Portfolio Underperformance % = Sum(Underperforming Holdings Value) / Total Portfolio Value * 100
                   </>
                 }
                 content={
                   <>
-                    Percentage of portfolio (by value) where funds underperformed their benchmark over 1 year. Compared to scheme-level benchmarks (e.g. Nifty 50, CRISIL indices).
+                    Percentage of portfolio (by value) where funds underperformed their benchmark over 1 year. Compared to scheme-level benchmarks (for example Nifty and debt proxies).
                   </>
                 }
               />
             </div>
           </div>
-          <p className={`text-lg font-bold font-mono mb-1 ${
-            totalUnderperforming > 20 ? "text-red-600" : "text-amber-600"
-          }`}>
+          <p
+            className={`text-lg font-bold font-mono mb-1 ${
+              totalUnderperforming > 20 ? "text-red-600" : "text-amber-600"
+            }`}
+          >
             {formatPercent(totalUnderperforming)}
           </p>
           <p className="text-xs text-muted-foreground">Below benchmark returns</p>
         </CompactCard>
 
-        {/* Upto 3% Underperformance card */}
         <CompactCard>
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
@@ -112,8 +115,8 @@ export const Performance = memo(function Performance({ performance }: Performanc
               title="Upto 3% Underperformance"
               formula={
                 <>
-                  Underperformance % = (Scheme Return − Benchmark Return) when negative<br />
-                  Filtered for: −3% ≤ Underperformance % ≤ 0%
+                  Underperformance % = (Scheme Return - Benchmark Return) when negative<br />
+                  Filtered for: -3% &lt;= Underperformance % &lt; 0%
                 </>
               }
               content={
@@ -126,10 +129,9 @@ export const Performance = memo(function Performance({ performance }: Performanc
           <p className="text-lg font-bold text-amber-600 font-mono mb-1">
             {formatPercent(upto3Pct)}
           </p>
-          <p className="text-xs text-muted-foreground">Underperformance ≤ 3%</p>
+          <p className="text-xs text-muted-foreground">Underperformance &lt;= 3%</p>
         </CompactCard>
 
-        {/* More than 3% Underperformance card */}
         <CompactCard>
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
@@ -151,8 +153,8 @@ export const Performance = memo(function Performance({ performance }: Performanc
                 title="More than 3% Underperformance"
                 formula={
                   <>
-                    Underperformance % = (Scheme Return − Benchmark Return) when negative<br />
-                    Filtered for: Underperformance % &lt; −3%
+                    Underperformance % = (Scheme Return - Benchmark Return) when negative<br />
+                    Filtered for: Underperformance % &lt; -3%
                   </>
                 }
                 content={

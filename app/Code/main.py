@@ -218,47 +218,120 @@ def _resolve_benchmark_components(
     name = (scheme_name or "").upper()
     typ = (scheme_type or "").upper()
     sub = (sub_category or "").upper()
+    text = f"{name} {typ} {sub}"
+
+    def has_any(*needles: str) -> bool:
+        return any(needle in text for needle in needles)
 
     eq_nifty50 = BenchmarkComponent("120716", 1.0, "Nifty 50 TRI proxy")
+    eq_nifty100 = BenchmarkComponent("147666", 1.0, "Nifty 100 TRI proxy")
+    eq_next50 = BenchmarkComponent("149466", 1.0, "Nifty Next 50 TRI proxy")
+    eq_nifty500 = BenchmarkComponent("152731", 1.0, "Nifty 500 TRI proxy")
     eq_mid150 = BenchmarkComponent("148726", 1.0, "Nifty Midcap 150 TRI proxy")
     eq_small250 = BenchmarkComponent("148519", 1.0, "Nifty Smallcap 250 TRI proxy")
+    eq_sensex = BenchmarkComponent("152422", 1.0, "BSE Sensex TRI proxy")
+    eq_nasdaq100 = BenchmarkComponent("149219", 1.0, "Nasdaq 100 proxy")
+    eq_sp500 = BenchmarkComponent("148381", 1.0, "S&P 500 proxy")
+    eq_hang_seng = BenchmarkComponent("140095", 1.0, "Hang Seng proxy")
+    alt_gold = BenchmarkComponent("119132", 1.0, "Gold proxy")
     debt_liquid = BenchmarkComponent("120197", 1.0, "Liquid debt proxy")
     debt_corp = BenchmarkComponent("120692", 1.0, "Corporate bond proxy")
     debt_gilt = BenchmarkComponent("120590", 1.0, "Gilt proxy")
     debt_credit = BenchmarkComponent("120711", 1.0, "Credit risk proxy")
 
-    if any(x in name for x in ["HYBRID", "BALANCED", "AGGRESSIVE"]) or "EQUITY - HYBRID" in sub:
+    if "GOLD" in text:
+        return [alt_gold]
+    if has_any("SILVER", "PRECIOUS METAL", "COMMODITY"):
+        return []
+
+    if has_any("NASDAQ"):
+        return [eq_nasdaq100]
+    if has_any("S&P 500", "SP500"):
+        return [eq_sp500]
+    if has_any("HANG SENG"):
+        return [eq_hang_seng]
+    if has_any("SENSEX"):
+        return [eq_sensex]
+    if has_any("NIFTY NEXT 50", "NEXT 50", "JUNIOR BEES"):
+        return [eq_next50]
+    if has_any("NIFTY 500"):
+        return [eq_nifty500]
+    if has_any("NIFTY 100"):
+        return [eq_nifty100]
+    if has_any("NIFTY MIDCAP 150", "MIDCAP 150"):
+        return [eq_mid150]
+    if has_any("NIFTY SMALLCAP 250", "SMALLCAP 250"):
+        return [eq_small250]
+    if has_any("NIFTY 50"):
+        return [eq_nifty50]
+    if has_any("NIFTY BEES", "NIFTYBEES"):
+        return [eq_nifty50]
+
+    if has_any("HYBRID", "BALANCED", "AGGRESSIVE", "BALANCED ADVANTAGE", "DYNAMIC ASSET ALLOCATION", "MULTI ASSET") or "EQUITY - HYBRID" in sub:
+        if has_any("CONSERVATIVE", "MONTHLY INCOME"):
+            return [
+                BenchmarkComponent(eq_nifty500.code, 0.25, eq_nifty500.label),
+                BenchmarkComponent(debt_corp.code, 0.75, debt_corp.label),
+            ]
+        if has_any("BALANCED ADVANTAGE", "DYNAMIC ASSET ALLOCATION"):
+            return [
+                BenchmarkComponent(eq_nifty500.code, 0.5, eq_nifty500.label),
+                BenchmarkComponent(debt_corp.code, 0.5, debt_corp.label),
+            ]
+        if has_any("MULTI ASSET"):
+            return [
+                BenchmarkComponent(eq_nifty500.code, 0.5, eq_nifty500.label),
+                BenchmarkComponent(debt_corp.code, 0.3, debt_corp.label),
+                BenchmarkComponent(alt_gold.code, 0.2, alt_gold.label),
+            ]
         return [
-            BenchmarkComponent(eq_nifty50.code, 0.65, eq_nifty50.label),
+            BenchmarkComponent(eq_nifty500.code, 0.65, eq_nifty500.label),
             BenchmarkComponent(debt_corp.code, 0.35, debt_corp.label),
         ]
 
     if category == "Fixed Income" or "DEBT" in typ or "FIXED INCOME" in typ:
-        fi_text = f"{name} {sub}"
-        if any(x in fi_text for x in ["LIQUID", "OVERNIGHT", "MONEY MARKET", "ULTRA SHORT"]):
+        if has_any("LIQUID", "OVERNIGHT", "MONEY MARKET", "ULTRA SHORT", "LOW DURATION"):
             return [debt_liquid]
-        if any(x in fi_text for x in ["GILT", "TREASURY", "CONSTANT MATURITY", "SDL"]):
+        if has_any("GILT", "TREASURY", "CONSTANT MATURITY", "SDL"):
             return [debt_gilt]
-        if any(x in fi_text for x in ["CREDIT RISK", "LOW RATED", "HIGH YIELD"]):
+        if has_any("CREDIT RISK", "LOW RATED", "HIGH YIELD"):
             return [debt_credit]
         return [debt_corp]
 
     if category == "Equity":
-        eq_text = f"{name} {sub}"
-        if "LARGE & MID" in eq_text or "LARGEMIDCAP" in eq_text:
+        if has_any("BANKING", "FINANCIAL SERVICES", "PHARMA", "HEALTHCARE", "INFRA", "INFRASTRUCTURE", "CONSUMPTION", "MNC", "MANUFACTURING", "DIGITAL", "TECHNOLOGY", "BUSINESS CYCLE", "PSU"):
+            return []
+        if has_any("LARGE & MID", "LARGE AND MID", "LARGEMIDCAP", "LARGE MIDCAP 250", "LARGEMIDCAP 250"):
             return [
-                BenchmarkComponent(eq_nifty50.code, 0.5, eq_nifty50.label),
+                BenchmarkComponent(eq_nifty100.code, 0.5, eq_nifty100.label),
                 BenchmarkComponent(eq_mid150.code, 0.5, eq_mid150.label),
             ]
-        if any(x in eq_text for x in ["SMALL CAP", "SMALL-CAP", "SMALLCAP"]):
+        if has_any("MIDSMALLCAP", "MID SMALLCAP"):
+            return [
+                BenchmarkComponent(eq_mid150.code, 0.5, eq_mid150.label),
+                BenchmarkComponent(eq_small250.code, 0.5, eq_small250.label),
+            ]
+        if has_any("SMALL CAP", "SMALL-CAP", "SMALLCAP"):
             return [eq_small250]
-        if any(x in eq_text for x in ["MID CAP", "MID-CAP", "MIDCAP"]):
+        if has_any("MID CAP", "MID-CAP", "MIDCAP"):
             return [eq_mid150]
-        return [eq_nifty50]
+        if has_any("MULTI CAP", "MULTI-CAP", "MULTICAP"):
+            return [
+                BenchmarkComponent(eq_nifty100.code, 1 / 3, eq_nifty100.label),
+                BenchmarkComponent(eq_mid150.code, 1 / 3, eq_mid150.label),
+                BenchmarkComponent(eq_small250.code, 1 / 3, eq_small250.label),
+            ]
+        if has_any("FLEXI CAP", "FLEXI-CAP", "FLEXICAP", "ELSS", "TAX SAVER", "FOCUS", "FOCUSED", "VALUE", "CONTRA", "DIVIDEND YIELD"):
+            return [eq_nifty500]
+        if has_any("LARGE CAP", "LARGE-CAP", "LARGECAP", "BLUECHIP", "TOP 100"):
+            return [eq_nifty100]
+        if "INDEX FUND" in sub or has_any("ETF"):
+            return []
+        return [eq_nifty500]
 
-    if any(x in name for x in ["LIQUID", "OVERNIGHT", "MONEY MARKET"]):
+    if has_any("LIQUID", "OVERNIGHT", "MONEY MARKET"):
         return [debt_liquid]
-    return [eq_nifty50]
+    return []
 
 
 def _normalize_benchmark_components(
@@ -514,6 +587,7 @@ class TaxSummary(BaseModel):
 
 
 class PerfMetric(BaseModel):
+    comparable_pct: float = 0.0
     underperforming_pct: float
     upto_3_pct: float
     more_than_3_pct: float
@@ -1258,11 +1332,13 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
     def calc_perf_metric(weighted_diffs: List[Tuple[float, float]], denominator_weight: float) -> PerfMetric:
         if denominator_weight <= 0:
-            return PerfMetric(underperforming_pct=0, upto_3_pct=0, more_than_3_pct=0)
+            return PerfMetric(comparable_pct=0, underperforming_pct=0, upto_3_pct=0, more_than_3_pct=0)
+        comparable_w = sum(w for w, _ in weighted_diffs)
         under_w = sum(w for w, d in weighted_diffs if d < 0)
         upto_3_w = sum(w for w, d in weighted_diffs if -3 <= d < 0)
         more_3_w = sum(w for w, d in weighted_diffs if d < -3)
         return PerfMetric(
+            comparable_pct=round((comparable_w / denominator_weight) * 100, 1),
             underperforming_pct=round((under_w / denominator_weight) * 100, 1),
             upto_3_pct=round((upto_3_w / denominator_weight) * 100, 1),
             more_than_3_pct=round((more_3_w / denominator_weight) * 100, 1),

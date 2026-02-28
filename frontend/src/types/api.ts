@@ -88,6 +88,7 @@ export interface TaxSummary {
 }
 
 export interface PerfMetric {
+  comparable_pct?: number
   underperforming_pct: number
   upto_3_pct: number
   more_than_3_pct: number

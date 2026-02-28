@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.Code.main import (
     _benchmark_nav_for_date,
     _prepare_benchmark_history,
+    _resolve_benchmark_components,
     app,
     map_casparser_to_analysis,
 )
@@ -229,6 +230,138 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         nav, is_exact = _benchmark_nav_for_date("2023-01-02", history, keys, days)
         self.assertEqual(nav, 100.0)
         self.assertFalse(is_exact)
+
+    def test_benchmark_mapping_uses_more_specific_proxies(self):
+        flexi = _resolve_benchmark_components(
+            "Test Flexi Cap Fund - Direct Plan - Growth",
+            "EQUITY",
+            "Flexi Cap",
+            "Equity",
+        )
+        self.assertEqual([c.code for c in flexi], ["152731"])
+
+        nasdaq = _resolve_benchmark_components(
+            "ICICI Prudential NASDAQ 100 Index Fund - Direct Plan - Growth",
+            "EQUITY",
+            "Index Fund",
+            "Equity",
+        )
+        self.assertEqual([c.code for c in nasdaq], ["149219"])
+
+        gold = _resolve_benchmark_components(
+            "HDFC Gold ETF Fund of Fund - Direct Plan",
+            "ETF",
+            "Index Fund",
+            "Equity",
+        )
+        self.assertEqual([c.code for c in gold], ["119132"])
+
+    def test_sectoral_equity_funds_do_not_fall_back_to_broad_proxy(self):
+        sectoral = _resolve_benchmark_components(
+            "Test Banking and Financial Services Fund",
+            "EQUITY",
+            "Equity - Other",
+            "Equity",
+        )
+        self.assertEqual(sectoral, [])
+
+    async def test_analysis_uses_updated_benchmark_name_for_flexi_cap_funds(self):
+        cas_data = {
+            "folios": [
+                {
+                    "amc": "Test AMC",
+                    "folio": "1/1",
+                    "schemes": [
+                        {
+                            "scheme": "Test Flexi Cap Fund",
+                            "amfi": "100001",
+                            "type": "EQUITY",
+                            "close": 100.0,
+                            "valuation": {"nav": 120.0, "value": 12000.0, "cost": 10000.0},
+                            "transactions": [{"date": "2024-01-01", "amount": 10000.0, "description": "Purchase"}],
+                        }
+                    ],
+                }
+            ],
+            "statement_period": {"from": "01-Jan-2024", "to": "01-Jan-2025"},
+        }
+
+        async def fake_live_nav(_):
+            return 0.0
+
+        async def fake_nav_history(_):
+            return {"01-01-2024": 100.0, "01-01-2025": 110.0}
+
+        with patch("app.Code.main.fetch_live_nav", new=fake_live_nav), patch(
+            "app.Code.main.fetch_nav_history", new=fake_nav_history
+        ), patch("app.Code.main.save_cache_async", new=AsyncMock()), patch(
+            "app.Code.main.get_holdings_for_schemes", new=AsyncMock(return_value={})
+        ), patch(
+            "app.Code.main.save_amfi_cache_async", new=AsyncMock()
+        ):
+            response = await map_casparser_to_analysis(cas_data)
+
+        self.assertTrue(response.success)
+        self.assertEqual(response.holdings[0].benchmark_name, "Nifty 500 TRI proxy")
+
+    async def test_performance_summary_exposes_comparable_coverage(self):
+        cas_data = {
+            "folios": [
+                {
+                    "amc": "Test AMC",
+                    "folio": "1/1",
+                    "schemes": [
+                        {
+                            "scheme": "Test Flexi Cap Fund",
+                            "amfi": "100001",
+                            "type": "EQUITY",
+                            "close": 1000.0,
+                            "valuation": {"nav": 100.0, "value": 100000.0, "cost": 90000.0},
+                            "transactions": [{"date": "2024-01-01", "amount": 90000.0, "units": 1000.0, "description": "Purchase"}],
+                        },
+                        {
+                            "scheme": "Test Banking and Financial Services Fund",
+                            "amfi": "100002",
+                            "type": "EQUITY",
+                            "close": 1000.0,
+                            "valuation": {"nav": 100.0, "value": 100000.0, "cost": 90000.0},
+                            "transactions": [{"date": "2024-01-01", "amount": 90000.0, "units": 1000.0, "description": "Purchase"}],
+                        },
+                    ],
+                }
+            ],
+            "statement_period": {"from": "01-Jan-2024", "to": "01-Jan-2026"},
+        }
+
+        async def fake_live_nav(_):
+            return 0.0
+
+        async def fake_nav_history(code):
+            if str(code) in {"100001", "100002"}:
+                return {
+                    "01-01-2024": 90.0,
+                    "01-01-2025": 95.0,
+                    "01-01-2026": 100.0,
+                }
+            return {
+                "01-01-2024": 100.0,
+                "01-01-2025": 105.0,
+                "01-01-2026": 110.0,
+            }
+
+        with patch("app.Code.main.fetch_live_nav", new=fake_live_nav), patch(
+            "app.Code.main.fetch_nav_history", new=fake_nav_history
+        ), patch("app.Code.main.save_cache_async", new=AsyncMock()), patch(
+            "app.Code.main.get_holdings_for_schemes", new=AsyncMock(return_value={})
+        ), patch(
+            "app.Code.main.save_amfi_cache_async", new=AsyncMock()
+        ):
+            response = await map_casparser_to_analysis(cas_data)
+
+        self.assertTrue(response.success)
+        summary = response.summary
+        assert summary is not None and summary.performance_summary is not None
+        self.assertEqual(summary.performance_summary.one_year.comparable_pct, 50.0)
 
     def test_eval_removed_from_holdings_cache_loader(self):
         holdings_source = Path("app/Code/holdings.py").read_text(encoding="utf-8")

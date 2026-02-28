@@ -219,12 +219,12 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
             title="Fund Overlap"
             formula={
               <>
-                Overlap % = (Common Holding Value ÷ Total Combined Value) × 100
+                Overlap % = Σ min(weight A, weight B) across common holdings
               </>
             }
             content={
               <>
-                Shows the portfolio overlap between your funds. Higher % indicates duplication in stocks. Colors: Red (&gt;50%), Orange (30-50%), Yellow (15-30%), Green (&lt;15%).
+                Shows stock-level overlap between your funds. Higher percentages mean the two funds hold more of the same underlying positions. Colors: Red (&gt;50%), Orange (30-50%), Yellow (15-30%), Green (&lt;15%).
               </>
             }
           />

@@ -43,4 +43,47 @@ describe("PortfolioBenchmarkChart", () => {
     expect(screen.getByText(/portfolio xirr unavailable\/invalid/i)).toBeInTheDocument()
     expect(screen.getByText(/benchmark xirr unavailable\/invalid/i)).toBeInTheDocument()
   })
+
+  it("shows comparable benchmark coverage when some holdings cannot be benchmarked", () => {
+    const summary = createEmptySummary()
+    const chartHoldings: Holding[] = [
+      {
+        fund_family: "AMC A",
+        folio: "1",
+        scheme_name: "Benchmarked Fund",
+        units: 10,
+        nav: 100,
+        market_value: 100000,
+        cost_value: 80000,
+        category: "Equity",
+        sub_category: "Flexi Cap",
+        xirr: 12,
+        benchmark_xirr: 10,
+        benchmark_name: "Nifty 500 TRI proxy",
+        missed_gains: 5000,
+        date_of_entry: "2024-01-01",
+      },
+      {
+        fund_family: "AMC B",
+        folio: "2",
+        scheme_name: "Unbenchmarked Fund",
+        units: 10,
+        nav: 100,
+        market_value: 100000,
+        cost_value: 80000,
+        category: "Equity",
+        sub_category: "Sectoral",
+        xirr: 12,
+        benchmark_xirr: null,
+        benchmark_name: null,
+        missed_gains: null,
+        date_of_entry: "2024-01-01",
+      },
+    ]
+
+    render(<PortfolioBenchmarkChart summary={summary} holdings={chartHoldings} />)
+
+    expect(screen.getByText(/chart coverage: 50\.0% of current portfolio value has comparable benchmark data/i)).toBeInTheDocument()
+    expect(screen.getByText(/1 holding\(s\) without benchmark data are excluded/i)).toBeInTheDocument()
+  })
 })

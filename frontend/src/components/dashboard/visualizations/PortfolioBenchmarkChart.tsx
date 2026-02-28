@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   AreaChart,
   Area,
@@ -28,31 +28,42 @@ interface ChartDataPoint {
   benchmarkPct: number
 }
 
+interface SeriesHolding {
+  entryDate: Date
+  portfolioTerminal: number
+  benchmarkTerminal: number
+  portfolioMonthlyRate: number | null
+  benchmarkMonthlyRate: number | null
+}
+
 type ZoomLevel = "daily" | "monthly" | "yearly"
 
-// Helper function to format dates based on zoom level
+const DAYS_PER_MONTH = 30.44
+const MS_PER_DAY = 1000 * 60 * 60 * 24
+const MS_PER_MONTH = MS_PER_DAY * DAYS_PER_MONTH
+
 const formatDateForZoom = (date: Date, zoom: ZoomLevel): string => {
   if (zoom === "daily") {
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-  } else if (zoom === "monthly") {
-    return date.toLocaleDateString("en-US", { month: "short", year: "numeric" })
-  } else {
-    return date.getFullYear().toString()
   }
+  if (zoom === "monthly") {
+    return date.toLocaleDateString("en-US", { month: "short", year: "numeric" })
+  }
+  return date.getFullYear().toString()
 }
 
-// Helper function to increment dates
 const incrementDate = (date: Date, interval: ZoomLevel): void => {
   if (interval === "daily") {
     date.setDate(date.getDate() + 1)
-  } else if (interval === "monthly") {
-    date.setMonth(date.getMonth() + 1)
-  } else {
-    date.setFullYear(date.getFullYear() + 1)
+    return
   }
+  if (interval === "monthly") {
+    date.setMonth(date.getMonth() + 1)
+    return
+  }
+  date.setFullYear(date.getFullYear() + 1)
 }
 
-// Helper function to normalize date to start of period
 const normalizeToPeriodStart = (date: Date, zoom: ZoomLevel): Date => {
   const normalized = new Date(date)
   if (zoom === "monthly") {
@@ -64,273 +75,355 @@ const normalizeToPeriodStart = (date: Date, zoom: ZoomLevel): Date => {
   return normalized
 }
 
+const getValidDate = (value: string | null | undefined): Date | null => {
+  if (!value) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed
+}
+
 const annualToMonthlyRate = (xirr: number | null | undefined): number | null => {
   if (xirr === null || xirr === undefined || Number.isNaN(xirr)) return null
   if (xirr <= -100) return null
   return Math.pow(1 + xirr / 100, 1 / 12) - 1
 }
 
-export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmarkChartProps) {
-  // Find oldest entry date from holdings
-  const oldestEntryDate = useMemo(() => {
-    const dates = holdings
-      .map(h => h.date_of_entry)
-      .filter((d): d is string => d != null && d !== "")
-      .map(d => {
-        // Handle different date formats
-        const parsed = new Date(d)
-        return parsed
-      })
-      .filter(d => !isNaN(d.getTime()))
-    
-    if (dates.length === 0) {
-      // Fallback: use 12 months ago from current date
-      const fallback = new Date()
-      fallback.setMonth(fallback.getMonth() - 12)
-      return fallback
-    }
-    
-    return new Date(Math.min(...dates.map(d => d.getTime())))
-  }, [holdings])
+const monthsBetween = (start: Date, end: Date): number =>
+  Math.max(0, (end.getTime() - start.getTime()) / MS_PER_MONTH)
 
-  // Auto-select appropriate zoom level based on date range
+const projectFromTerminal = (
+  terminalValue: number,
+  monthlyRate: number | null,
+  elapsedMonthsNow: number,
+  elapsedMonthsAtPoint: number,
+): number => {
+  if (!Number.isFinite(terminalValue) || terminalValue <= 0) return 0
+  if (monthlyRate === null) return terminalValue
+
+  const nowGrowthFactor = Math.pow(1 + monthlyRate, elapsedMonthsNow)
+  if (!Number.isFinite(nowGrowthFactor) || nowGrowthFactor <= 0) {
+    return terminalValue
+  }
+
+  const startValue = terminalValue / nowGrowthFactor
+  const pointGrowthFactor = Math.pow(1 + monthlyRate, elapsedMonthsAtPoint)
+  if (!Number.isFinite(pointGrowthFactor) || pointGrowthFactor <= 0) {
+    return terminalValue
+  }
+
+  const projectedValue = startValue * pointGrowthFactor
+  return Number.isFinite(projectedValue) && projectedValue >= 0 ? projectedValue : terminalValue
+}
+
+export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmarkChartProps) {
+  const datedEntries = useMemo(
+    () => holdings.map((holding) => getValidDate(holding.date_of_entry)).filter((date): date is Date => date !== null),
+    [holdings],
+  )
+
+  const fallbackStartDate = useMemo(() => {
+    if (datedEntries.length > 0) {
+      return new Date(Math.min(...datedEntries.map((date) => date.getTime())))
+    }
+
+    const fallback = new Date()
+    fallback.setMonth(fallback.getMonth() - 12)
+    return fallback
+  }, [datedEntries])
+
   const autoZoomLevel = useMemo(() => {
     const now = new Date()
-    const monthsDiff = (now.getTime() - oldestEntryDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44)
-    
-    if (monthsDiff < 1) {
-      return "daily"
-    } else if (monthsDiff > 120) {
-      return "yearly"
-    }
+    const monthsDiff = monthsBetween(fallbackStartDate, now)
+    if (monthsDiff < 1) return "daily"
+    if (monthsDiff > 120) return "yearly"
     return "monthly"
-  }, [oldestEntryDate])
+  }, [fallbackStartDate])
 
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>(autoZoomLevel)
   const [lastZoomTime, setLastZoomTime] = useState(0)
   const touchStartDistanceRef = useRef<number | null>(null)
-  
-  const ZOOM_THROTTLE_MS = 300 // Minimum time between granularity changes
 
-  // Change granularity with throttling
+  useEffect(() => {
+    setZoomLevel(autoZoomLevel)
+  }, [autoZoomLevel])
+
+  const seriesMeta = useMemo(() => {
+    const totalPortfolioValue = holdings.reduce(
+      (sum, holding) => sum + (Number.isFinite(holding.market_value) ? holding.market_value : 0),
+      0,
+    )
+
+    const benchmarkComparableHoldings: SeriesHolding[] = []
+    let comparableCurrentValue = 0
+    let excludedHoldings = 0
+
+    for (const holding of holdings) {
+      const portfolioTerminal = Number.isFinite(holding.market_value) ? holding.market_value : 0
+      if (portfolioTerminal <= 0) continue
+
+      const benchmarkTerminal =
+        holding.missed_gains !== null && holding.missed_gains !== undefined
+          ? portfolioTerminal + holding.missed_gains
+          : null
+
+      if (benchmarkTerminal === null || !Number.isFinite(benchmarkTerminal) || benchmarkTerminal <= 0) {
+        excludedHoldings += 1
+        continue
+      }
+
+      comparableCurrentValue += portfolioTerminal
+      benchmarkComparableHoldings.push({
+        entryDate: getValidDate(holding.date_of_entry) ?? fallbackStartDate,
+        portfolioTerminal,
+        benchmarkTerminal,
+        portfolioMonthlyRate: annualToMonthlyRate(holding.xirr),
+        benchmarkMonthlyRate: annualToMonthlyRate(holding.benchmark_xirr),
+      })
+    }
+
+    const comparableStartDate =
+      benchmarkComparableHoldings.length > 0
+        ? new Date(Math.min(...benchmarkComparableHoldings.map((holding) => holding.entryDate.getTime())))
+        : fallbackStartDate
+
+    return {
+      benchmarkComparableHoldings,
+      comparableCoveragePct:
+        totalPortfolioValue > 0 ? Math.min(100, (comparableCurrentValue / totalPortfolioValue) * 100) : 0,
+      excludedHoldings,
+      comparableStartDate,
+    }
+  }, [fallbackStartDate, holdings])
+
+  const ZOOM_THROTTLE_MS = 300
+
   const changeGranularity = (direction: "in" | "out") => {
     const now = Date.now()
     if (now - lastZoomTime < ZOOM_THROTTLE_MS) return
-    
+
     setLastZoomTime(now)
-    
+
     if (direction === "in") {
-      // Zoom in: Yearly -> Monthly -> Daily
-      if (zoomLevel === "yearly") {
-        setZoomLevel("monthly")
-      } else if (zoomLevel === "monthly") {
-        setZoomLevel("daily")
-      }
-    } else {
-      // Zoom out: Daily -> Monthly -> Yearly
-      if (zoomLevel === "daily") {
-        setZoomLevel("monthly")
-      } else if (zoomLevel === "monthly") {
-        setZoomLevel("yearly")
-      }
+      if (zoomLevel === "yearly") setZoomLevel("monthly")
+      else if (zoomLevel === "monthly") setZoomLevel("daily")
+      return
     }
+
+    if (zoomLevel === "daily") setZoomLevel("monthly")
+    else if (zoomLevel === "monthly") setZoomLevel("yearly")
   }
 
-  // Mouse wheel handler
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault()
-    if (e.deltaY < 0) {
-      // Scroll up = zoom in
-      changeGranularity("in")
-    } else {
-      // Scroll down = zoom out
-      changeGranularity("out")
-    }
+    changeGranularity(e.deltaY < 0 ? "in" : "out")
   }
 
-  // Touch gesture handlers for pinch zoom
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      const distance = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      )
-      touchStartDistanceRef.current = distance
-    }
+    if (e.touches.length !== 2) return
+    touchStartDistanceRef.current = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY,
+    )
   }
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 2 && touchStartDistanceRef.current !== null) {
-      const currentDistance = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      )
-      const diff = currentDistance - touchStartDistanceRef.current
-      
-      // Threshold to prevent too sensitive switching
-      if (Math.abs(diff) > 50) {
-        if (diff > 0) {
-          // Pinch out (zoom out)
-          changeGranularity("out")
-        } else {
-          // Pinch in (zoom in)
-          changeGranularity("in")
-        }
-        touchStartDistanceRef.current = null // Reset to prevent rapid switching
-      }
-    }
+    if (e.touches.length !== 2 || touchStartDistanceRef.current === null) return
+
+    const currentDistance = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY,
+    )
+    const diff = currentDistance - touchStartDistanceRef.current
+
+    if (Math.abs(diff) <= 50) return
+
+    changeGranularity(diff > 0 ? "out" : "in")
+    touchStartDistanceRef.current = null
   }
 
   const handleTouchEnd = () => {
     touchStartDistanceRef.current = null
   }
 
-  // Use auto-selected zoom if user hasn't manually selected
   const effectiveZoomLevel = zoomLevel
 
   const chartData = useMemo(() => {
-    const initialValue = summary.total_cost_value || 1
-    const portfolioMonthlyRate = annualToMonthlyRate(summary.portfolio_xirr)
-    const benchmarkMonthlyRate = annualToMonthlyRate(summary.benchmark_xirr)
-
-    // Normalize start date to period start based on zoom level
-    const startDate = normalizeToPeriodStart(new Date(oldestEntryDate), effectiveZoomLevel)
     const endDate = new Date()
-    
-    // Generate data points based on zoom level
-    const data: ChartDataPoint[] = []
-    const current = new Date(startDate)
-    
-    // Limit data points for performance (especially for daily view)
-    const maxPoints = effectiveZoomLevel === "daily" ? 365 : effectiveZoomLevel === "monthly" ? 120 : 50
-    let pointCount = 0
-    
-    while (current <= endDate && pointCount < maxPoints) {
-      // Calculate months elapsed from start date
-      const monthsElapsed = (current.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44)
-      
-      // Calculate values using compound growth formula: V(t) = V(0) * (1 + r)^t
-      const portfolioValue = initialValue * Math.pow(1 + (portfolioMonthlyRate ?? 0), monthsElapsed)
-      const benchmarkValue = initialValue * Math.pow(1 + (benchmarkMonthlyRate ?? 0), monthsElapsed)
-      
-      // Format date based on zoom level
-      const dateStr = formatDateForZoom(current, effectiveZoomLevel)
-      
-      // Calculate percentage returns from initial investment
-      const portfolioPct = ((portfolioValue - initialValue) / initialValue) * 100
-      const benchmarkPct = ((benchmarkValue - initialValue) / initialValue) * 100
-      const difference = portfolioValue - benchmarkValue
-      
-      data.push({
-        date: dateStr,
-        portfolio: portfolioValue,
-        benchmark: benchmarkValue,
-        difference,
-        portfolioPct,
-        benchmarkPct,
-      })
-      
-      // Increment date based on zoom level
-      incrementDate(current, effectiveZoomLevel)
-      pointCount++
-    }
+    const usingComparableSeries = seriesMeta.benchmarkComparableHoldings.length > 0
+    const baseStartDate = usingComparableSeries ? seriesMeta.comparableStartDate : fallbackStartDate
+    const normalizedStartDate = normalizeToPeriodStart(baseStartDate, effectiveZoomLevel)
+    const rawData: Array<Pick<ChartDataPoint, "date" | "portfolio" | "benchmark">> = []
 
-    // Ensure at least 2-3 data points
-    if (data.length < 2) {
-      // Fallback: generate at least 2 points
-      const now = new Date()
-      const start = new Date(now)
-      start.setMonth(start.getMonth() - 1)
-      
-      for (let i = 0; i < 2; i++) {
-        const date = new Date(start)
-        date.setMonth(date.getMonth() + i)
-        const monthsElapsed = i
-        const portfolioValue = initialValue * Math.pow(1 + (portfolioMonthlyRate ?? 0), monthsElapsed)
-        const benchmarkValue = initialValue * Math.pow(1 + (benchmarkMonthlyRate ?? 0), monthsElapsed)
-        const portfolioPct = ((portfolioValue - initialValue) / initialValue) * 100
-        const benchmarkPct = ((benchmarkValue - initialValue) / initialValue) * 100
-        
-        data.push({
-          date: formatDateForZoom(date, effectiveZoomLevel),
-          portfolio: portfolioValue,
-          benchmark: benchmarkValue,
-          difference: portfolioValue - benchmarkValue,
-          portfolioPct,
-          benchmarkPct,
-        })
+    let displayStartDate = new Date(normalizedStartDate)
+    if (effectiveZoomLevel === "daily") {
+      const totalDays = Math.max(1, Math.ceil((endDate.getTime() - normalizedStartDate.getTime()) / MS_PER_DAY))
+      const maxDailyPoints = 2000
+      if (totalDays > maxDailyPoints) {
+        displayStartDate = new Date(endDate)
+        displayStartDate.setDate(displayStartDate.getDate() - (maxDailyPoints - 1))
       }
     }
 
-    return data
-  }, [summary.total_cost_value, summary.portfolio_xirr, summary.benchmark_xirr, oldestEntryDate, effectiveZoomLevel])
+    const current = new Date(displayStartDate)
+
+    if (usingComparableSeries) {
+      while (current <= endDate) {
+        let portfolioValue = 0
+        let benchmarkValue = 0
+
+        for (const holding of seriesMeta.benchmarkComparableHoldings) {
+          if (current < holding.entryDate) continue
+
+          const elapsedMonthsNow = monthsBetween(holding.entryDate, endDate)
+          const elapsedMonthsAtPoint = monthsBetween(holding.entryDate, current)
+
+          portfolioValue += projectFromTerminal(
+            holding.portfolioTerminal,
+            holding.portfolioMonthlyRate,
+            elapsedMonthsNow,
+            elapsedMonthsAtPoint,
+          )
+          benchmarkValue += projectFromTerminal(
+            holding.benchmarkTerminal,
+            holding.benchmarkMonthlyRate,
+            elapsedMonthsNow,
+            elapsedMonthsAtPoint,
+          )
+        }
+
+        rawData.push({
+          date: formatDateForZoom(current, effectiveZoomLevel),
+          portfolio: portfolioValue,
+          benchmark: benchmarkValue,
+        })
+
+        incrementDate(current, effectiveZoomLevel)
+      }
+    } else {
+      const initialValue = summary.total_cost_value || 1
+      const portfolioMonthlyRate = annualToMonthlyRate(summary.portfolio_xirr)
+      const benchmarkMonthlyRate = annualToMonthlyRate(summary.benchmark_xirr)
+
+      while (current <= endDate) {
+        const monthsElapsed = monthsBetween(normalizedStartDate, current)
+        const portfolioValue = initialValue * Math.pow(1 + (portfolioMonthlyRate ?? 0), monthsElapsed)
+        const benchmarkValue = initialValue * Math.pow(1 + (benchmarkMonthlyRate ?? 0), monthsElapsed)
+
+        rawData.push({
+          date: formatDateForZoom(current, effectiveZoomLevel),
+          portfolio: portfolioValue,
+          benchmark: benchmarkValue,
+        })
+
+        incrementDate(current, effectiveZoomLevel)
+      }
+    }
+
+    if (rawData.length < 2) {
+      const portfolioFallback = usingComparableSeries
+        ? seriesMeta.benchmarkComparableHoldings.reduce((sum, holding) => sum + holding.portfolioTerminal, 0)
+        : summary.total_market_value || summary.total_cost_value || 1
+      const benchmarkFallback = usingComparableSeries
+        ? seriesMeta.benchmarkComparableHoldings.reduce((sum, holding) => sum + holding.benchmarkTerminal, 0)
+        : summary.total_cost_value || 1
+
+      rawData.push(
+        {
+          date: formatDateForZoom(displayStartDate, effectiveZoomLevel),
+          portfolio: portfolioFallback,
+          benchmark: benchmarkFallback,
+        },
+        {
+          date: formatDateForZoom(endDate, effectiveZoomLevel),
+          portfolio: portfolioFallback,
+          benchmark: benchmarkFallback,
+        },
+      )
+    }
+
+    const baseline = Math.max(1, Math.min(rawData[0]?.portfolio || 1, rawData[0]?.benchmark || 1))
+
+    return rawData.map((point) => ({
+      ...point,
+      difference: point.portfolio - point.benchmark,
+      portfolioPct: ((point.portfolio - baseline) / baseline) * 100,
+      benchmarkPct: ((point.benchmark - baseline) / baseline) * 100,
+    }))
+  }, [effectiveZoomLevel, fallbackStartDate, seriesMeta, summary.benchmark_xirr, summary.portfolio_xirr, summary.total_cost_value, summary.total_market_value])
 
   const portfolioRateUnavailable = annualToMonthlyRate(summary.portfolio_xirr) === null
   const benchmarkRateUnavailable = annualToMonthlyRate(summary.benchmark_xirr) === null
+  const chartHasPartialCoverage =
+    seriesMeta.benchmarkComparableHoldings.length > 0 &&
+    seriesMeta.comparableCoveragePct < 99.5
+  const showFallbackRateWarning =
+    seriesMeta.benchmarkComparableHoldings.length === 0 &&
+    (portfolioRateUnavailable || benchmarkRateUnavailable)
 
   const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0]?.payload
-      const portfolioValue = data?.portfolio || 0
-      const benchmarkValue = data?.benchmark || 0
-      const portfolioPct = data?.portfolioPct || 0
-      const benchmarkPct = data?.benchmarkPct || 0
-      const difference = data?.difference || 0
+    if (!active || !payload || payload.length === 0) return null
 
-      return (
-        <div className="bg-background border border-border rounded-none p-2 shadow-sm">
-          <p className="text-xs font-semibold text-foreground mb-1.5">
-            {data?.date || ""}
-          </p>
-          <div className="space-y-0.5">
-            <div className="flex items-center gap-1.5">
-              <div 
-                className="w-2.5 h-2.5 rounded-none" 
-                style={{ backgroundColor: CHART_COLORS[0] }}
-              />
-              <span className="text-[10px] text-muted-foreground">Portfolio:</span>
-              <span className="text-[10px] font-semibold text-foreground">
-                {toLakhs(portfolioValue)} ({portfolioPct >= 0 ? "+" : ""}{portfolioPct.toFixed(2)}%)
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div 
-                className="w-2.5 h-2.5 rounded-none" 
-                style={{ backgroundColor: CHART_COLORS[1] }}
-              />
-              <span className="text-[10px] text-muted-foreground">Benchmark:</span>
-              <span className="text-[10px] font-semibold text-foreground">
-                {toLakhs(benchmarkValue)} ({benchmarkPct >= 0 ? "+" : ""}{benchmarkPct.toFixed(2)}%)
-              </span>
-            </div>
-            <div className="pt-0.5 mt-0.5 border-t border-border">
-              <span className="text-[10px] text-muted-foreground">Difference: </span>
-              <span 
-                className={`text-[10px] font-semibold ${
-                  difference >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-                }`}
-              >
-                {difference >= 0 ? "+" : ""}{toLakhs(difference)} ({(portfolioPct - benchmarkPct).toFixed(2)}%)
-              </span>
-            </div>
+    const data = payload[0]?.payload
+    const portfolioValue = data?.portfolio || 0
+    const benchmarkValue = data?.benchmark || 0
+    const portfolioPct = data?.portfolioPct || 0
+    const benchmarkPct = data?.benchmarkPct || 0
+    const difference = data?.difference || 0
+
+    return (
+      <div className="bg-background border border-border rounded-none p-2 shadow-sm">
+        <p className="text-xs font-semibold text-foreground mb-1.5">
+          {data?.date || ""}
+        </p>
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-none" style={{ backgroundColor: CHART_COLORS[0] }} />
+            <span className="text-[10px] text-muted-foreground">Portfolio:</span>
+            <span className="text-[10px] font-semibold text-foreground">
+              {toLakhs(portfolioValue)} ({portfolioPct >= 0 ? "+" : ""}{portfolioPct.toFixed(2)}%)
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-none" style={{ backgroundColor: CHART_COLORS[1] }} />
+            <span className="text-[10px] text-muted-foreground">Benchmark:</span>
+            <span className="text-[10px] font-semibold text-foreground">
+              {toLakhs(benchmarkValue)} ({benchmarkPct >= 0 ? "+" : ""}{benchmarkPct.toFixed(2)}%)
+            </span>
+          </div>
+          <div className="pt-0.5 mt-0.5 border-t border-border">
+            <span className="text-[10px] text-muted-foreground">Difference: </span>
+            <span
+              className={`text-[10px] font-semibold ${
+                difference >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+              }`}
+            >
+              {difference >= 0 ? "+" : ""}
+              {toLakhs(difference)} ({(portfolioPct - benchmarkPct).toFixed(2)}%)
+            </span>
           </div>
         </div>
-      )
-    }
-    return null
+      </div>
+    )
   }
-
 
   return (
     <div className="w-full">
-      {(portfolioRateUnavailable || benchmarkRateUnavailable) && (
+      <div className="mb-3 border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-900">
+        Reconstructed comparison path using each holding&apos;s entry date, current value, and current XIRR. This is an illustrative benchmark comparison, not a transaction-level valuation history.
+      </div>
+      {chartHasPartialCoverage && (
+        <div className="mb-3 border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+          Chart coverage: {seriesMeta.comparableCoveragePct.toFixed(1)}% of current portfolio value has comparable benchmark data. {seriesMeta.excludedHoldings > 0 ? `${seriesMeta.excludedHoldings} holding(s) without benchmark data are excluded.` : ""}
+        </div>
+      )}
+      {showFallbackRateWarning && (
         <div className="mb-3 border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           {portfolioRateUnavailable && "Portfolio XIRR unavailable/invalid. "}
           {benchmarkRateUnavailable && "Benchmark XIRR unavailable/invalid. "}
-          Unavailable rates are shown as flat reference lines.
+          Unavailable aggregate rates are shown as flat reference lines only in the fallback view.
         </div>
       )}
-      {/* Time Granularity Controls */}
+
       <div className="flex items-center justify-end gap-2 mb-4">
         <Button
           variant={zoomLevel === "daily" ? "default" : "outline"}
@@ -357,29 +450,25 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
           Yearly
         </Button>
       </div>
-      
-      {/* Chart with Dynamic Time Granularity Zoom */}
-      <div 
+
+      <div
         className="w-full h-64 sm:h-80 relative border border-border bg-card"
         onWheel={handleWheel}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        style={{ touchAction: "none" }} // Prevent default browser zoom
+        style={{ touchAction: "none" }}
       >
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart
-            data={chartData}
-            margin={{ top: 10, right: 20, left: 0, bottom: 5 }}
-          >
+          <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
             <defs>
               <linearGradient id="colorPortfolio" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={CHART_COLORS[0]} stopOpacity={0.3}/>
-                <stop offset="95%" stopColor={CHART_COLORS[0]} stopOpacity={0.05}/>
+                <stop offset="5%" stopColor={CHART_COLORS[0]} stopOpacity={0.3} />
+                <stop offset="95%" stopColor={CHART_COLORS[0]} stopOpacity={0.05} />
               </linearGradient>
               <linearGradient id="colorBenchmark" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={CHART_COLORS[1]} stopOpacity={0.2}/>
-                <stop offset="95%" stopColor={CHART_COLORS[1]} stopOpacity={0.05}/>
+                <stop offset="5%" stopColor={CHART_COLORS[1]} stopOpacity={0.2} />
+                <stop offset="95%" stopColor={CHART_COLORS[1]} stopOpacity={0.05} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -398,9 +487,9 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
               axisLine={false}
               tickFormatter={(value) => {
                 if (value >= 100_000) {
-                  return `₹${(value / 100_000).toFixed(1)}L`
+                  return `Rs ${(value / 100_000).toFixed(1)}L`
                 }
-                return `₹${(value / 1000).toFixed(0)}K`
+                return `Rs ${(value / 1000).toFixed(0)}K`
               }}
             />
             <Tooltip content={<CustomTooltip />} />
@@ -419,7 +508,7 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
               strokeWidth={2}
               fill="url(#colorBenchmark)"
               fillOpacity={0.6}
-              isAnimationActive={true}
+              isAnimationActive
               animationDuration={800}
             />
             <Area
@@ -430,7 +519,7 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
               strokeWidth={3}
               fill="url(#colorPortfolio)"
               fillOpacity={0.6}
-              isAnimationActive={true}
+              isAnimationActive
               animationDuration={800}
             />
           </AreaChart>

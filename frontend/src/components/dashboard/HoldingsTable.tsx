@@ -196,77 +196,11 @@ export const HoldingsTable = memo(function HoldingsTable({
     )
   }, [filteredByFilters, searchQuery])
 
-  // Helper function to get benchmark name based on category/sub_category
+  // Always trust the backend benchmark label when available.
   const getBenchmarkName = (holding: Holding): string | null => {
     if (holding.benchmark_name && holding.benchmark_name.trim()) {
       return holding.benchmark_name
     }
-    const category = holding.category.toLowerCase()
-    const subCategory = holding.sub_category.toLowerCase()
-    const schemeName = holding.scheme_name.toLowerCase()
-
-    // Check if it's an index fund first
-    if (schemeName.includes("nifty 50") || schemeName.includes("nifty50")) {
-      return "Nifty 50"
-    }
-    if (schemeName.includes("nifty midcap") || schemeName.includes("niftymidcap")) {
-      return "Nifty Midcap 150"
-    }
-    if (schemeName.includes("nifty smallcap") || schemeName.includes("niftysmallcap")) {
-      return "Nifty Smallcap 250"
-    }
-    if (schemeName.includes("nifty 500") || schemeName.includes("nifty500")) {
-      return "Nifty 500"
-    }
-    if (schemeName.includes("sensex")) {
-      return "Sensex"
-    }
-
-    // Equity benchmarks
-    if (category === "equity") {
-      if (subCategory.includes("large cap") || subCategory.includes("large-cap")) {
-        return "Nifty 50"
-      }
-      if (subCategory.includes("mid cap") || subCategory.includes("mid-cap")) {
-        return "Nifty Midcap 150"
-      }
-      if (subCategory.includes("small cap") || subCategory.includes("small-cap")) {
-        return "Nifty Smallcap 250"
-      }
-      if (subCategory.includes("flexi cap") || subCategory.includes("flexi-cap") || subCategory.includes("multi cap") || subCategory.includes("multi-cap")) {
-        return "Nifty 500"
-      }
-      if (subCategory.includes("elss")) {
-        return "Nifty 500"
-      }
-      if (subCategory.includes("sectoral") || subCategory.includes("thematic")) {
-        return "Nifty 50"
-      }
-      // Default equity benchmark
-      return "Nifty 50"
-    }
-
-    // Fixed Income benchmarks
-    if (category === "fixed income") {
-      if (subCategory.includes("liquid") || subCategory.includes("money market")) {
-        return "CRISIL Liquid"
-      }
-      if (subCategory.includes("ultra short term") || subCategory.includes("ultra-short")) {
-        return "CRISIL Ultra Short Term"
-      }
-      if (subCategory.includes("short term") || subCategory.includes("short-term")) {
-        return "CRISIL Short Term"
-      }
-      if (subCategory.includes("medium term") || subCategory.includes("medium-term")) {
-        return "CRISIL Medium Term"
-      }
-      if (subCategory.includes("long term") || subCategory.includes("long-term")) {
-        return "CRISIL Long Term"
-      }
-      // Default debt benchmark
-      return "CRISIL Composite"
-    }
-
     return null
   }
 
