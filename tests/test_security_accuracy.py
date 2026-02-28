@@ -1,5 +1,6 @@
 import json
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -7,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.Code.main import (
     _benchmark_nav_for_date,
+    _current_holding_entry_date,
     _prepare_benchmark_history,
     _resolve_benchmark_components,
     app,
@@ -231,6 +233,18 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(nav, 100.0)
         self.assertFalse(is_exact)
 
+    def test_current_holding_entry_date_uses_remaining_units_after_full_exit(self):
+        entry_dt = _current_holding_entry_date(
+            50.0,
+            [
+                (datetime(2020, 1, 1), 100.0, 10000.0),
+                (datetime(2021, 1, 1), -100.0, 12000.0),
+                (datetime(2024, 1, 1), 50.0, 7000.0),
+            ],
+            datetime(2020, 1, 1),
+        )
+        self.assertEqual(entry_dt, datetime(2024, 1, 1))
+
     def test_benchmark_mapping_uses_more_specific_proxies(self):
         flexi = _resolve_benchmark_components(
             "Test Flexi Cap Fund - Direct Plan - Growth",
@@ -362,6 +376,56 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         summary = response.summary
         assert summary is not None and summary.performance_summary is not None
         self.assertEqual(summary.performance_summary.one_year.comparable_pct, 50.0)
+
+    async def test_analysis_uses_remaining_holding_entry_date_and_parses_statement_cost(self):
+        cas_data = {
+            "folios": [
+                {
+                    "amc": "Test AMC",
+                    "folio": "1/1",
+                    "schemes": [
+                        {
+                            "scheme": "Test Flexi Cap Fund",
+                            "amfi": "100001",
+                            "type": "EQUITY",
+                            "close": 50.0,
+                            "valuation": {"nav": 140.0, "value": 7000.0, "cost": "7,000.0"},
+                            "transactions": [
+                                {"date": "2020-01-01", "amount": 10000.0, "units": 100.0, "description": "Purchase"},
+                                {"date": "2021-01-01", "amount": 12000.0, "units": -100.0, "description": "Redemption"},
+                                {"date": "2024-01-01", "amount": 7000.0, "units": 50.0, "description": "Purchase"},
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "statement_period": {"from": "01-Jan-2020", "to": "01-Jan-2026"},
+        }
+
+        async def fake_live_nav(_):
+            return 0.0
+
+        async def fake_nav_history(_):
+            return {
+                "01-01-2020": 100.0,
+                "01-01-2021": 110.0,
+                "01-01-2024": 120.0,
+                "01-01-2026": 130.0,
+            }
+
+        with patch("app.Code.main.fetch_live_nav", new=fake_live_nav), patch(
+            "app.Code.main.fetch_nav_history", new=fake_nav_history
+        ), patch("app.Code.main.save_cache_async", new=AsyncMock()), patch(
+            "app.Code.main.get_holdings_for_schemes", new=AsyncMock(return_value={})
+        ), patch(
+            "app.Code.main.save_amfi_cache_async", new=AsyncMock()
+        ):
+            response = await map_casparser_to_analysis(cas_data)
+
+        self.assertTrue(response.success)
+        holding = response.holdings[0]
+        self.assertEqual(holding.date_of_entry, "2024-01-01")
+        self.assertEqual(holding.cost_value, 7000.0)
 
     def test_eval_removed_from_holdings_cache_loader(self):
         holdings_source = Path("app/Code/holdings.py").read_text(encoding="utf-8")

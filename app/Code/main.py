@@ -371,6 +371,44 @@ def _units_at_cutoff(
     return max(0.0, units_now - units_after_cutoff)
 
 
+def _current_holding_entry_date(
+    units_now: float,
+    lot_events: List[Tuple[datetime, float, float]],
+    fallback_dt: Optional[datetime],
+) -> Optional[datetime]:
+    if units_now <= 0:
+        return fallback_dt
+
+    remaining_lots: List[List[Any]] = []
+    for lot_dt, units_delta, _ in sorted(lot_events, key=lambda x: x[0]):
+        if units_delta > 0:
+            remaining_lots.append([lot_dt, units_delta])
+            continue
+        if units_delta >= 0:
+            continue
+
+        units_to_sell = abs(units_delta)
+        while units_to_sell > 1e-9 and remaining_lots:
+            lot = remaining_lots[0]
+            consumed = min(lot[1], units_to_sell)
+            lot[1] -= consumed
+            units_to_sell -= consumed
+            if lot[1] <= 1e-9:
+                remaining_lots.pop(0)
+
+    remaining_units = sum(float(lot[1]) for lot in remaining_lots)
+    if remaining_units > 1e-9:
+        unit_scale = units_now / remaining_units
+        if abs(unit_scale - 1.0) > 0.02:
+            for lot in remaining_lots:
+                lot[1] *= unit_scale
+
+    for lot_dt, lot_units in remaining_lots:
+        if lot_units > 1e-9:
+            return lot_dt
+    return fallback_dt
+
+
 def _compute_period_xirr(
     cashflows: List[Tuple[datetime, float]],
     start_value: float,
@@ -964,10 +1002,9 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
             val = scheme.get("valuation", {})
             if "cost" in val:
-                try:
-                    scheme_cost = float(val["cost"])
-                except Exception:
-                    pass
+                parsed_cost = _parse_amount(val.get("cost"))
+                if parsed_cost is not None:
+                    scheme_cost = parsed_cost
 
             statement_nav = float(val.get("nav", 0.0) or 0.0)
             statement_value_raw = val.get("value")
@@ -1007,9 +1044,11 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             amc_values[amc_name] = amc_values.get(amc_name, 0.0) + mkt_val
             allocation_map[sub_cat] = allocation_map.get(sub_cat, 0.0) + mkt_val
 
+            scheme_entry_dt = min(scheme_tx_dates) if scheme_tx_dates else None
+            current_holding_entry_dt = _current_holding_entry_date(units, lot_events, scheme_entry_dt)
             gain = mkt_val - scheme_cost
             ret_pct = round((gain / scheme_cost * 100), 2) if scheme_cost > 0 else 0.0
-            date_of_entry = min(scheme_tx_dates).strftime("%Y-%m-%d") if scheme_tx_dates else None
+            date_of_entry = current_holding_entry_dt.strftime("%Y-%m-%d") if current_holding_entry_dt else None
 
             if cat == "Equity":
                 equity_cashflows.extend(scheme_cashflows)
@@ -1023,8 +1062,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 credit_bucket = _credit_quality_bucket(name, sub_cat)
                 credit_values[credit_bucket] += mkt_val
 
-            scheme_entry_dt = min(scheme_tx_dates) if scheme_tx_dates else None
-            holding_years = _years_between(scheme_entry_dt, analysis_now_dt)
+            holding_years = _years_between(current_holding_entry_dt or scheme_entry_dt, analysis_now_dt)
             scheme_ter = _extract_scheme_ter_pct(scheme)
             if scheme_ter is None:
                 scheme_ter = _default_ter_pct(cat, sub_cat, name, is_direct)
