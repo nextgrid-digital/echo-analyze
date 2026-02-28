@@ -30,10 +30,9 @@ interface ChartDataPoint {
 
 interface SeriesHolding {
   entryDate: Date
+  entryValue: number
   portfolioTerminal: number
   benchmarkTerminal: number
-  portfolioMonthlyRate: number | null
-  benchmarkMonthlyRate: number | null
 }
 
 type ZoomLevel = "daily" | "monthly" | "yearly"
@@ -91,28 +90,30 @@ const annualToMonthlyRate = (xirr: number | null | undefined): number | null => 
 const monthsBetween = (start: Date, end: Date): number =>
   Math.max(0, (end.getTime() - start.getTime()) / MS_PER_MONTH)
 
-const projectFromTerminal = (
+const interpolateBetweenEndpoints = (
+  entryValue: number,
   terminalValue: number,
-  monthlyRate: number | null,
   elapsedMonthsNow: number,
   elapsedMonthsAtPoint: number,
 ): number => {
+  if (!Number.isFinite(entryValue) || entryValue <= 0) {
+    return Number.isFinite(terminalValue) && terminalValue > 0 ? terminalValue : 0
+  }
   if (!Number.isFinite(terminalValue) || terminalValue <= 0) return 0
-  if (monthlyRate === null) return terminalValue
+  if (elapsedMonthsNow <= 0) return terminalValue
 
-  const nowGrowthFactor = Math.pow(1 + monthlyRate, elapsedMonthsNow)
-  if (!Number.isFinite(nowGrowthFactor) || nowGrowthFactor <= 0) {
+  const clampedElapsedMonths = Math.min(elapsedMonthsNow, Math.max(0, elapsedMonthsAtPoint))
+  const endpointRatio = terminalValue / entryValue
+  if (!Number.isFinite(endpointRatio) || endpointRatio <= 0) {
     return terminalValue
   }
 
-  const startValue = terminalValue / nowGrowthFactor
-  const pointGrowthFactor = Math.pow(1 + monthlyRate, elapsedMonthsAtPoint)
-  if (!Number.isFinite(pointGrowthFactor) || pointGrowthFactor <= 0) {
+  const progressRatio = clampedElapsedMonths / elapsedMonthsNow
+  const interpolatedValue = entryValue * Math.pow(endpointRatio, progressRatio)
+  if (!Number.isFinite(interpolatedValue) || interpolatedValue < 0) {
     return terminalValue
   }
-
-  const projectedValue = startValue * pointGrowthFactor
-  return Number.isFinite(projectedValue) && projectedValue >= 0 ? projectedValue : terminalValue
+  return interpolatedValue
 }
 
 export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmarkChartProps) {
@@ -172,12 +173,14 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
       }
 
       comparableCurrentValue += portfolioTerminal
+      const entryValue =
+        Number.isFinite(holding.cost_value) && holding.cost_value > 0 ? holding.cost_value : portfolioTerminal
+
       benchmarkComparableHoldings.push({
         entryDate: getValidDate(holding.date_of_entry) ?? fallbackStartDate,
+        entryValue,
         portfolioTerminal,
         benchmarkTerminal,
-        portfolioMonthlyRate: annualToMonthlyRate(holding.xirr),
-        benchmarkMonthlyRate: annualToMonthlyRate(holding.benchmark_xirr),
       })
     }
 
@@ -251,7 +254,9 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
     const endDate = new Date()
     const usingComparableSeries = seriesMeta.benchmarkComparableHoldings.length > 0
     const baseStartDate = usingComparableSeries ? seriesMeta.comparableStartDate : fallbackStartDate
-    const normalizedStartDate = normalizeToPeriodStart(baseStartDate, effectiveZoomLevel)
+    const normalizedStartDate = usingComparableSeries
+      ? new Date(baseStartDate)
+      : normalizeToPeriodStart(baseStartDate, effectiveZoomLevel)
     const rawData: Array<Pick<ChartDataPoint, "date" | "portfolio" | "benchmark">> = []
 
     let displayStartDate = new Date(normalizedStartDate)
@@ -277,15 +282,15 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
           const elapsedMonthsNow = monthsBetween(holding.entryDate, endDate)
           const elapsedMonthsAtPoint = monthsBetween(holding.entryDate, current)
 
-          portfolioValue += projectFromTerminal(
+          portfolioValue += interpolateBetweenEndpoints(
+            holding.entryValue,
             holding.portfolioTerminal,
-            holding.portfolioMonthlyRate,
             elapsedMonthsNow,
             elapsedMonthsAtPoint,
           )
-          benchmarkValue += projectFromTerminal(
+          benchmarkValue += interpolateBetweenEndpoints(
+            holding.entryValue,
             holding.benchmarkTerminal,
-            holding.benchmarkMonthlyRate,
             elapsedMonthsNow,
             elapsedMonthsAtPoint,
           )
@@ -409,7 +414,7 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
   return (
     <div className="w-full">
       <div className="mb-3 border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-900">
-        Reconstructed comparison path using each holding&apos;s entry date, current value, and current XIRR. This is an illustrative benchmark comparison, not a transaction-level valuation history.
+        Reconstructed comparison path using each holding&apos;s entry date, invested value, and current value. This is an illustrative benchmark comparison, not a transaction-level valuation history.
       </div>
       {chartHasPartialCoverage && (
         <div className="mb-3 border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900">

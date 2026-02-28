@@ -89,14 +89,14 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
                       title="Portfolio Performance vs Benchmark"
                       formula={
                         <>
-                          Reconstructed Value(t) = terminal value scaled backward using current XIRR<br />
+                          Reconstructed Holding Value(t) = entry value interpolated to current value by today<br />
                           Benchmark uses only holdings with comparable benchmark data<br />
                           Difference = Portfolio − Benchmark
                         </>
                       }
                       content={
                         <>
-                          This chart shows an illustrative, reconstructed comparison path based on holding entry dates, current values, and current XIRRs. It is not a transaction-level historical valuation series.
+                          This chart shows an illustrative, reconstructed comparison path based on holding entry dates, invested values, and current values. It is not a transaction-level historical valuation series.
                         </>
                       }
                     />
