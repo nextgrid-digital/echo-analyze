@@ -14,6 +14,7 @@ from app.Code.main import (
     app,
     map_casparser_to_analysis,
 )
+from app.Code.utils import calculate_xirr
 
 
 class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
@@ -95,6 +96,73 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary.tax.short_term_gains, 0.0)
         self.assertEqual(summary.tax.taxable_gains, 0.0)
         self.assertEqual(summary.tax.estimated_tax_liability, 0.0)
+
+    async def test_holding_benchmark_xirr_uses_current_position_window(self):
+        cas_data = {
+            "folios": [
+                {
+                    "amc": "Test AMC",
+                    "folio": "1/1",
+                    "schemes": [
+                        {
+                            "scheme": "Test Equity Fund",
+                            "amfi": "100001",
+                            "type": "EQUITY",
+                            "close": 1000.0,
+                            "valuation": {"nav": 180.0, "value": 180000.0, "cost": 150000.0},
+                            "transactions": [
+                                {"date": "2020-01-01", "amount": 100000.0, "units": 1000.0, "description": "Purchase"},
+                                {"date": "2022-01-01", "amount": 110000.0, "units": -1000.0, "description": "Redemption"},
+                                {"date": "2024-01-01", "amount": 150000.0, "units": 1000.0, "description": "Purchase"},
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "statement_period": {"from": "01-Jan-2020", "to": "01-Jan-2026"},
+        }
+
+        as_of_str = datetime.now().strftime("%d-%m-%Y")
+
+        async def fake_live_nav(_):
+            return 0.0
+
+        async def fake_nav_history(code):
+            if str(code) == "100001":
+                return {
+                    "01-01-2020": 100.0,
+                    "01-01-2022": 110.0,
+                    "01-01-2024": 150.0,
+                    as_of_str: 180.0,
+                }
+            return {
+                "01-01-2020": 100.0,
+                "01-01-2022": 110.0,
+                "01-01-2024": 130.0,
+                as_of_str: 140.0,
+            }
+
+        with patch("app.Code.main.fetch_live_nav", new=fake_live_nav), patch(
+            "app.Code.main.fetch_nav_history", new=fake_nav_history
+        ), patch("app.Code.main.save_cache_async", new=AsyncMock()), patch(
+            "app.Code.main.get_holdings_for_schemes", new=AsyncMock(return_value={})
+        ), patch(
+            "app.Code.main.save_amfi_cache_async", new=AsyncMock()
+        ):
+            response = await map_casparser_to_analysis(cas_data)
+
+        self.assertTrue(response.success)
+        holding = response.holdings[0]
+        self.assertEqual(holding.date_of_entry, "2024-01-01")
+        self.assertIsNotNone(holding.benchmark_xirr)
+
+        expected_benchmark_value = (150000.0 / 130.0) * 140.0
+        expected_benchmark_xirr = calculate_xirr(
+            [datetime(2024, 1, 1), datetime.now()],
+            [-150000.0, expected_benchmark_value],
+        )
+        self.assertIsNotNone(expected_benchmark_xirr)
+        self.assertAlmostEqual(holding.benchmark_xirr, round(expected_benchmark_xirr or 0.0, 2), places=1)
 
     async def test_performance_uses_distinct_1y_and_3y_windows(self):
         cas_data = {

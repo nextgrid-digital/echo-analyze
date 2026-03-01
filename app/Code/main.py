@@ -1137,6 +1137,9 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                     continue
                 s_bm_val += scheme_benchmark_units.get(comp.code, 0.0) * history_bundle[3]
 
+            fund_history_bundle = scheme_histories_prepared.get(amfi) if amfi else None
+            position_cutoff_dt = current_holding_entry_dt or scheme_entry_dt
+
             if scheme_cashflows:
                 s_flows = scheme_cashflows + [(analysis_now_dt, mkt_val)]
                 s_xirr = calculate_xirr([x[0] for x in s_flows], [x[1] for x in s_flows])
@@ -1145,11 +1148,56 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                     s_bm_xirr = calculate_xirr([x[0] for x in s_flows_bm], [x[1] for x in s_flows_bm])
                     s_missed_gains = s_bm_val - mkt_val
 
-                    if s_bm_xirr is None:
-                        log_debug(
-                            f"BM_XIRR_FAIL: {name[:20]}, bm_val={s_bm_val:.2f}, flows={len(s_flows_bm)}, "
-                            f"components={len(benchmark_components)}"
-                        )
+                if position_cutoff_dt and position_cutoff_dt < analysis_now_dt:
+                    cutoff_str = position_cutoff_dt.strftime("%Y-%m-%d")
+
+                    # Prefer a current-position IRR so the table aligns with the holding's displayed entry date.
+                    if mkt_val > 0 and fund_history_bundle:
+                        fund_units_start = _units_at_cutoff(units, scheme_unit_events, position_cutoff_dt)
+                        fund_nav_start, _ = _nav_from_prepared_history(cutoff_str, fund_history_bundle)
+                        if fund_nav_start:
+                            fund_start_val = fund_units_start * fund_nav_start
+                            period_s_xirr = _compute_period_xirr(
+                                scheme_cashflows,
+                                fund_start_val,
+                                mkt_val,
+                                position_cutoff_dt,
+                                analysis_now_dt,
+                            )
+                            if period_s_xirr is not None:
+                                s_xirr = period_s_xirr
+
+                    if s_bm_val > 0:
+                        bm_start_val = 0.0
+                        for comp in benchmark_components:
+                            history_bundle = benchmark_histories_prepared.get(comp.code)
+                            if not history_bundle:
+                                continue
+                            comp_units_start = _units_at_cutoff(
+                                scheme_benchmark_units.get(comp.code, 0.0),
+                                scheme_benchmark_unit_events.get(comp.code, []),
+                                position_cutoff_dt,
+                            )
+                            comp_nav_start, _ = _nav_from_prepared_history(cutoff_str, history_bundle)
+                            if comp_nav_start:
+                                bm_start_val += comp_units_start * comp_nav_start
+
+                        if bm_start_val > 0:
+                            period_s_bm_xirr = _compute_period_xirr(
+                                scheme_cashflows,
+                                bm_start_val,
+                                s_bm_val,
+                                position_cutoff_dt,
+                                analysis_now_dt,
+                            )
+                            if period_s_bm_xirr is not None:
+                                s_bm_xirr = period_s_bm_xirr
+
+                if s_bm_val > 0 and s_bm_xirr is None:
+                    log_debug(
+                        f"BM_XIRR_FAIL: {name[:20]}, bm_val={s_bm_val:.2f}, flows={len(s_flows_bm)}, "
+                        f"components={len(benchmark_components)}"
+                    )
 
             if s_bm_val > 0:
                 benchmark_terminal_value += s_bm_val
@@ -1158,9 +1206,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                     equity_benchmark_terminal_value += s_bm_val
                     equity_benchmark_cost_total += scheme_cost
 
-            if scheme_cashflows and s_bm_val > 0 and mkt_val > 0 and amfi and amfi in scheme_histories_prepared:
-                fund_history_bundle = scheme_histories_prepared[amfi]
-
+            if scheme_cashflows and s_bm_val > 0 and mkt_val > 0 and fund_history_bundle:
                 def period_diff_for_cutoff(cutoff_dt: datetime) -> Optional[float]:
                     cutoff_str = cutoff_dt.strftime("%Y-%m-%d")
                     fund_units_start = _units_at_cutoff(units, scheme_unit_events, cutoff_dt)

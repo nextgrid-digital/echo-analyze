@@ -39,8 +39,8 @@ export const HoldingsTable = memo(function HoldingsTable({
   const [renderNowMs] = useState(() => Date.now())
   const total = totalMarketValue || 1
 
-  const DEFAULT_COL_WIDTHS = [44, 88, 200, 100, 72, 88, 96, 84, 106, 116, 88, 88, 92, 92, 92]
-  const MIN_COL_WIDTHS = [36, 64, 100, 72, 56, 72, 64, 80, 80, 80, 72, 72, 72, 72, 72]
+  const DEFAULT_COL_WIDTHS = [44, 88, 200, 100, 72, 88, 96, 84, 106, 116, 88, 92, 92, 92]
+  const MIN_COL_WIDTHS = [36, 64, 100, 72, 56, 72, 64, 80, 80, 80, 72, 72, 72, 72]
   const [columnWidths, setColumnWidths] = useState<number[]>(() => DEFAULT_COL_WIDTHS)
   const [resizingColId, setResizingColId] = useState<number | null>(null)
   const resizeStartX = useRef(0)
@@ -48,7 +48,7 @@ export const HoldingsTable = memo(function HoldingsTable({
   const [columnScalePct, setColumnScalePct] = useState(DEFAULT_COLUMN_SCALE)
   const columnScale = columnScalePct / 100
 
-  type SortKey = "folio" | "scheme_name" | "sub_category" | "style_category" | "benchmark" | "date_of_entry" | "holding_period" | "cost_value" | "market_value" | "weight_pct" | "return_pct" | "missed_gains" | "xirr" | "benchmark_xirr"
+  type SortKey = "folio" | "scheme_name" | "sub_category" | "style_category" | "benchmark" | "date_of_entry" | "holding_period" | "cost_value" | "market_value" | "weight_pct" | "missed_gains" | "xirr" | "benchmark_xirr"
   const COLUMNS: { key: SortKey | null; label: string; align: "left" | "right" }[] = [
     { key: null, label: "#", align: "right" },
     { key: "folio", label: "Folio number", align: "left" },
@@ -61,7 +61,6 @@ export const HoldingsTable = memo(function HoldingsTable({
     { key: "cost_value", label: "Invested Value", align: "right" },
     { key: "market_value", label: "Current Value", align: "right" },
     { key: "weight_pct", label: "Weight (%)", align: "right" },
-    { key: "return_pct", label: "Abs Returns", align: "right" },
     { key: "missed_gains", label: "Missed Gains", align: "right" },
     { key: "xirr", label: "XIRR", align: "right" },
     { key: "benchmark_xirr", label: "BM XIRR", align: "right" },
@@ -230,6 +229,28 @@ export const HoldingsTable = memo(function HoldingsTable({
     return n
   }
 
+  const getDisplayedMissedGains = (missedGains: number | null): number | null =>
+    missedGains === null ? null : -missedGains
+
+  const getMissedGainsColorClass = (displayedMissedGains: number | null): string => {
+    if (displayedMissedGains === null) return "text-muted-foreground"
+    if (displayedMissedGains < 0) return "text-red-500"
+    if (displayedMissedGains > 0) return "text-green-500"
+    return "text-foreground"
+  }
+
+  const formatSignedCurrencyValue = (value: number): string => {
+    const absValue = Math.abs(value)
+    if (absValue <= 0.0001) return formatCurrency(0)
+    return `${value > 0 ? "+" : "-"}${formatCurrency(absValue)}`
+  }
+
+  const formatSignedRupees = (value: number): string => {
+    const absValue = Math.abs(value)
+    if (absValue <= 0.0001) return `₹${formatCurrency(0)}`
+    return `${value > 0 ? "+" : "-"}₹${formatCurrency(absValue)}`
+  }
+
   // Group holdings by category
   const {
     equityHoldings, debtHoldings, otherHoldings,
@@ -330,17 +351,9 @@ export const HoldingsTable = memo(function HoldingsTable({
       case "market_value":
       case "weight_pct":
         return mult * ((a.market_value ?? 0) - (b.market_value ?? 0))
-      case "return_pct": {
-        const ra = num(a.return_pct)
-        const rb = num(b.return_pct)
-        if (Number.isNaN(ra) && Number.isNaN(rb)) return 0
-        if (Number.isNaN(ra)) return mult
-        if (Number.isNaN(rb)) return -mult
-        return mult * (ra - rb)
-      }
       case "missed_gains": {
-        const ma = calculateMissedGains(a)
-        const mb = calculateMissedGains(b)
+        const ma = getDisplayedMissedGains(calculateMissedGains(a))
+        const mb = getDisplayedMissedGains(calculateMissedGains(b))
         if (ma === null && mb === null) return 0
         if (ma === null) return mult
         if (mb === null) return -mult
@@ -418,10 +431,10 @@ export const HoldingsTable = memo(function HoldingsTable({
 
   // CSV download: respect current column order
   const getCsvCellValue = (h: Holding, colId: number, rowNum?: number): string => {
-    const missedGains = calculateMissedGains(h)
+    const displayedMissedGains = getDisplayedMissedGains(calculateMissedGains(h))
     const allocPct = (((h.market_value || 0) / total) * 100).toFixed(2)
     const xirrStr = h.xirr != null ? `${(h.xirr as number).toFixed(1)}%` : ""
-    const bmStr = h.benchmark_xirr != null ? `${(h.benchmark_xirr as number).toFixed(1)}%` : ""
+    const bmStr = h.benchmark_xirr != null ? `${(h.benchmark_xirr as number).toFixed(2)}%` : ""
     switch (colId) {
       case 0: return rowNum != null ? String(rowNum) : ""
       case 1: return h.folio || ""
@@ -434,10 +447,9 @@ export const HoldingsTable = memo(function HoldingsTable({
       case 8: return formatCurrency(h.cost_value || 0)
       case 9: return formatCurrency(h.market_value || 0)
       case 10: return allocPct + "%"
-      case 11: return (h.return_pct ?? 0) + "%"
-      case 12: return missedGains != null ? formatCurrency(missedGains) : ""
-      case 13: return xirrStr
-      case 14: return bmStr
+      case 11: return displayedMissedGains != null ? formatSignedCurrencyValue(displayedMissedGains) : ""
+      case 12: return xirrStr
+      case 13: return bmStr
       default: return ""
     }
   }
@@ -548,18 +560,14 @@ export const HoldingsTable = memo(function HoldingsTable({
               </TableCell>
             )
           }
-          if (colId === 12) {
-            const hasValue = Math.abs(missedGainsSubtotal) > 0.0001
-            const subtotalColorClass =
-              missedGainsSubtotal > 0
-                ? "text-red-500"
-                : missedGainsSubtotal < 0
-                  ? "text-green-500"
-                  : "text-foreground"
+          if (colId === 11) {
+            const displayedMissedGainsSubtotal = getDisplayedMissedGains(missedGainsSubtotal) ?? 0
+            const hasValue = Math.abs(displayedMissedGainsSubtotal) > 0.0001
+            const subtotalColorClass = getMissedGainsColorClass(displayedMissedGainsSubtotal)
             return (
               <TableCell key={colId} className="px-2 py-2 sm:px-3 text-right" style={{ width: w, minWidth: w, maxWidth: w }}>
                 <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${hasValue ? subtotalColorClass : "text-muted-foreground"}`}>
-                  {hasValue ? `₹${formatCurrency(missedGainsSubtotal)}` : "-"}
+                  {hasValue ? formatSignedRupees(displayedMissedGainsSubtotal) : "-"}
                 </span>
               </TableCell>
             )
@@ -574,21 +582,14 @@ export const HoldingsTable = memo(function HoldingsTable({
     const hasXirr = h.xirr !== null && h.xirr !== undefined
     const hasBenchmarkXirr = h.benchmark_xirr !== null && h.benchmark_xirr !== undefined
     const yearsFromEntry = formatYearsFromEntryDate(h.date_of_entry)
-    const missedGains = calculateMissedGains(h)
+    const displayedMissedGains = getDisplayedMissedGains(calculateMissedGains(h))
     const isBelowBenchmark = hasXirr && hasBenchmarkXirr ? (h.xirr as number) < (h.benchmark_xirr as number) : null
     const xirrColorClass = hasXirr ? (hasBenchmarkXirr ? (isBelowBenchmark ? "text-red-500" : "text-green-500") : (h.xirr as number) < 0 ? "text-red-500" : "text-green-500") : "text-muted-foreground"
     const benchmarkXirrColorClass = "text-muted-foreground"
-    const missedGainsColorClass =
-      missedGains === null
-        ? "text-muted-foreground"
-        : missedGains > 0
-          ? "text-red-500"
-          : missedGains < 0
-            ? "text-green-500"
-            : "text-foreground"
+    const missedGainsColorClass = getMissedGainsColorClass(displayedMissedGains)
     const allocPct = (((h.market_value || 0) / total) * 100).toFixed(1)
     const xirrLine = hasXirr ? `${(h.xirr as number).toFixed(1)}%` : "-"
-    const bmLine = hasBenchmarkXirr ? `${(h.benchmark_xirr as number).toFixed(1)}%` : "-"
+    const bmLine = hasBenchmarkXirr ? `${(h.benchmark_xirr as number).toFixed(2)}%` : "-"
     const benchmarkName = getBenchmarkName(h) ?? "-"
     switch (colId) {
       case 0: return rowNum
@@ -609,10 +610,9 @@ export const HoldingsTable = memo(function HoldingsTable({
       case 8: return <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(h.cost_value || 0)}</span>
       case 9: return <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(h.market_value || 0)}</span>
       case 10: return <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">{allocPct}%</span>
-      case 11: return <span className={`font-bold font-mono text-xs whitespace-nowrap truncate ${(h.gain_loss ?? 0) >= 0 ? "text-primary" : "text-destructive"}`}>{h.return_pct ?? 0}%</span>
-      case 12: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${missedGainsColorClass}`}>{missedGains !== null ? `₹${formatCurrency(missedGains)}` : "-"}</span>
-      case 13: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${xirrColorClass}`}>{xirrLine}</span>
-      case 14: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${benchmarkXirrColorClass}`}>{bmLine}</span>
+      case 11: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${missedGainsColorClass}`}>{displayedMissedGains !== null ? formatSignedRupees(displayedMissedGains) : "-"}</span>
+      case 12: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${xirrColorClass}`}>{xirrLine}</span>
+      case 13: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${benchmarkXirrColorClass}`}>{bmLine}</span>
       default: return null
     }
   }
@@ -651,12 +651,12 @@ export const HoldingsTable = memo(function HoldingsTable({
             <>
               Value = Units × NAV<br />
               Allocation % = (Holding Value ÷ Total Portfolio Value) × 100<br />
-              Return % = ((Current Value − Cost Value) ÷ Cost Value) × 100
+              Missed Gains = Portfolio Value − Benchmark Value
             </>
           }
           content={
             <>
-              All holdings from your statement: scheme name, category, market value (in ₹), allocation % of portfolio, return %, and style (e.g. Growth). Holdings are grouped by Equity and Debt with subtotals.
+              All holdings from your statement: scheme name, category, market value (in ₹), allocation % of portfolio, benchmark comparison, and style (e.g. Growth). Holdings are grouped by Equity and Debt with subtotals.
             </>
           }
         />
