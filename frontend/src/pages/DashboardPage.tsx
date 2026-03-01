@@ -8,6 +8,7 @@ import { Footer } from "@/components/dashboard/Footer"
 import { WarningRail } from "@/components/dashboard/WarningRail"
 import { Button } from "@/components/ui/button"
 import { createEmptySummary, createEmptyHoldings } from "@/lib/emptyData"
+import { getDashboardMethodologyWarnings } from "@/lib/portfolioAnalysis"
 import type { AnalysisResponse } from "@/types/api"
 
 const MODAL_ANIMATION_MS = 220
@@ -35,7 +36,21 @@ export function DashboardPage() {
   )
 
   const hasData = result?.summary !== null && result?.summary !== undefined
-  const warnings = displaySummary.warnings ?? []
+  const notices = useMemo(() => {
+    const backendWarnings = displaySummary.warnings ?? []
+    const clientWarnings = getDashboardMethodologyWarnings(displaySummary, displayHoldings)
+    const merged = [...backendWarnings, ...clientWarnings]
+    const seen = new Set<string>()
+
+    return merged.filter((item) => {
+      const key = `${item.section}|${item.severity}|${item.message}`
+      if (seen.has(key)) {
+        return false
+      }
+      seen.add(key)
+      return true
+    })
+  }, [displayHoldings, displaySummary])
 
   const openNoticesModal = () => {
     if (isNoticesModalMounted) {
@@ -261,8 +276,8 @@ export function DashboardPage() {
               </Button>
             </div>
             <div className="p-4 sm:p-6 overflow-y-auto max-h-[calc(85vh-72px)]">
-              {warnings.length > 0 ? (
-                <WarningRail warnings={warnings} className="mb-0" />
+              {notices.length > 0 ? (
+                <WarningRail warnings={notices} className="mb-0" />
               ) : (
                 <div className="border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
                   No data quality notices for this report.

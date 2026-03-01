@@ -4,6 +4,7 @@ import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import { Badge } from "@/components/ui/badge"
 import { TrendingUp, BarChart3, AlertTriangle, Activity } from "lucide-react"
 import { formatPercent } from "@/lib/format"
+import { getNormalizedEquityAllocationPct } from "@/lib/portfolioAnalysis"
 import type { AnalysisSummary } from "@/types/api"
 
 interface RiskMetricsProps {
@@ -15,7 +16,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
   // Note: These are simplified calculations - real risk metrics would require historical NAV data
   const riskMetrics = useMemo(() => {
     const xirr = summary.portfolio_xirr
-    const equityPct = summary.equity_pct ?? 0
+    const equityPct = getNormalizedEquityAllocationPct(summary)
 
     // Simplified volatility estimate (would need historical data for accurate calculation)
     // Using equity allocation as proxy for volatility

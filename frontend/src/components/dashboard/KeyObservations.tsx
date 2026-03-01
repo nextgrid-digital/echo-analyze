@@ -3,6 +3,7 @@ import { WideCard } from "./cards/WideCard"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import { AlertTriangle, TrendingUp, DollarSign, BarChart3 } from "lucide-react"
 import { formatPercent, toLakhs } from "@/lib/format"
+import { getNormalizedEquityAllocationPct } from "@/lib/portfolioAnalysis"
 import type { AnalysisSummary } from "@/types/api"
 
 interface KeyObservationsProps {
@@ -61,7 +62,7 @@ function KeyObservationsInner({ summary }: KeyObservationsProps) {
 
     // Risk Highlights
     const riskItems: string[] = []
-    const equityPct = summary.equity_pct ?? 0
+    const equityPct = getNormalizedEquityAllocationPct(summary)
     riskItems.push(`Equity Allocation: ${formatPercent(equityPct)}`)
 
     const fundCount = summary.concentration?.fund_count ?? 0

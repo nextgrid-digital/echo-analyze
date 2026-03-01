@@ -14,6 +14,7 @@ const SECTION_LABELS: Array<{ key: string; label: string }> = [
   { key: "performance", label: "Performance" },
   { key: "fixed_income", label: "Fixed Income" },
   { key: "risk", label: "Risk" },
+  { key: "cost", label: "Cost" },
   { key: "tax", label: "Tax" },
   { key: "guidelines", label: "Guidelines" },
   { key: "benchmark", label: "Benchmark" },

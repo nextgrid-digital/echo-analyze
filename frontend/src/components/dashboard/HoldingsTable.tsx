@@ -36,6 +36,7 @@ export const HoldingsTable = memo(function HoldingsTable({
   const [filterSubCategory, setFilterSubCategory] = useState("")
   const [filterStyle, setFilterStyle] = useState("")
   const [showFolio, setShowFolio] = useState(false)
+  const [renderNowMs] = useState(() => Date.now())
   const total = totalMarketValue || 1
 
   const DEFAULT_COL_WIDTHS = [44, 88, 200, 100, 72, 88, 96, 84, 106, 116, 88, 88, 92, 92, 92]
@@ -117,7 +118,7 @@ export const HoldingsTable = memo(function HoldingsTable({
 
   const getScaledMinWidth = useCallback((colId: number) => {
     return Math.round((MIN_COL_WIDTHS[colId] ?? 0) * columnScale)
-  }, [columnScale])
+  }, [MIN_COL_WIDTHS, columnScale])
 
   const getScaledWidth = useCallback((colId: number) => {
     const base = columnWidths[colId] ?? 0
@@ -160,7 +161,7 @@ export const HoldingsTable = memo(function HoldingsTable({
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
     }
-  }, [resizingColId, columnScale])
+  }, [MIN_COL_WIDTHS, resizingColId, columnScale])
 
   const handleColumnScaleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const next = Number(e.target.value)
@@ -209,7 +210,7 @@ export const HoldingsTable = memo(function HoldingsTable({
     const parsed = new Date(entryDate)
     if (Number.isNaN(parsed.getTime())) return null
 
-    const elapsedMs = Date.now() - parsed.getTime()
+    const elapsedMs = renderNowMs - parsed.getTime()
     if (elapsedMs < 0) return null
 
     return elapsedMs / (1000 * 60 * 60 * 24 * 365.25)
@@ -380,7 +381,7 @@ export const HoldingsTable = memo(function HoldingsTable({
       sortedDebtHoldings: [...debtHoldings].sort((a, b) => compareHoldings(a, b, key, sortDir)),
       sortedOtherHoldings: [...otherHoldings].sort((a, b) => compareHoldings(a, b, key, sortDir)),
     }
-  }, [equityHoldings, debtHoldings, otherHoldings, sortKey, sortDir])
+  }, [equityHoldings, debtHoldings, otherHoldings, sortKey, sortDir, compareHoldings])
 
   type TableRowItem =
     | { type: "section"; label: string }

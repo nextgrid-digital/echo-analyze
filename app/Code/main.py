@@ -1448,7 +1448,12 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         "info",
         "Tax estimates are indicative, based on lot-level holding periods and unrealized gains/loss set-off; verify with a tax advisor before filing.",
     )
-    add_warning("GUIDELINES_TEMPLATE", "guidelines", "info", "Guideline recommendations are template-based and should be reviewed by an advisor.")
+    add_warning(
+        "GUIDELINES_TEMPLATE",
+        "guidelines",
+        "info",
+        "Template guidance: target allocations are model recommendations and should be treated as advisory, not prescriptive.",
+    )
 
     guidelines = GuidelinesData(
         investment_guidelines=RecommendedPortfolio(

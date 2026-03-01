@@ -3,6 +3,7 @@ import { WideCard } from "./cards/WideCard"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import { AlertCircle, CheckCircle2, Info } from "lucide-react"
 import { formatPercent } from "@/lib/format"
+import { getNormalizedEquityAllocationPct } from "@/lib/portfolioAnalysis"
 import type { AnalysisSummary } from "@/types/api"
 
 interface ExecutiveSummaryProps {
@@ -29,7 +30,7 @@ function ExecutiveSummaryInner({ summary }: ExecutiveSummaryProps) {
     }
 
     // Allocation status
-    const equityPct = summary.equity_pct ?? 0
+    const equityPct = getNormalizedEquityAllocationPct(summary)
     const guidelines = summary.guidelines
     if (guidelines?.investment_guidelines) {
       const targetEquity =
@@ -41,20 +42,20 @@ function ExecutiveSummaryInner({ summary }: ExecutiveSummaryProps) {
         insightsList.push({
           type: gap > 0 ? "warning" : "info",
           label: "Equity Allocation",
-          value: `${equityPct.toFixed(1)}% (Target: ${targetEquity}%)`,
+          value: `${formatPercent(equityPct)} (Target: ${formatPercent(targetEquity)})`,
         })
       } else {
         insightsList.push({
           type: "success",
           label: "Equity Allocation",
-          value: `${equityPct.toFixed(1)}% (Within Target)`,
+          value: `${formatPercent(equityPct)} (Within Target)`,
         })
       }
     } else {
       insightsList.push({
         type: "info",
         label: "Equity Allocation",
-        value: `${equityPct.toFixed(1)}%`,
+        value: formatPercent(equityPct),
       })
     }
 

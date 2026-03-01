@@ -44,7 +44,7 @@ function overlapColor(pct: number): string {
 /** Abbreviate fund name for axis: remove clutter and keep key parts */
 function abbreviate(name: string, maxLen = 10): string {
   // 1. Remove common noise
-  let s = name
+  const s = name
     .replace(/\s*-\s*Direct.*$/gi, "") // Remove Direct Plan/Growth suffix
     .replace(/\s*-\s*Regular.*$/gi, "")
     .replace(/Direct Plan|Growth|Regular Plan/gi, "")

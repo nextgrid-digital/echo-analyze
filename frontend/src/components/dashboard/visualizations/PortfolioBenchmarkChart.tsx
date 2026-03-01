@@ -11,6 +11,10 @@ import {
 } from "recharts"
 import { CHART_COLORS } from "@/lib/chartColors"
 import { toLakhs } from "@/lib/format"
+import {
+  BENCHMARK_RECONSTRUCTED_NOTICE,
+  formatBenchmarkCoverageNotice,
+} from "@/lib/portfolioAnalysis"
 import { Button } from "@/components/ui/button"
 import type { AnalysisSummary, Holding } from "@/types/api"
 
@@ -33,6 +37,11 @@ interface SeriesHolding {
   entryValue: number
   portfolioTerminal: number
   benchmarkTerminal: number
+}
+
+interface CustomTooltipProps {
+  active?: boolean
+  payload?: Array<{ payload?: ChartDataPoint }>
 }
 
 type ZoomLevel = "daily" | "monthly" | "yearly"
@@ -195,6 +204,7 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
         totalPortfolioValue > 0 ? Math.min(100, (comparableCurrentValue / totalPortfolioValue) * 100) : 0,
       excludedHoldings,
       comparableStartDate,
+      hasComparableSeries: comparableCurrentValue > 0,
     }
   }, [fallbackStartDate, holdings])
 
@@ -359,13 +369,13 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
   const portfolioRateUnavailable = annualToMonthlyRate(summary.portfolio_xirr) === null
   const benchmarkRateUnavailable = annualToMonthlyRate(summary.benchmark_xirr) === null
   const chartHasPartialCoverage =
-    seriesMeta.benchmarkComparableHoldings.length > 0 &&
+    seriesMeta.hasComparableSeries &&
     seriesMeta.comparableCoveragePct < 99.5
   const showFallbackRateWarning =
     seriesMeta.benchmarkComparableHoldings.length === 0 &&
     (portfolioRateUnavailable || benchmarkRateUnavailable)
 
-  const CustomTooltip = ({ active, payload }: any) => {
+  const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
     if (!active || !payload || payload.length === 0) return null
 
     const data = payload[0]?.payload
@@ -414,11 +424,15 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
   return (
     <div className="w-full">
       <div className="mb-3 border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-900">
-        Reconstructed comparison path using each holding&apos;s entry date, invested value, and current value. This is an illustrative benchmark comparison, not a transaction-level valuation history.
+        {BENCHMARK_RECONSTRUCTED_NOTICE}
       </div>
       {chartHasPartialCoverage && (
         <div className="mb-3 border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900">
-          Chart coverage: {seriesMeta.comparableCoveragePct.toFixed(1)}% of current portfolio value has comparable benchmark data. {seriesMeta.excludedHoldings > 0 ? `${seriesMeta.excludedHoldings} holding(s) without benchmark data are excluded.` : ""}
+          {formatBenchmarkCoverageNotice({
+            comparableCoveragePct: seriesMeta.comparableCoveragePct,
+            excludedHoldings: seriesMeta.excludedHoldings,
+            hasComparableSeries: seriesMeta.hasComparableSeries,
+          })}
         </div>
       )}
       {showFallbackRateWarning && (

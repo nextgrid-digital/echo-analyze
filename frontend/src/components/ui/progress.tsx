@@ -20,14 +20,12 @@ const progressVariants = cva(
 )
 
 interface ProgressProps extends React.ComponentProps<typeof ProgressPrimitive.Root>, VariantProps<typeof progressVariants> {
-  showLabel?: boolean
 }
 
 function Progress({
   className,
   value,
   variant = "default",
-  showLabel = false,
   ...props
 }: ProgressProps) {
   const progressValue = value || 0

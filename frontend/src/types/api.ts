@@ -151,6 +151,7 @@ export type WarningSection =
   | "performance"
   | "fixed_income"
   | "risk"
+  | "cost"
   | "tax"
   | "guidelines"
   | "benchmark"

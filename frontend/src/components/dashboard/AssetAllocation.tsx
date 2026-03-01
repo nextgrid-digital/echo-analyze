@@ -9,6 +9,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import { CHART_COLORS } from "@/lib/chartColors"
+import { classifyAllocationCategory } from "@/lib/portfolioAnalysis"
 import type {
   AnalysisSummary,
   AssetAllocation as AssetAlloc,
@@ -20,38 +21,11 @@ interface AssetAllocationProps {
   holdings: Holding[]
 }
 
-type GroupKey = "equity" | "market_debt" | "liquidity" | "others"
-
 interface OtherFundItem {
   scheme_name: string
   sub_category: string
   value: number
   allocation_pct: number
-}
-
-function classifyAllocationCategory(rawCategory: string): GroupKey {
-  const category = (rawCategory ?? "").toUpperCase()
-  if (
-    category.includes("LIQUID") ||
-    category.includes("OVERNIGHT") ||
-    category.includes("MONEY MARKET")
-  ) {
-    return "liquidity"
-  }
-
-  if (category.includes("DEBT") || category.includes("FIXED INCOME")) {
-    return "market_debt"
-  }
-
-  if (
-    category.includes("EQUITY") ||
-    category.includes("CAP") ||
-    category.includes("ELSS")
-  ) {
-    return "equity"
-  }
-
-  return "others"
 }
 
 function AssetAllocationInner({ summary, holdings }: AssetAllocationProps) {
