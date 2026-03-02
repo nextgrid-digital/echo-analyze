@@ -115,7 +115,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
               title="Sharpe Ratio"
               formula={
                 <>
-                  Sharpe Ratio = (Portfolio Return − Risk-Free Rate) ÷ Volatility<br />
+                  Sharpe Ratio = (Portfolio Return - Risk-Free Rate) / Volatility<br />
                   Higher ratio = Better risk-adjusted returns
                 </>
               }
@@ -145,7 +145,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
               title="Beta"
               formula={
                 <>
-                  Beta = Covariance(Portfolio, Market) ÷ Variance(Market)<br />
+                  Beta = Covariance(Portfolio, Market) / Variance(Market)<br />
                   Beta &gt; 1 = More volatile than market<br />
                   Beta &lt; 1 = Less volatile than market
                 </>

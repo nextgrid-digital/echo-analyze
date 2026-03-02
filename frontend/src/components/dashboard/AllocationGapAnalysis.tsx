@@ -89,10 +89,10 @@ function AllocationGapAnalysisInner({ summary }: AllocationGapAnalysisProps) {
             title="Allocation Gap Analysis"
             formula={
               <>
-                Current % = (Category Value ÷ Total Portfolio Value) × 100<br />
+                Current % = (Category Value / Total Portfolio Value) x 100<br />
                 Target % = Recommended allocation from guidelines<br />
-                Gap % = Current % − Target %<br />
-                Gap Value = (Gap % ÷ 100) × Total Portfolio Value
+                Gap % = Current % - Target %<br />
+                Gap Value = (Gap % / 100) x Total Portfolio Value
               </>
             }
             content={

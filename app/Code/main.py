@@ -31,6 +31,7 @@ ALLOWED_CONTENT_TYPES = {
     ".json": {"application/json", "text/json", "application/octet-stream", "text/plain"},
 }
 PDF_MAGIC_PREFIX = b"%PDF-"
+DEBUG_LOG_ENABLED = os.environ.get("ENABLE_DEBUG_LOGS", "").strip().lower() in {"1", "true", "yes"}
 
 
 def _redact_pii(text: str) -> str:
@@ -38,11 +39,13 @@ def _redact_pii(text: str) -> str:
         return text
     text = re.sub(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", "[REDACTED_PAN]", text, flags=re.IGNORECASE)
     text = re.sub(r"[\w\.-]+@[\w\.-]+\.\w+", "[REDACTED_EMAIL]", text)
-    text = re.sub(r"(\+?\d[\d\-\s]{8,}\d)", "[REDACTED_PHONE]", text)
+    text = re.sub(r"(?<![\d.])(?:\+?\d[\d\-\s]{8,}\d)(?![\d.])", "[REDACTED_PHONE]", text)
     return text
 
 
 def log_debug(msg: str) -> None:
+    if not DEBUG_LOG_ENABLED:
+        return
     safe_msg = _redact_pii(str(msg))
     try:
         print(f"[DEBUG] {safe_msg}", flush=True)
@@ -964,11 +967,11 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 is_ignored = any(ik in desc for ik in ignore_keywords) or any(ik in txn_type for ik in ignore_keywords)
 
                 if is_ignored:
-                    log_debug(f"TXN_IGNORE: '{desc[:20]}', amt={amt}, type={txn_type}")
+                    log_debug("TXN_IGNORE: skipped non-cashflow transaction")
                     continue
 
                 cashflow = amt if is_withdrawal else -amt
-                log_debug(f"TXN_DEBUG: '{desc[:25]}', raw={raw_amt}, units={raw_units}, cf={cashflow}, type={txn_type}")
+                log_debug("TXN_DEBUG: recorded scheme cashflow")
 
                 scheme_cashflows.append((dt, cashflow))
                 if dt not in scheme_tx_dates:
@@ -1194,10 +1197,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                                 s_bm_xirr = period_s_bm_xirr
 
                 if s_bm_val > 0 and s_bm_xirr is None:
-                    log_debug(
-                        f"BM_XIRR_FAIL: {name[:20]}, bm_val={s_bm_val:.2f}, flows={len(s_flows_bm)}, "
-                        f"components={len(benchmark_components)}"
-                    )
+                    log_debug("BM_XIRR_FAIL: benchmark XIRR unavailable for a holding")
 
             if s_bm_val > 0:
                 benchmark_terminal_value += s_bm_val
@@ -1290,19 +1290,14 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         [x[1] for x in (portfolio_cashflows + [(now_dt, total_mkt_live)])],
     )
     benchmark_val_now = benchmark_terminal_value
-    log_debug(
-        "Summary BM XIRR inputs: "
-        f"benchmark_val_now={benchmark_val_now:.2f}, "
-        f"benchmark_cashflows={len(benchmark_cashflows)}, "
-        f"portfolio_cashflows={len(portfolio_cashflows)}"
-    )
+    log_debug("Summary BM XIRR inputs prepared")
     bm_xirr = None
     if benchmark_cashflows and benchmark_val_now > 0:
         bm_xirr = calculate_xirr(
             [x[0] for x in (benchmark_cashflows + [(now_dt, benchmark_val_now)])],
             [x[1] for x in (benchmark_cashflows + [(now_dt, benchmark_val_now)])],
         )
-    log_debug(f"XIRR_RESULT_DEBUG: pf_xirr={pf_xirr}, bm_xirr={bm_xirr}, total_mkt={total_mkt_live}, bm_val={benchmark_val_now}")
+    log_debug("XIRR_RESULT_DEBUG: summary XIRR calculated")
 
     total_equity_val = sum(h.market_value for h in holdings if h.category == "Equity")
     total_equity_cost = sum(h.cost_value for h in holdings if h.category == "Equity")
@@ -1318,7 +1313,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             [x[0] for x in (equity_benchmark_cashflows + [(now_dt, eq_benchmark_val_now)])],
             [x[1] for x in (equity_benchmark_cashflows + [(now_dt, eq_benchmark_val_now)])],
         )
-    log_debug(f"EQ_XIRR_DEBUG: eq_xirr={eq_xirr}, eq_bm_xirr={eq_bm_xirr}, equity_mkt={total_equity_val}, eq_bm_val={eq_benchmark_val_now}")
+    log_debug("EQ_XIRR_DEBUG: equity XIRR calculated")
     total_equity_bm_gain = eq_benchmark_val_now - equity_benchmark_cost_total if eq_benchmark_val_now > 0 else 0.0
 
 

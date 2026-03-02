@@ -33,7 +33,7 @@ describe("HoldingsTable", () => {
     )
 
     expect(screen.queryByText("Abs Returns")).not.toBeInTheDocument()
-    expect(screen.getAllByText("-₹5,000.00").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("-Rs 5,000.00").length).toBeGreaterThan(0)
   })
 
   it("shows green missed gains as a positive amount", () => {
@@ -49,6 +49,6 @@ describe("HoldingsTable", () => {
       />,
     )
 
-    expect(screen.getAllByText("+₹2,500.00").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("+Rs 2,500.00").length).toBeGreaterThan(0)
   })
 })

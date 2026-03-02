@@ -1,4 +1,4 @@
-// Mirrors backend Pydantic models (app/main.py) — API contract
+// Mirrors backend Pydantic models (app/main.py) - API contract
 
 export interface Holding {
   fund_family: string

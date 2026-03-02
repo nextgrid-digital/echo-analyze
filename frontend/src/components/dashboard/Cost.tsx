@@ -34,7 +34,7 @@ function CostInner({ cost }: CostProps) {
               formula={
                 <>
                   Portfolio Cost % = Weighted Average TER<br />
-                  Annual Cost = Portfolio Value × Cost %
+                  Annual Cost = Portfolio Value x Cost %
                 </>
               }
               content={
@@ -61,7 +61,7 @@ function CostInner({ cost }: CostProps) {
               title="Total Cost Paid"
               formula={
                 <>
-                  Total Cost Paid = Σ(Exit Load + Advisory Fees + Other Charges)
+                  Total Cost Paid = Sum(Exit Load + Advisory Fees + Other Charges)
                 </>
               }
               content={
@@ -88,7 +88,7 @@ function CostInner({ cost }: CostProps) {
               title="Potential Savings"
               formula={
                 <>
-                  Savings = Regular Value × (TER_Regular − TER_Direct) × Time Period
+                  Savings = Regular Value x (TER_Regular - TER_Direct) x Time Period
                 </>
               }
               content={
@@ -118,7 +118,7 @@ function CostInner({ cost }: CostProps) {
               title="Direct Plan Percentage"
               formula={
                 <>
-                  Direct % = (Direct Plans Value ÷ Total Portfolio Value) × 100
+                  Direct % = (Direct Plans Value / Total Portfolio Value) x 100
                 </>
               }
               content={

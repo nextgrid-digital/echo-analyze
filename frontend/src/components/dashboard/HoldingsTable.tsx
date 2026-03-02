@@ -20,15 +20,17 @@ interface HoldingsTableProps {
   totalMarketValue: number
 }
 
+const FOLIO_COL_ID = 1
+const DEFAULT_COLUMN_SCALE = 100
+const MIN_COLUMN_SCALE = 80
+const MAX_COLUMN_SCALE = 140
+const DEFAULT_COL_WIDTHS = [44, 88, 200, 100, 72, 88, 96, 84, 106, 116, 88, 92, 92, 92]
+const MIN_COL_WIDTHS = [36, 64, 100, 72, 56, 72, 64, 80, 80, 80, 72, 72, 72, 72]
+
 export const HoldingsTable = memo(function HoldingsTable({
   holdings,
   totalMarketValue,
 }: HoldingsTableProps) {
-  const FOLIO_COL_ID = 1
-  const DEFAULT_COLUMN_SCALE = 100
-  const MIN_COLUMN_SCALE = 80
-  const MAX_COLUMN_SCALE = 140
-
   const [searchQuery, setSearchQuery] = useState("")
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
@@ -39,8 +41,6 @@ export const HoldingsTable = memo(function HoldingsTable({
   const [renderNowMs] = useState(() => Date.now())
   const total = totalMarketValue || 1
 
-  const DEFAULT_COL_WIDTHS = [44, 88, 200, 100, 72, 88, 96, 84, 106, 116, 88, 92, 92, 92]
-  const MIN_COL_WIDTHS = [36, 64, 100, 72, 56, 72, 64, 80, 80, 80, 72, 72, 72, 72]
   const [columnWidths, setColumnWidths] = useState<number[]>(() => DEFAULT_COL_WIDTHS)
   const [resizingColId, setResizingColId] = useState<number | null>(null)
   const resizeStartX = useRef(0)
@@ -117,7 +117,7 @@ export const HoldingsTable = memo(function HoldingsTable({
 
   const getScaledMinWidth = useCallback((colId: number) => {
     return Math.round((MIN_COL_WIDTHS[colId] ?? 0) * columnScale)
-  }, [MIN_COL_WIDTHS, columnScale])
+  }, [columnScale])
 
   const getScaledWidth = useCallback((colId: number) => {
     const base = columnWidths[colId] ?? 0
@@ -160,7 +160,7 @@ export const HoldingsTable = memo(function HoldingsTable({
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
     }
-  }, [MIN_COL_WIDTHS, resizingColId, columnScale])
+  }, [resizingColId, columnScale])
 
   const handleColumnScaleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const next = Number(e.target.value)
@@ -197,14 +197,14 @@ export const HoldingsTable = memo(function HoldingsTable({
   }, [filteredByFilters, searchQuery])
 
   // Always trust the backend benchmark label when available.
-  const getBenchmarkName = (holding: Holding): string | null => {
+  const getBenchmarkName = useCallback((holding: Holding): string | null => {
     if (holding.benchmark_name && holding.benchmark_name.trim()) {
       return holding.benchmark_name
     }
     return null
-  }
+  }, [])
 
-  const getYearsFromEntryDate = (entryDate: string | null | undefined): number | null => {
+  const getYearsFromEntryDate = useCallback((entryDate: string | null | undefined): number | null => {
     if (!entryDate) return null
     const parsed = new Date(entryDate)
     if (Number.isNaN(parsed.getTime())) return null
@@ -213,7 +213,7 @@ export const HoldingsTable = memo(function HoldingsTable({
     if (elapsedMs < 0) return null
 
     return elapsedMs / (1000 * 60 * 60 * 24 * 365.25)
-  }
+  }, [renderNowMs])
 
   const formatYearsFromEntryDate = (entryDate: string | null | undefined): string | null => {
     const years = getYearsFromEntryDate(entryDate)
@@ -221,16 +221,17 @@ export const HoldingsTable = memo(function HoldingsTable({
     return `${years.toFixed(1)} yrs`
   }
 
-  const calculateMissedGains = (holding: Holding): number | null => {
+  const calculateMissedGains = useCallback((holding: Holding): number | null => {
     const value = holding.missed_gains
     if (value === null || value === undefined) return null
     const n = Number(value)
     if (Number.isNaN(n)) return null
     return n
-  }
+  }, [])
 
-  const getDisplayedMissedGains = (missedGains: number | null): number | null =>
-    missedGains === null ? null : -missedGains
+  const getDisplayedMissedGains = useCallback((missedGains: number | null): number | null => {
+    return missedGains === null ? null : -missedGains
+  }, [])
 
   const getMissedGainsColorClass = (displayedMissedGains: number | null): string => {
     if (displayedMissedGains === null) return "text-muted-foreground"
@@ -247,8 +248,8 @@ export const HoldingsTable = memo(function HoldingsTable({
 
   const formatSignedRupees = (value: number): string => {
     const absValue = Math.abs(value)
-    if (absValue <= 0.0001) return `₹${formatCurrency(0)}`
-    return `${value > 0 ? "+" : "-"}₹${formatCurrency(absValue)}`
+    if (absValue <= 0.0001) return `Rs ${formatCurrency(0)}`
+    return `${value > 0 ? "+" : "-"}Rs ${formatCurrency(absValue)}`
   }
 
   // Group holdings by category
@@ -305,82 +306,82 @@ export const HoldingsTable = memo(function HoldingsTable({
       debtMissedGains: dbMissedGains,
       otherMissedGains: otMissedGains
     }
-  }, [filteredHoldings])
-
-  const compareHoldings = (a: Holding, b: Holding, key: SortKey, dir: "asc" | "desc"): number => {
-    const mult = dir === "asc" ? 1 : -1
-    const num = (v: number | null | undefined): number => (v ?? null) === null ? Number.NaN : (v as number)
-    const str = (v: string | null | undefined): string => (v ?? "") || ""
-    const dateMs = (d: string | null | undefined): number => {
-      if (!d) return Number.NaN
-      const t = new Date(d).getTime()
-      return Number.isNaN(t) ? Number.NaN : t
-    }
-    switch (key) {
-      case "folio":
-        return mult * (str(a.folio).toLowerCase().localeCompare(str(b.folio).toLowerCase()))
-      case "scheme_name":
-        return mult * (str(a.scheme_name).toLowerCase().localeCompare(str(b.scheme_name).toLowerCase()))
-      case "sub_category":
-        return mult * (str(a.sub_category).toLowerCase().localeCompare(str(b.sub_category).toLowerCase()))
-      case "style_category":
-        return mult * (str(a.style_category).toLowerCase().localeCompare(str(b.style_category).toLowerCase()))
-      case "benchmark": {
-        const bmA = getBenchmarkName(a) ?? ""
-        const bmB = getBenchmarkName(b) ?? ""
-        return mult * (bmA.toLowerCase().localeCompare(bmB.toLowerCase()))
-      }
-      case "date_of_entry": {
-        const ta = dateMs(a.date_of_entry)
-        const tb = dateMs(b.date_of_entry)
-        if (Number.isNaN(ta) && Number.isNaN(tb)) return 0
-        if (Number.isNaN(ta)) return mult
-        if (Number.isNaN(tb)) return -mult
-        return mult * (ta - tb)
-      }
-      case "holding_period": {
-        const ya = getYearsFromEntryDate(a.date_of_entry)
-        const yb = getYearsFromEntryDate(b.date_of_entry)
-        if (ya === null && yb === null) return 0
-        if (ya === null) return mult
-        if (yb === null) return -mult
-        return mult * (ya - yb)
-      }
-      case "cost_value":
-        return mult * ((a.cost_value ?? 0) - (b.cost_value ?? 0))
-      case "market_value":
-      case "weight_pct":
-        return mult * ((a.market_value ?? 0) - (b.market_value ?? 0))
-      case "missed_gains": {
-        const ma = getDisplayedMissedGains(calculateMissedGains(a))
-        const mb = getDisplayedMissedGains(calculateMissedGains(b))
-        if (ma === null && mb === null) return 0
-        if (ma === null) return mult
-        if (mb === null) return -mult
-        return mult * (ma - mb)
-      }
-      case "xirr": {
-        const xa = num(a.xirr)
-        const xb = num(b.xirr)
-        if (Number.isNaN(xa) && Number.isNaN(xb)) return 0
-        if (Number.isNaN(xa)) return mult
-        if (Number.isNaN(xb)) return -mult
-        return mult * (xa - xb)
-      }
-      case "benchmark_xirr": {
-        const xa = num(a.benchmark_xirr)
-        const xb = num(b.benchmark_xirr)
-        if (Number.isNaN(xa) && Number.isNaN(xb)) return 0
-        if (Number.isNaN(xa)) return mult
-        if (Number.isNaN(xb)) return -mult
-        return mult * (xa - xb)
-      }
-      default:
-        return 0
-    }
-  }
+  }, [calculateMissedGains, filteredHoldings])
 
   const { sortedEquityHoldings, sortedDebtHoldings, sortedOtherHoldings } = useMemo(() => {
+    const compareHoldings = (a: Holding, b: Holding, key: SortKey, dir: "asc" | "desc"): number => {
+      const mult = dir === "asc" ? 1 : -1
+      const num = (v: number | null | undefined): number => (v ?? null) === null ? Number.NaN : (v as number)
+      const str = (v: string | null | undefined): string => (v ?? "") || ""
+      const dateMs = (d: string | null | undefined): number => {
+        if (!d) return Number.NaN
+        const t = new Date(d).getTime()
+        return Number.isNaN(t) ? Number.NaN : t
+      }
+      switch (key) {
+        case "folio":
+          return mult * (str(a.folio).toLowerCase().localeCompare(str(b.folio).toLowerCase()))
+        case "scheme_name":
+          return mult * (str(a.scheme_name).toLowerCase().localeCompare(str(b.scheme_name).toLowerCase()))
+        case "sub_category":
+          return mult * (str(a.sub_category).toLowerCase().localeCompare(str(b.sub_category).toLowerCase()))
+        case "style_category":
+          return mult * (str(a.style_category).toLowerCase().localeCompare(str(b.style_category).toLowerCase()))
+        case "benchmark": {
+          const bmA = getBenchmarkName(a) ?? ""
+          const bmB = getBenchmarkName(b) ?? ""
+          return mult * (bmA.toLowerCase().localeCompare(bmB.toLowerCase()))
+        }
+        case "date_of_entry": {
+          const ta = dateMs(a.date_of_entry)
+          const tb = dateMs(b.date_of_entry)
+          if (Number.isNaN(ta) && Number.isNaN(tb)) return 0
+          if (Number.isNaN(ta)) return mult
+          if (Number.isNaN(tb)) return -mult
+          return mult * (ta - tb)
+        }
+        case "holding_period": {
+          const ya = getYearsFromEntryDate(a.date_of_entry)
+          const yb = getYearsFromEntryDate(b.date_of_entry)
+          if (ya === null && yb === null) return 0
+          if (ya === null) return mult
+          if (yb === null) return -mult
+          return mult * (ya - yb)
+        }
+        case "cost_value":
+          return mult * ((a.cost_value ?? 0) - (b.cost_value ?? 0))
+        case "market_value":
+        case "weight_pct":
+          return mult * ((a.market_value ?? 0) - (b.market_value ?? 0))
+        case "missed_gains": {
+          const ma = getDisplayedMissedGains(calculateMissedGains(a))
+          const mb = getDisplayedMissedGains(calculateMissedGains(b))
+          if (ma === null && mb === null) return 0
+          if (ma === null) return mult
+          if (mb === null) return -mult
+          return mult * (ma - mb)
+        }
+        case "xirr": {
+          const xa = num(a.xirr)
+          const xb = num(b.xirr)
+          if (Number.isNaN(xa) && Number.isNaN(xb)) return 0
+          if (Number.isNaN(xa)) return mult
+          if (Number.isNaN(xb)) return -mult
+          return mult * (xa - xb)
+        }
+        case "benchmark_xirr": {
+          const xa = num(a.benchmark_xirr)
+          const xb = num(b.benchmark_xirr)
+          if (Number.isNaN(xa) && Number.isNaN(xb)) return 0
+          if (Number.isNaN(xa)) return mult
+          if (Number.isNaN(xb)) return -mult
+          return mult * (xa - xb)
+        }
+        default:
+          return 0
+      }
+    }
+
     if (!sortKey) {
       return {
         sortedEquityHoldings: equityHoldings,
@@ -394,7 +395,7 @@ export const HoldingsTable = memo(function HoldingsTable({
       sortedDebtHoldings: [...debtHoldings].sort((a, b) => compareHoldings(a, b, key, sortDir)),
       sortedOtherHoldings: [...otherHoldings].sort((a, b) => compareHoldings(a, b, key, sortDir)),
     }
-  }, [equityHoldings, debtHoldings, otherHoldings, sortKey, sortDir, compareHoldings])
+  }, [equityHoldings, debtHoldings, otherHoldings, sortKey, sortDir, calculateMissedGains, getBenchmarkName, getYearsFromEntryDate, getDisplayedMissedGains])
 
   type TableRowItem =
     | { type: "section"; label: string }
@@ -542,14 +543,14 @@ export const HoldingsTable = memo(function HoldingsTable({
           if (colId === 8) {
             return (
               <TableCell key={colId} className="px-2 py-2 sm:px-3 text-right" style={{ width: w, minWidth: w, maxWidth: w }}>
-                <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(investedSubtotal)}</span>
+                <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">Rs {formatCurrency(investedSubtotal)}</span>
               </TableCell>
             )
           }
           if (colId === 9) {
             return (
               <TableCell key={colId} className="px-2 py-2 sm:px-3 text-right" style={{ width: w, minWidth: w, maxWidth: w }}>
-                <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(subtotal)}</span>
+                <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">Rs {formatCurrency(subtotal)}</span>
               </TableCell>
             )
           }
@@ -607,8 +608,8 @@ export const HoldingsTable = memo(function HoldingsTable({
       case 5: return <span className="block text-xs text-muted-foreground whitespace-nowrap truncate">{benchmarkName}</span>
       case 6: return <span className="block text-xs font-mono text-muted-foreground whitespace-nowrap truncate">{h.date_of_entry || "-"}</span>
       case 7: return <span className="block text-xs font-mono text-muted-foreground whitespace-nowrap truncate">{yearsFromEntry ?? "-"}</span>
-      case 8: return <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(h.cost_value || 0)}</span>
-      case 9: return <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">₹{formatCurrency(h.market_value || 0)}</span>
+      case 8: return <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">Rs {formatCurrency(h.cost_value || 0)}</span>
+      case 9: return <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">Rs {formatCurrency(h.market_value || 0)}</span>
       case 10: return <span className="block font-bold text-foreground font-mono text-xs whitespace-nowrap truncate">{allocPct}%</span>
       case 11: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${missedGainsColorClass}`}>{displayedMissedGains !== null ? formatSignedRupees(displayedMissedGains) : "-"}</span>
       case 12: return <span className={`block font-bold font-mono text-xs whitespace-nowrap truncate ${xirrColorClass}`}>{xirrLine}</span>
@@ -649,14 +650,14 @@ export const HoldingsTable = memo(function HoldingsTable({
           title="Proposed Allocation"
           formula={
             <>
-              Value = Units × NAV<br />
-              Allocation % = (Holding Value ÷ Total Portfolio Value) × 100<br />
-              Missed Gains = Portfolio Value − Benchmark Value
+              Value = Units x NAV<br />
+              Allocation % = (Holding Value / Total Portfolio Value) x 100<br />
+              Missed Gains = Portfolio Value - Benchmark Value
             </>
           }
           content={
             <>
-              All holdings from your statement: scheme name, category, market value (in ₹), allocation % of portfolio, benchmark comparison, and style (e.g. Growth). Holdings are grouped by Equity and Debt with subtotals.
+              All holdings from your statement: scheme name, category, market value (in Rs ), allocation % of portfolio, benchmark comparison, and style (e.g. Growth). Holdings are grouped by Equity and Debt with subtotals.
             </>
           }
         />

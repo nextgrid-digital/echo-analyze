@@ -10,6 +10,7 @@ import { WideCard } from "./cards/WideCard"
 import { PortfolioBenchmarkChart } from "./visualizations/PortfolioBenchmarkChart"
 import { ExecutiveSummary } from "./ExecutiveSummary"
 import { RiskMetrics } from "./RiskMetrics"
+import { Cost } from "./Cost"
 import { TaxAnalysis } from "./TaxAnalysis"
 import { KeyObservations } from "./KeyObservations"
 import { AllocationGapAnalysis } from "./AllocationGapAnalysis"
@@ -91,7 +92,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
                         <>
                           Reconstructed Holding Value(t) = entry value interpolated to current value by today<br />
                           Benchmark uses only holdings with comparable benchmark data<br />
-                          Difference = Portfolio − Benchmark
+                          Difference = Portfolio - Benchmark
                         </>
                       }
                       content={
@@ -219,6 +220,11 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
               <p className="text-sm text-muted-foreground">
                 Portfolio costs, expenses, and tax implications
               </p>
+            </div>
+
+            {/* Tax Analysis */}
+            <div className="mb-6 sm:mb-8">
+              <Cost cost={summary.cost} />
             </div>
 
             {/* Tax Analysis */}

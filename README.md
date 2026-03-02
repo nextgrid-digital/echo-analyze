@@ -69,19 +69,19 @@ This will:
 
 ```
 echo-analyze/
-├── app/
-│   ├── Code/
-│   │   └── main.py          # Main FastAPI application
-│   ├── cas_parser.py         # CAS file parser
-│   ├── holdings.py           # Holdings data fetcher
-│   ├── overlap.py            # Portfolio overlap calculator
-│   ├── utils.py              # Utility functions (NAV, XIRR)
-│   └── main.py               # App entry point
-├── static/
-│   └── index.html            # Frontend UI
-├── data/                     # Log files directory
-├── requirements.txt          # Python dependencies
-└── run_local.bat             # Windows startup script
+|-- app/
+|   |-- Code/
+|   |   \-- main.py          # Main FastAPI application
+|   |-- cas_parser.py         # CAS file parser
+|   |-- holdings.py           # Holdings data fetcher
+|   |-- overlap.py            # Portfolio overlap calculator
+|   |-- utils.py              # Utility functions (NAV, XIRR)
+|   \-- main.py             # App entry point
+|-- static/
+|   \-- index.html          # Frontend UI
+|-- data/                     # Log files directory
+|-- requirements.txt          # Python dependencies
+\-- run_local.bat           # Windows startup script
 ```
 
 ## Deployment Note (Vercel)

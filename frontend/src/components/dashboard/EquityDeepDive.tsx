@@ -58,10 +58,10 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
           title="Equity Deep Dive"
           formula={
             <>
-              Equity Invested = Σ(Equity Units × Purchase NAV)<br />
-              Equity Current Value = Σ(Equity Units × Latest NAV)<br />
+              Equity Invested = Sum(Equity Units x Purchase NAV)<br />
+              Equity Current Value = Sum(Equity Units x Latest NAV)<br />
               XIRR = IRR from equity cash flows<br />
-              Market Cap % = (Category Value ÷ Total Equity Value) × 100<br />
+              Market Cap % = (Category Value / Total Equity Value) x 100<br />
               Guardrail: no hard XIRR cap; unstable solves are shown as N/A
             </>
           }
@@ -91,12 +91,12 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                 title="Invested Equity Value"
                 formula={
                   <>
-                    Invested Equity Value = Σ(Equity Units × Purchase NAV)
+                    Invested Equity Value = Sum(Equity Units x Purchase NAV)
                   </>
                 }
                 content={
                   <>
-                    Sum of cost value of equity holdings only (units × purchase NAV for equity schemes).
+                    Sum of cost value of equity holdings only (units x purchase NAV for equity schemes).
                   </>
                 }
               />
@@ -122,12 +122,12 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                 title="Current Equity Value"
                 formula={
                   <>
-                    Current Equity Value = Σ(Equity Units × Latest NAV)
+                    Current Equity Value = Sum(Equity Units x Latest NAV)
                   </>
                 }
                 content={
                   <>
-                    Sum of market value of equity holdings (units × latest NAV for equity schemes).
+                    Sum of market value of equity holdings (units x latest NAV for equity schemes).
                   </>
                 }
               />
@@ -151,7 +151,7 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                 title="Portfolio XIRR"
                 formula={
                   <>
-                    XIRR: Σ(CFₜ / (1 + XIRR)^t) = 0<br />
+                    XIRR: Sum(CF_t / (1 + XIRR)^t) = 0<br />
                     Internal rate of return from equity cash flows<br />
                     Guardrail: no hard % capping; unstable solve leads to N/A
                   </>
@@ -193,7 +193,7 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                 title="Total Gains"
                 formula={
                   <>
-                    Total Gains = Current Equity Value − Invested Equity Value
+                    Total Gains = Current Equity Value - Invested Equity Value
                   </>
                 }
                 content={
@@ -218,9 +218,9 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                 title="Performance vs Benchmark"
                 formula={
                   <>
-                    XIRR: Σ(CFₜ / (1 + XIRR)^t) = 0<br />
-                    Alpha = Portfolio Gains − Benchmark Gains<br />
-                    Missed Gains = Benchmark Gains − Portfolio Gains (if negative)<br />
+                    XIRR: Sum(CF_t / (1 + XIRR)^t) = 0<br />
+                    Alpha = Portfolio Gains - Benchmark Gains<br />
+                    Missed Gains = Benchmark Gains - Portfolio Gains (if negative)<br />
                     Guardrail: XIRR values are not hard-capped; unreliable solves appear as N/A
                   </>
                 }
@@ -307,7 +307,7 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                   title="Market Cap Allocation"
                   formula={
                     <>
-                      Market Cap % = (Category Value ÷ Total Equity Value) × 100
+                      Market Cap % = (Category Value / Total Equity Value) x 100
                     </>
                   }
                   content={
@@ -376,7 +376,7 @@ function EquityDeepDiveInner({ summary }: EquityDeepDiveProps) {
                   title="Market Cap Visualization"
                   formula={
                     <>
-                      Market Cap % = (Category Value ÷ Total Equity Value) × 100
+                      Market Cap % = (Category Value / Total Equity Value) x 100
                     </>
                   }
                   content={

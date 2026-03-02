@@ -178,7 +178,7 @@ function KeyObservationsInner({ summary }: KeyObservationsProps) {
                     {obs.category === "performance" && "Performance metrics from XIRR and returns"}
                     {obs.category === "risk" && "Risk metrics from allocation and concentration"}
                     {obs.category === "cost" && "Cost metrics from TER and fund types"}
-                    {obs.category === "allocation" && "Allocation gaps = Current % − Target %"}
+                    {obs.category === "allocation" && "Allocation gaps = Current % - Target %"}
                   </>
                 }
                 content={
@@ -200,7 +200,7 @@ function KeyObservationsInner({ summary }: KeyObservationsProps) {
                   key={itemIdx}
                   className="text-sm text-foreground flex items-start gap-2"
                 >
-                  <span className="text-muted-foreground mt-1">•</span>
+                  <span className="text-muted-foreground mt-1">-</span>
                   <span>{item}</span>
                 </li>
               ))}

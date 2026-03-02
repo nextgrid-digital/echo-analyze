@@ -24,6 +24,7 @@ _groww_index_by_code: Dict[str, Dict[str, Any]] = {}
 _groww_index_entries: List[Dict[str, Any]] = []
 _groww_index_loaded = False
 AMFI_CACHE_FILE = "data/amfi_cache.json"
+DEBUG_LOG_ENABLED = os.environ.get("ENABLE_DEBUG_LOGS", "").strip().lower() in {"1", "true", "yes"}
 
 def _load_amfi_cache():
     global _amfi_cache, _failed_urls, _groww_scheme_cache, _groww_holdings_cache
@@ -77,6 +78,8 @@ async def save_amfi_cache_async():
 
 
 def log_holdings(msg):
+    if not DEBUG_LOG_ENABLED:
+        return
     try:
         with open("data/backend_debug.log", "a") as f:
             f.write(f"[{datetime.now()}] [Holdings] {msg}\n")
