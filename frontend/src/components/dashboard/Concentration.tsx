@@ -36,12 +36,12 @@ function ConcentrationInner({ concentration }: ConcentrationProps) {
                   title="Your Funds"
                   formula={
                     <>
-                      Allocation % = (Fund Value ÷ Total Portfolio Value) × 100
+                      Allocation % = (Fund Value / Total Portfolio Value) x 100
                     </>
                   }
                   content={
                     <>
-                      Number of distinct schemes (funds) in your portfolio. Status is &quot;healthy&quot; when count is in the recommended range (7–10). Top funds are sorted by market value.
+                      Number of distinct schemes (funds) in your portfolio. Status is &quot;healthy&quot; when count is in the recommended range (7-10). Top funds are sorted by market value.
                     </>
                   }
                 />
@@ -121,12 +121,12 @@ function ConcentrationInner({ concentration }: ConcentrationProps) {
                   title="Your AMCs"
                   formula={
                     <>
-                      AMC Allocation % = (AMC Total Value ÷ Total Portfolio Value) × 100
+                      AMC Allocation % = (AMC Total Value / Total Portfolio Value) x 100
                     </>
                   }
                   content={
                     <>
-                      Number of Asset Management Companies (AMCs) you invest with. Status is &quot;healthy&quot; when count is in the recommended range (5–7). Top AMCs show total value and allocation % per AMC.
+                      Number of Asset Management Companies (AMCs) you invest with. Status is &quot;healthy&quot; when count is in the recommended range (5-7). Top AMCs show total value and allocation % per AMC.
                     </>
                   }
                 />

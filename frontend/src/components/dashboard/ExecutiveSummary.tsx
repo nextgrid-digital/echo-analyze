@@ -101,9 +101,9 @@ function ExecutiveSummaryInner({ summary }: ExecutiveSummaryProps) {
             title="Key Insights Summary"
             formula={
               <>
-                Underperformance % = Σ(Underperforming Holdings Value) ÷ Total Portfolio Value × 100<br />
-                Equity Allocation % = (Equity Value ÷ Total Portfolio Value) × 100<br />
-                Gap = Current % − Target %
+                Underperformance % = Sum(Underperforming Holdings Value) / Total Portfolio Value x 100<br />
+                Equity Allocation % = (Equity Value / Total Portfolio Value) x 100<br />
+                Gap = Current % - Target %
               </>
             }
             content={

@@ -45,8 +45,8 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
           title="Fixed Income Deep Dive"
           formula={
             <>
-              FI Invested = Σ(FI Units × Purchase NAV)<br />
-              FI Current Value = Σ(FI Units × Latest NAV)<br />
+              FI Invested = Sum(FI Units x Purchase NAV)<br />
+              FI Current Value = Sum(FI Units x Latest NAV)<br />
               IRR = Internal Rate of Return from FI cash flows<br />
               YTM = Yield to Maturity
             </>
@@ -77,12 +77,12 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
                 title="Invested Value"
                 formula={
                   <>
-                    FI Invested = Σ(FI Units × Purchase NAV)
+                    FI Invested = Sum(FI Units x Purchase NAV)
                   </>
                 }
                 content={
                   <>
-                    Sum of cost value of fixed income holdings only (units × purchase NAV for debt schemes).
+                    Sum of cost value of fixed income holdings only (units x purchase NAV for debt schemes).
                   </>
                 }
               />
@@ -108,12 +108,12 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
                 title="Current Value"
                 formula={
                   <>
-                    FI Current Value = Σ(FI Units × Latest NAV)
+                    FI Current Value = Sum(FI Units x Latest NAV)
                   </>
                 }
                 content={
                   <>
-                    Sum of market value of fixed income holdings (units × latest NAV for debt schemes).
+                    Sum of market value of fixed income holdings (units x latest NAV for debt schemes).
                   </>
                 }
               />
@@ -138,7 +138,7 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
                 formula={
                   <>
                     IRR = Internal Rate of Return from FI cash flows<br />
-                    Σ(CFₜ / (1 + IRR)^t) = 0
+                    Sum(CF_t / (1 + IRR)^t) = 0
                   </>
                 }
                 content={
@@ -195,8 +195,8 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
                   title="Credit Quality"
                   formula={
                     <>
-                      Credit Rating % = (Rating Category Value ÷ Total FI Value) × 100<br />
-                      Category Value = (Rating % ÷ 100) × Total FI Value
+                      Credit Rating % = (Rating Category Value / Total FI Value) x 100<br />
+                      Category Value = (Rating % / 100) x Total FI Value
                     </>
                   }
                   content={
@@ -319,8 +319,8 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
                   title="Category Allocation"
                   formula={
                     <>
-                      Category Allocation % = (Category Value ÷ Total FI Value) × 100<br />
-                      Category Value = (Allocation % ÷ 100) × Total FI Value
+                      Category Allocation % = (Category Value / Total FI Value) x 100<br />
+                      Category Value = (Allocation % / 100) x Total FI Value
                     </>
                   }
                   content={
@@ -456,7 +456,7 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
                   title="Top Funds"
                   formula={
                     <>
-                      Allocation % = (Fund Value ÷ Total FI Value) × 100
+                      Allocation % = (Fund Value / Total FI Value) x 100
                     </>
                   }
                   content={
@@ -502,7 +502,7 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
                   title="Top AMCs"
                   formula={
                     <>
-                      Allocation % = (AMC Value ÷ Total FI Value) × 100
+                      Allocation % = (AMC Value / Total FI Value) x 100
                     </>
                   }
                   content={

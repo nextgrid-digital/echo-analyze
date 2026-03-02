@@ -36,8 +36,8 @@ function TopCardsInner({ summary }: TopCardsProps) {
             title="Current Value"
             formula={
               <>
-                Current Value = Σ(units × latest NAV)<br />
-                Absolute Return % = (Current Value − Total Invested) ÷ Total Invested × 100
+                Current Value = Sum(units x latest NAV)<br />
+                Absolute Return % = (Current Value - Total Invested) / Total Invested x 100
               </>
             }
             content={
@@ -57,7 +57,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
                 returnValue >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
               }`}
             >
-              {returnValue >= 0 ? "↑" : "↓"} {Math.abs(returnValue).toFixed(2)}%
+              {returnValue >= 0 ? "Up" : "Down"} {Math.abs(returnValue).toFixed(2)}%
             </span>
             <span className="text-xs text-muted-foreground">Portfolio Return</span>
           </div>
@@ -88,12 +88,12 @@ function TopCardsInner({ summary }: TopCardsProps) {
             title="Total Invested"
             formula={
               <>
-                Total Invested = Σ(units × purchase NAV)
+                Total Invested = Sum(units x purchase NAV)
               </>
             }
             content={
               <>
-                Sum of the cost value of all holdings (what you paid). Calculated as units × purchase NAV (or average cost) for each scheme, summed across the portfolio.
+                Sum of the cost value of all holdings (what you paid). Calculated as units x purchase NAV (or average cost) for each scheme, summed across the portfolio.
               </>
             }
           />
@@ -116,7 +116,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
             title="Portfolio Return"
             formula={
               <>
-                Portfolio Return % = (Current Value − Total Invested) ÷ Total Invested × 100
+                Portfolio Return % = (Current Value - Total Invested) / Total Invested x 100
               </>
             }
             content={
@@ -164,7 +164,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
               formula={
                 <>
                   XIRR = Internal Rate of Return using cash flows<br />
-                  Σ(CFₜ / (1 + XIRR)^t) = 0<br />
+                  Sum(CF_t / (1 + XIRR)^t) = 0<br />
                   Guardrail: no hard % cap; if no stable root exists, show N/A
                 </>
               }

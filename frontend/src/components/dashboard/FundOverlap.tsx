@@ -64,7 +64,7 @@ function abbreviate(name: string, maxLen = 10): string {
   }
 
   // 3. Last resort: truncate
-  return s.slice(0, maxLen - 1) + "…"
+  return s.slice(0, maxLen - 1) + "..."
 }
 
 export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapProps) {
@@ -219,7 +219,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
             title="Fund Overlap"
             formula={
               <>
-                Overlap % = Σ min(weight A, weight B) across common holdings
+                Overlap % = Sum min(weight A, weight B) across common holdings
               </>
             }
             content={
@@ -274,7 +274,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <span className="inline-block w-full h-full cursor-default">
-                                  {isDiagonal ? "–" : `${val}%`}
+                                  {isDiagonal ? "-" : `${val}%`}
                                 </span>
                               </TooltipTrigger>
                               <TooltipContent side="top" className="max-w-[280px] bg-popover text-popover-foreground border border-border text-xs">

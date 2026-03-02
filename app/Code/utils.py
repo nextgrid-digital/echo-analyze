@@ -39,7 +39,7 @@ def _load_cache():
                     _nav_cache = data.get("nav", {})
                     _nav_cache_date = cached_date
                 else:
-                    # Stale NAV cache — discard so fresh NAVs are fetched
+                    # Stale NAV cache - discard so fresh NAVs are fetched
                     _nav_cache = {}
                     _nav_cache_date = today
                 # History cache doesn't expire (historical data doesn't change)
@@ -126,8 +126,9 @@ def clean_currency_to_float(text: str) -> float:
     """Removes currency symbols and commas to return a clean float."""
     if not text:
         return 0.0
-    # Extracts numbers including decimals and commas
-    match = re.search(r"([\d,]+\.?\d*)", text.replace("₹", ""))
+    # Strip currency labels and keep only the numeric portion.
+    sanitized = re.sub(r"[^0-9,.\-]", "", text)
+    match = re.search(r"(-?[\d,]+\.?\d*)", sanitized)
     if match:
         return float(match.group(1).replace(",", ""))
     return 0.0
