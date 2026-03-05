@@ -3,6 +3,10 @@ import io
 import json
 import os
 import re
+import shutil
+import subprocess
+import threading
+import time
 import uuid
 from dataclasses import dataclass
 from bisect import bisect_right
@@ -10,7 +14,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,6 +27,13 @@ from app.utils import calculate_xirr, fetch_live_nav, fetch_nav_history, save_ca
 
 app = FastAPI()
 
+# Resolve static paths from repository root, not current working directory.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+STATIC_DIR = PROJECT_ROOT / "static"
+STATIC_INDEX = STATIC_DIR / "index.html"
+FRONTEND_DIR = PROJECT_ROOT / "frontend"
+FRONTEND_SRC_DIR = FRONTEND_DIR / "src"
+
 LOG_FILE = "data/backend_debug.log"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 ALLOWED_EXTENSIONS = {".pdf", ".json"}
@@ -32,6 +43,11 @@ ALLOWED_CONTENT_TYPES = {
 }
 PDF_MAGIC_PREFIX = b"%PDF-"
 DEBUG_LOG_ENABLED = os.environ.get("ENABLE_DEBUG_LOGS", "").strip().lower() in {"1", "true", "yes"}
+AUTO_SYNC_FRONTEND = os.environ.get("AUTO_SYNC_FRONTEND", "1").strip().lower() in {"1", "true", "yes"}
+_FRONTEND_SYNC_LOCK = threading.Lock()
+_FRONTEND_LAST_CHECK_AT = 0.0
+_FRONTEND_LAST_SOURCE_MTIME = 0.0
+_FRONTEND_CHECK_INTERVAL_SEC = 1.0
 
 
 def _redact_pii(text: str) -> str:
@@ -70,6 +86,94 @@ def _get_allowed_origins() -> List[str]:
     return [o for o in origins if o != "*"]
 
 
+def _iter_frontend_source_files() -> List[Path]:
+    files: List[Path] = []
+    if not FRONTEND_DIR.exists():
+        return files
+    for rel in ("index.html", "vite.config.ts", "package.json"):
+        p = FRONTEND_DIR / rel
+        if p.exists():
+            files.append(p)
+    if FRONTEND_SRC_DIR.exists():
+        for p in FRONTEND_SRC_DIR.rglob("*"):
+            if p.is_file():
+                files.append(p)
+    return files
+
+
+def _latest_frontend_source_mtime() -> float:
+    global _FRONTEND_LAST_CHECK_AT, _FRONTEND_LAST_SOURCE_MTIME
+    now = time.time()
+    if (now - _FRONTEND_LAST_CHECK_AT) < _FRONTEND_CHECK_INTERVAL_SEC:
+        return _FRONTEND_LAST_SOURCE_MTIME
+
+    latest = 0.0
+    for p in _iter_frontend_source_files():
+        try:
+            latest = max(latest, p.stat().st_mtime)
+        except OSError:
+            continue
+    _FRONTEND_LAST_SOURCE_MTIME = latest
+    _FRONTEND_LAST_CHECK_AT = now
+    return latest
+
+
+def _static_index_mtime() -> float:
+    try:
+        return STATIC_INDEX.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _should_check_frontend_sync(path: str) -> bool:
+    # Only check page-like routes.
+    if path.startswith("/api"):
+        return False
+    if path.startswith("/assets/") or path.startswith("/Images/"):
+        return False
+    if path == "/" or "." not in Path(path).name:
+        return True
+    return path.endswith(".html")
+
+
+def ensure_frontend_static_up_to_date() -> None:
+    if not AUTO_SYNC_FRONTEND or os.environ.get("VERCEL"):
+        return
+    if not FRONTEND_DIR.exists():
+        return
+    if not (FRONTEND_DIR / "package.json").exists():
+        return
+    npm_bin = shutil.which("npm") or shutil.which("npm.cmd")
+    if npm_bin is None:
+        return
+
+    src_mtime = _latest_frontend_source_mtime()
+    if src_mtime <= _static_index_mtime():
+        return
+
+    with _FRONTEND_SYNC_LOCK:
+        src_mtime = _latest_frontend_source_mtime()
+        if src_mtime <= _static_index_mtime():
+            return
+        log_debug("Frontend source is newer than static build. Running `npm run build`.")
+        try:
+            result = subprocess.run(
+                [npm_bin, "run", "build"],
+                cwd=str(FRONTEND_DIR),
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if result.returncode != 0:
+                log_debug(f"Frontend auto-build failed: {result.stderr[:1000]}")
+                print("[WARN] Frontend auto-build failed. Check frontend build setup.", flush=True)
+            else:
+                log_debug("Frontend auto-build completed successfully.")
+        except Exception as exc:
+            log_debug(f"Frontend auto-build exception: {type(exc).__name__}: {exc}")
+            print(f"[WARN] Frontend auto-build exception: {type(exc).__name__}: {exc}", flush=True)
+
+
 log_debug("--- Starting MF-CAS Analyzer Backend (Security + Accuracy Remediated) ---")
 app.add_middleware(
     CORSMiddleware,
@@ -78,6 +182,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_no_cache_for_html(request: Request, call_next):
+    if request.method == "GET" and _should_check_frontend_sync(request.url.path):
+        ensure_frontend_static_up_to_date()
+
+    response = await call_next(request)
+    content_type = response.headers.get("content-type", "")
+    if "text/html" in content_type:
+        response.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 
 def get_sub_category(scheme_name: str, scheme_type: str) -> str:
@@ -1731,8 +1849,8 @@ async def test_api():
 
 @app.get("/")
 async def home():
-    return FileResponse("static/index.html")
+    return FileResponse(str(STATIC_INDEX))
 
 
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 

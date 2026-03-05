@@ -156,11 +156,6 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
                 }
               />
             </div>
-
-            {/* Equity Deep Dive */}
-            <div id="performance-analysis-equity-deep-dive" className="scroll-mt-24">
-              <EquityDeepDive summary={summary} />
-            </div>
           </section>
 
           {/* Section 3: Portfolio Health & Structure */}
@@ -170,7 +165,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           >
             <div className="mb-4 sm:mb-6">
               <h2 className="text-section-header text-foreground mb-1">
-                Portfolio Health & Structure
+                Portfolio Health & Structuring
               </h2>
               <p className="text-sm text-muted-foreground">
                 Asset allocation, concentration, and diversification analysis
@@ -192,19 +187,6 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             {/* Concentration Analysis */}
             <div id="portfolio-structure-concentration" className="scroll-mt-24 mb-6 sm:mb-8">
               <Concentration concentration={summary.concentration} />
-            </div>
-
-            {/* Fund Overlap / Diversification */}
-            <div id="diversification" className="scroll-mt-24">
-              <FundOverlap
-                overlap={
-                  summary.overlap ?? {
-                    fund_codes: [],
-                    fund_names: [],
-                    matrix: [],
-                  }
-                }
-              />
             </div>
           </section>
 
@@ -233,7 +215,23 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             </div>
           </section>
 
-          {/* Section 5: Fixed Income Analysis */}
+          {/* Section 5: Equity Portfolio Deep Dive */}
+          <section
+            id="equity-portfolio-deep-dive"
+            className="scroll-mt-24 section-spacing pdf-section"
+          >
+            <div className="mb-4 sm:mb-6">
+              <h2 className="text-section-header text-foreground mb-1">
+                Equity Portfolio Deep Dive
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Detailed equity-only performance, allocation, and benchmark comparison
+              </p>
+            </div>
+            <EquityDeepDive summary={summary} />
+          </section>
+
+          {/* Section 6: Fixed Income Analysis */}
           <section
             id="fixed-income"
             className="scroll-mt-24 section-spacing pdf-section"
@@ -262,23 +260,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             />
           </section>
 
-          {/* Section 7: Key Observations */}
-          <section
-            id="key-observations"
-            className="scroll-mt-24 section-spacing pdf-section"
-          >
-            <div className="mb-4 sm:mb-6">
-              <h2 className="text-section-header text-foreground mb-1">
-                Key Observations
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Important data highlights organized by category
-              </p>
-            </div>
-            <KeyObservations summary={summary} />
-          </section>
-
-          {/* Section 8: Detailed Holdings (Reference) */}
+          {/* Section 7: Proposed Allocation */}
           <section
             id="detailed-holdings"
             className="scroll-mt-24 section-spacing pdf-section"
@@ -295,6 +277,46 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
               holdings={holdings}
               totalMarketValue={summary.total_market_value}
             />
+          </section>
+
+          {/* Section 8: Overlapping Holdings */}
+          <section
+            id="overlapping-holdings"
+            className="scroll-mt-24 section-spacing pdf-section"
+          >
+            <div className="mb-4 sm:mb-6">
+              <h2 className="text-section-header text-foreground mb-1">
+                Overlapping Holdings
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Scheme overlap and diversification across your portfolio
+              </p>
+            </div>
+            <FundOverlap
+              overlap={
+                summary.overlap ?? {
+                  fund_codes: [],
+                  fund_names: [],
+                  matrix: [],
+                }
+              }
+            />
+          </section>
+
+          {/* Section 9: Key Observations */}
+          <section
+            id="key-observations"
+            className="scroll-mt-24 section-spacing pdf-section"
+          >
+            <div className="mb-4 sm:mb-6">
+              <h2 className="text-section-header text-foreground mb-1">
+                Key Observations
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Important data highlights organized by category
+              </p>
+            </div>
+            <KeyObservations summary={summary} />
           </section>
 
           {/* Notes & Feedback Section */}
