@@ -109,6 +109,13 @@ echo-analyze/
 
 The server runs in reload mode by default, so any changes to Python files will automatically restart the server.
 
+When running `uvicorn app.main:app`, the UI served at `http://localhost:8000` comes from `static/`.
+To avoid stale UI, backend now auto-builds frontend (`frontend -> static`) on page requests when source files are newer.
+You can disable this with:
+```cmd
+set AUTO_SYNC_FRONTEND=0
+```
+
 Debug logs are written to `data/backend_debug.log`.
 
 ## Troubleshooting
