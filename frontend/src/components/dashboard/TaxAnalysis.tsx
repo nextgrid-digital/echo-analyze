@@ -16,11 +16,17 @@ function TaxAnalysisInner({ summary }: TaxAnalysisProps) {
     tax_free_gains: 0,
     taxable_gains: 0,
     estimated_tax_liability: 0,
+    debt_taxable_gains: 0,
+    debt_tax_rate_pct: 0,
+    debt_estimated_tax_liability: 0,
     equity_stcg_rate_pct: 20,
     equity_ltcg_rate_pct: 12.5,
     equity_ltcg_exemption: 125000,
   }
   const equityLtcgRatePct = taxData.equity_ltcg_rate_pct === 12 ? 12.5 : taxData.equity_ltcg_rate_pct
+  const debtTaxable = taxData.debt_taxable_gains ?? 0
+  const debtRate = taxData.debt_tax_rate_pct ?? 0
+  const debtLiability = taxData.debt_estimated_tax_liability ?? 0
 
   return (
     <div className="mb-6 sm:mb-8">
@@ -138,6 +144,11 @@ function TaxAnalysisInner({ summary }: TaxAnalysisProps) {
           <p className="text-xs text-muted-foreground mt-1">
             Est. tax: {toLakhs(taxData.estimated_tax_liability)}
           </p>
+          {debtTaxable > 0 && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Debt taxable gains: {toLakhs(debtTaxable)} @ {debtRate}% (est. {toLakhs(debtLiability)})
+            </p>
+          )}
         </CompactCard>
       </div>
     </div>

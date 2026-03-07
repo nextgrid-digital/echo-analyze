@@ -4,6 +4,8 @@ Overlap(A, B) = sum over common instruments of min(weight_A[s], weight_B[s]).
 """
 from typing import Dict, List, Tuple
 
+MIN_CONSTITUENTS_FOR_COMPARABLE_OVERLAP = 8
+
 
 def compute_overlap_matrix(
     holdings_by_scheme: Dict[str, List[Tuple[str, float]]],
@@ -25,9 +27,12 @@ def compute_overlap_matrix(
 
     # Pre-compute maps to avoid N^2 redundant work
     scheme_maps = {}
+    comparable = {}
     for code in scheme_order:
         h = holdings_by_scheme.get(code)
-        scheme_maps[code] = _to_weight_map(h) if h else {}
+        weight_map = _to_weight_map(h) if h else {}
+        scheme_maps[code] = weight_map
+        comparable[code] = len(weight_map) >= MIN_CONSTITUENTS_FOR_COMPARABLE_OVERLAP
 
     for i in range(n):
         scheme_i = scheme_order[i]
@@ -43,6 +48,11 @@ def compute_overlap_matrix(
             scheme_j = scheme_order[j]
             map_j = scheme_maps[scheme_j]
             if not map_j:
+                continue
+
+            if not comparable[scheme_i] or not comparable[scheme_j]:
+                matrix[i][j] = 0.0
+                matrix[j][i] = 0.0
                 continue
             
             overlap = round(_pairwise_overlap(map_i, map_j), 1)

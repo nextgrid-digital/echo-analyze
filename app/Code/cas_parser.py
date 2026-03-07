@@ -85,7 +85,7 @@ def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: s
         if tmp_path and os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
-            except:
+            except OSError:
                 pass
 
 def convert_to_excel(json_data: Dict[str, Any]) -> io.BytesIO:

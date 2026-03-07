@@ -3,6 +3,7 @@ import io
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import threading
@@ -23,7 +24,7 @@ from pydantic import BaseModel, Field
 from app.cas_parser import convert_to_excel, parse_with_casparser
 from app.holdings import get_holdings_for_schemes, save_amfi_cache_async
 from app.overlap import compute_overlap_matrix
-from app.utils import calculate_xirr, fetch_live_nav, fetch_nav_history, save_cache_async
+from app.utils import calculate_xirr, close_http_client, fetch_live_nav, fetch_nav_history, save_cache_async
 
 app = FastAPI()
 
@@ -48,6 +49,52 @@ _FRONTEND_SYNC_LOCK = threading.Lock()
 _FRONTEND_LAST_CHECK_AT = 0.0
 _FRONTEND_LAST_SOURCE_MTIME = 0.0
 _FRONTEND_CHECK_INTERVAL_SEC = 1.0
+_PROTECTED_API_PATHS = {"/api/analyze", "/api/parse_pdf"}
+_REQUEST_RATE_LOCK = threading.Lock()
+_REQUEST_RATE_BUCKETS: Dict[str, List[float]] = {}
+
+
+def _read_env_int(name: str, default: int, minimum: int = 0) -> int:
+    raw = os.environ.get(name, str(default)).strip()
+    try:
+        return max(minimum, int(raw))
+    except ValueError:
+        return default
+
+
+def _read_env_float(name: str, default: float, minimum: float = 0.0) -> float:
+    raw = os.environ.get(name, str(default)).strip()
+    try:
+        return max(minimum, float(raw))
+    except ValueError:
+        return default
+
+
+def _read_env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes"}
+
+
+API_KEY = os.environ.get("ECHO_ANALYZE_API_KEY", "").strip()
+RATE_LIMIT_ENABLED = _read_env_bool("ANALYZE_RATE_LIMIT_ENABLED", True)
+RATE_LIMIT_MAX_PER_WINDOW = _read_env_int("ANALYZE_RATE_LIMIT_PER_MIN", 10, minimum=1)
+RATE_LIMIT_WINDOW_SEC = _read_env_int("ANALYZE_RATE_LIMIT_WINDOW_SEC", 60, minimum=1)
+DEBT_TAX_RATE_PCT = _read_env_float("DEBT_TAX_RATE_PCT", 30.0, minimum=0.0)
+ENABLE_TEST_ENDPOINT = _read_env_bool("ENABLE_TEST_ENDPOINT", False)
+SECURITY_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "font-src 'self' data:; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
 
 
 def _redact_pii(text: str) -> str:
@@ -174,6 +221,60 @@ def ensure_frontend_static_up_to_date() -> None:
             print(f"[WARN] Frontend auto-build exception: {type(exc).__name__}: {exc}", flush=True)
 
 
+def _set_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = SECURITY_CSP
+    return response
+
+
+def _extract_request_api_key(request: Request) -> str:
+    direct_header = (request.headers.get("x-api-key") or "").strip()
+    if direct_header:
+        return direct_header
+    auth_header = (request.headers.get("authorization") or "").strip()
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip()
+    return ""
+
+
+def _is_api_key_authorized(request: Request) -> bool:
+    if not API_KEY:
+        return True
+    presented = _extract_request_api_key(request)
+    return bool(presented) and secrets.compare_digest(presented, API_KEY)
+
+
+def _extract_client_ip(request: Request) -> str:
+    forwarded_for = (request.headers.get("x-forwarded-for") or "").strip()
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def _consume_rate_limit(path: str, request: Request) -> Optional[int]:
+    if not RATE_LIMIT_ENABLED or path not in _PROTECTED_API_PATHS:
+        return None
+
+    now_ts = time.time()
+    key = f"{path}|{_extract_client_ip(request)}"
+    with _REQUEST_RATE_LOCK:
+        bucket = _REQUEST_RATE_BUCKETS.get(key, [])
+        min_ts = now_ts - RATE_LIMIT_WINDOW_SEC
+        bucket = [ts for ts in bucket if ts > min_ts]
+        if len(bucket) >= RATE_LIMIT_MAX_PER_WINDOW:
+            retry_after = max(1, int(RATE_LIMIT_WINDOW_SEC - (now_ts - bucket[0])))
+            _REQUEST_RATE_BUCKETS[key] = bucket
+            return retry_after
+        bucket.append(now_ts)
+        _REQUEST_RATE_BUCKETS[key] = bucket
+    return None
+
+
 log_debug("--- Starting MF-CAS Analyzer Backend (Security + Accuracy Remediated) ---")
 app.add_middleware(
     CORSMiddleware,
@@ -186,8 +287,25 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_no_cache_for_html(request: Request, call_next):
-    if request.method == "GET" and _should_check_frontend_sync(request.url.path):
+    path = request.url.path
+    if request.method == "GET" and _should_check_frontend_sync(path):
         ensure_frontend_static_up_to_date()
+
+    if path in _PROTECTED_API_PATHS and not _is_api_key_authorized(request):
+        unauthorized = JSONResponse(
+            status_code=401,
+            content={"success": False, "error": "Unauthorized request. Missing or invalid API key."},
+        )
+        return _set_security_headers(unauthorized)
+
+    retry_after = _consume_rate_limit(path, request)
+    if retry_after is not None:
+        throttled = JSONResponse(
+            status_code=429,
+            content={"success": False, "error": "Rate limit exceeded. Please retry later."},
+        )
+        throttled.headers["Retry-After"] = str(retry_after)
+        return _set_security_headers(throttled)
 
     response = await call_next(request)
     content_type = response.headers.get("content-type", "")
@@ -195,7 +313,23 @@ async def add_no_cache_for_html(request: Request, call_next):
         response.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
-    return response
+    return _set_security_headers(response)
+
+
+@app.on_event("shutdown")
+async def _close_http_client_on_shutdown() -> None:
+    try:
+        await save_cache_async()
+    except Exception:
+        pass
+    try:
+        await save_amfi_cache_async()
+    except Exception:
+        pass
+    try:
+        await close_http_client()
+    except Exception:
+        pass
 
 
 def get_sub_category(scheme_name: str, scheme_type: str) -> str:
@@ -335,6 +469,7 @@ def _resolve_benchmark_components(
     scheme_type: str,
     sub_category: str,
     category: str,
+    scheme_amfi: str = "",
 ) -> List[BenchmarkComponent]:
     name = (scheme_name or "").upper()
     typ = (scheme_type or "").upper()
@@ -391,13 +526,13 @@ def _resolve_benchmark_components(
     if has_any("HYBRID", "BALANCED", "AGGRESSIVE", "BALANCED ADVANTAGE", "DYNAMIC ASSET ALLOCATION", "MULTI ASSET") or "EQUITY - HYBRID" in sub:
         if has_any("CONSERVATIVE", "MONTHLY INCOME"):
             return [
-                BenchmarkComponent(eq_nifty500.code, 0.25, eq_nifty500.label),
-                BenchmarkComponent(debt_corp.code, 0.75, debt_corp.label),
+                BenchmarkComponent(eq_nifty500.code, 0.175, eq_nifty500.label),
+                BenchmarkComponent(debt_corp.code, 0.825, debt_corp.label),
             ]
         if has_any("BALANCED ADVANTAGE", "DYNAMIC ASSET ALLOCATION"):
             return [
-                BenchmarkComponent(eq_nifty500.code, 0.5, eq_nifty500.label),
-                BenchmarkComponent(debt_corp.code, 0.5, debt_corp.label),
+                BenchmarkComponent(eq_nifty500.code, 0.375, eq_nifty500.label),
+                BenchmarkComponent(debt_corp.code, 0.625, debt_corp.label),
             ]
         if has_any("MULTI ASSET"):
             return [
@@ -406,8 +541,8 @@ def _resolve_benchmark_components(
                 BenchmarkComponent(alt_gold.code, 0.2, alt_gold.label),
             ]
         return [
-            BenchmarkComponent(eq_nifty500.code, 0.65, eq_nifty500.label),
-            BenchmarkComponent(debt_corp.code, 0.35, debt_corp.label),
+            BenchmarkComponent(eq_nifty500.code, 0.725, eq_nifty500.label),
+            BenchmarkComponent(debt_corp.code, 0.275, debt_corp.label),
         ]
 
     if category == "Fixed Income" or "DEBT" in typ or "FIXED INCOME" in typ:
@@ -420,8 +555,20 @@ def _resolve_benchmark_components(
         return [debt_corp]
 
     if category == "Equity":
-        if has_any("BANKING", "FINANCIAL SERVICES", "PHARMA", "HEALTHCARE", "INFRA", "INFRASTRUCTURE", "CONSUMPTION", "MNC", "MANUFACTURING", "DIGITAL", "TECHNOLOGY", "BUSINESS CYCLE", "PSU"):
-            return []
+        if has_any("BANKING", "FINANCIAL SERVICES"):
+            return [
+                BenchmarkComponent(eq_nifty100.code, 0.7, eq_nifty100.label),
+                BenchmarkComponent(eq_nifty500.code, 0.3, eq_nifty500.label),
+            ]
+        if has_any("PHARMA", "HEALTHCARE"):
+            return [eq_nifty500]
+        if has_any("DIGITAL", "TECHNOLOGY", "INFORMATION TECHNOLOGY"):
+            return [
+                BenchmarkComponent(eq_nifty100.code, 0.4, eq_nifty100.label),
+                BenchmarkComponent(eq_nifty500.code, 0.6, eq_nifty500.label),
+            ]
+        if has_any("INFRA", "INFRASTRUCTURE", "CONSUMPTION", "MNC", "MANUFACTURING", "BUSINESS CYCLE", "PSU"):
+            return [eq_nifty500]
         if has_any("LARGE & MID", "LARGE AND MID", "LARGEMIDCAP", "LARGE MIDCAP 250", "LARGEMIDCAP 250"):
             return [
                 BenchmarkComponent(eq_nifty100.code, 0.5, eq_nifty100.label),
@@ -446,8 +593,72 @@ def _resolve_benchmark_components(
             return [eq_nifty500]
         if has_any("LARGE CAP", "LARGE-CAP", "LARGECAP", "BLUECHIP", "TOP 100"):
             return [eq_nifty100]
+        if has_any("NIFTY TOTAL MARKET", "TOTAL MARKET INDEX", "NIFTY500 MULTICAP", "NIFTY 500 MULTICAP"):
+            return [eq_nifty500]
+        if has_any("LARGEMIDCAP 250", "LARGE MIDCAP 250", "NIFTY LARGE MIDCAP 250"):
+            return [
+                BenchmarkComponent(eq_nifty100.code, 0.5, eq_nifty100.label),
+                BenchmarkComponent(eq_mid150.code, 0.5, eq_mid150.label),
+            ]
+        if has_any("MIDSMALLCAP 400", "MID SMALLCAP 400", "NIFTY MIDSMALLCAP 400"):
+            return [
+                BenchmarkComponent(eq_mid150.code, 0.5, eq_mid150.label),
+                BenchmarkComponent(eq_small250.code, 0.5, eq_small250.label),
+            ]
+        if has_any("MICROCAP", "NIFTY MICROCAP 250"):
+            return [eq_small250]
+        if has_any("NIFTY 50 VALUE 20", "NIFTY50 VALUE 20", "NIFTY 50 EQUAL WEIGHT", "NIFTY50 EQUAL WEIGHT"):
+            return [eq_nifty50]
+        if has_any("NIFTY 100 EQUAL WEIGHT", "NIFTY100 EQUAL WEIGHT", "NIFTY 100 LOW VOLATILITY 30", "NIFTY100 LOW VOLATILITY 30"):
+            return [eq_nifty100]
+        if has_any("NIFTY 200", "NIFTY200"):
+            # Nifty 200 parent can be approximated as large + mid blend.
+            if has_any("MOMENTUM", "QUALITY", "ALPHA", "LOW VOL", "LOWVOL", "VALUE"):
+                return [
+                    BenchmarkComponent(eq_nifty100.code, 0.65, eq_nifty100.label),
+                    BenchmarkComponent(eq_mid150.code, 0.35, eq_mid150.label),
+                ]
+            return [
+                BenchmarkComponent(eq_nifty100.code, 0.7, eq_nifty100.label),
+                BenchmarkComponent(eq_mid150.code, 0.3, eq_mid150.label),
+            ]
+        if has_any("NIFTY MIDCAP 50", "NIFTY MIDCAP50", "MIDCAP 50", "MIDCAP50"):
+            return [eq_mid150]
+        if has_any("NIFTY MIDCAP 100", "NIFTY MIDCAP100", "MIDCAP 100", "MIDCAP100"):
+            return [eq_mid150]
+        if has_any("NIFTY SMALLCAP 50", "NIFTY SMALLCAP50", "SMALLCAP 50", "SMALLCAP50"):
+            return [eq_small250]
+        if has_any("NIFTY SMALLCAP 100", "NIFTY SMALLCAP100", "SMALLCAP 100", "SMALLCAP100"):
+            return [eq_small250]
+        if has_any("ALPHA", "LOW VOLATILITY", "LOW-VOLATILITY", "LOW VOL", "MOMENTUM", "QUALITY", "VALUE 20", "VALUE20", "MULTIFACTOR", "MULTI FACTOR"):
+            if has_any("NIFTY 50"):
+                return [eq_nifty50]
+            if has_any("NIFTY 100"):
+                return [eq_nifty100]
+            if has_any("NIFTY 200", "NIFTY200"):
+                return [
+                    BenchmarkComponent(eq_nifty100.code, 0.65, eq_nifty100.label),
+                    BenchmarkComponent(eq_mid150.code, 0.35, eq_mid150.label),
+                ]
+            if has_any("MOMENTUM 30", "QUALITY 30", "LOW VOLATILITY 30", "ALPHA LOW VOLATILITY 30"):
+                return [
+                    BenchmarkComponent(eq_nifty100.code, 0.65, eq_nifty100.label),
+                    BenchmarkComponent(eq_mid150.code, 0.35, eq_mid150.label),
+                ]
+            if has_any("MIDCAP"):
+                return [eq_mid150]
+            if has_any("SMALLCAP"):
+                return [eq_small250]
+            return [eq_nifty500]
         if "INDEX FUND" in sub or has_any("ETF"):
-            return []
+            # Last-resort fallback: use the scheme's own AMFI history if available.
+            if scheme_amfi.isdigit():
+                return [BenchmarkComponent(scheme_amfi, 1.0, "Scheme NAV proxy")]
+            if has_any("NIFTY"):
+                return [eq_nifty500]
+            if has_any("SENSEX"):
+                return [eq_sensex]
+            return [eq_nifty500]
         return [eq_nifty500]
 
     if has_any("LIQUID", "OVERNIGHT", "MONEY MARKET"):
@@ -740,6 +951,9 @@ class TaxSummary(BaseModel):
     tax_free_gains: float
     taxable_gains: float
     estimated_tax_liability: float
+    debt_taxable_gains: float = 0.0
+    debt_tax_rate_pct: float = 0.0
+    debt_estimated_tax_liability: float = 0.0
     equity_stcg_rate_pct: float
     equity_ltcg_rate_pct: float
     equity_ltcg_exemption: float
@@ -939,6 +1153,8 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     tax_short_term_losses = 0.0
     tax_long_term_gains = 0.0
     tax_long_term_losses = 0.0
+    tax_debt_gains = 0.0
+    tax_debt_losses = 0.0
 
     all_amfis = set()
     benchmark_codes_needed = set()
@@ -951,7 +1167,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             scheme_type = (scheme.get("type") or "OTHERS").strip()
             sub_cat = get_sub_category(name, scheme_type)
             cat, _ = _infer_category(name, scheme_type, sub_cat)
-            comps = _resolve_benchmark_components(name, scheme_type, sub_cat, cat)
+            comps = _resolve_benchmark_components(name, scheme_type, sub_cat, cat, amfi)
             for comp in comps:
                 benchmark_codes_needed.add(comp.code)
 
@@ -1018,7 +1234,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             scheme_type = (scheme.get("type") or "OTHERS").strip()
             sub_cat = get_sub_category(name, scheme_type)
             cat, ambiguous = _infer_category(name, scheme_type, sub_cat)
-            benchmark_components_raw = _resolve_benchmark_components(name, scheme_type, sub_cat, cat)
+            benchmark_components_raw = _resolve_benchmark_components(name, scheme_type, sub_cat, cat, amfi)
             benchmark_components = _normalize_benchmark_components(benchmark_components_raw, benchmark_histories_prepared)
             benchmark_name = _format_benchmark_name(benchmark_components)
             if ambiguous:
@@ -1146,11 +1362,12 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             # cat, sub_cat and ambiguous_category_count were handled earlier in the loop
 
 
+            sub_cat_upper = sub_cat.upper()
             if sub_cat in mc_values:
                 mc_values[sub_cat] += mkt_val
-            elif "ELSS" in sub_cat or "Index" in sub_cat or "Flexi" in sub_cat:
+            elif "ELSS" in sub_cat_upper or "INDEX" in sub_cat_upper or "FLEXI" in sub_cat_upper:
                 mc_values["Large-Cap"] += mkt_val
-            elif "Large & Mid" in sub_cat:
+            elif "LARGE & MID" in sub_cat_upper:
                 mc_values["Large-Cap"] += mkt_val * 0.5
                 mc_values["Mid-Cap"] += mkt_val * 0.5
             elif cat == "Equity":
@@ -1182,6 +1399,11 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 fi_cashflows.extend(scheme_cashflows)
                 credit_bucket = _credit_quality_bucket(name, sub_cat)
                 credit_values[credit_bucket] += mkt_val
+                debt_gain = mkt_val - scheme_cost
+                if debt_gain >= 0:
+                    tax_debt_gains += debt_gain
+                else:
+                    tax_debt_losses += abs(debt_gain)
 
             holding_years = _years_between(current_holding_entry_dt or scheme_entry_dt, analysis_now_dt)
             scheme_ter = _extract_scheme_ter_pct(scheme)
@@ -1319,10 +1541,10 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
             if s_bm_val > 0:
                 benchmark_terminal_value += s_bm_val
-                benchmark_cost_total += scheme_cost
+                benchmark_cost_total += max(0.0, scheme_cost)
                 if cat == "Equity":
                     equity_benchmark_terminal_value += s_bm_val
-                    equity_benchmark_cost_total += scheme_cost
+                    equity_benchmark_cost_total += max(0.0, scheme_cost)
 
             if scheme_cashflows and s_bm_val > 0 and mkt_val > 0 and fund_history_bundle:
                 def period_diff_for_cutoff(cutoff_dt: datetime) -> Optional[float]:
@@ -1565,11 +1787,14 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     tax_stcg_rate = 20.0
     tax_ltcg_rate = 12.5
     tax_ltcg_exemption = 125000.0
+    tax_debt_rate = DEBT_TAX_RATE_PCT
     net_short_term = tax_short_term_gains - tax_short_term_losses
     net_long_term = tax_long_term_gains - tax_long_term_losses
+    net_debt = tax_debt_gains - tax_debt_losses
 
     taxable_stcg = max(0.0, net_short_term)
     taxable_ltcg_before_exemption = max(0.0, net_long_term)
+    taxable_debt = max(0.0, net_debt)
 
     # STCL can be set off against LTCG after exhausting STCG.
     st_loss_remaining = max(0.0, -net_short_term)
@@ -1579,8 +1804,13 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
     tax_free_gains = min(tax_ltcg_exemption, taxable_ltcg_before_exemption)
     taxable_ltcg = max(0.0, taxable_ltcg_before_exemption - tax_ltcg_exemption)
-    tax_taxable_gains = max(0.0, taxable_stcg + taxable_ltcg)
-    tax_estimated_liability = (taxable_stcg * tax_stcg_rate / 100.0) + (taxable_ltcg * tax_ltcg_rate / 100.0)
+    debt_tax_estimated_liability = taxable_debt * tax_debt_rate / 100.0
+    tax_taxable_gains = max(0.0, taxable_stcg + taxable_ltcg + taxable_debt)
+    tax_estimated_liability = (
+        (taxable_stcg * tax_stcg_rate / 100.0)
+        + (taxable_ltcg * tax_ltcg_rate / 100.0)
+        + debt_tax_estimated_liability
+    )
 
     tax_summary = TaxSummary(
         short_term_gains=round(net_short_term, 2),
@@ -1588,6 +1818,9 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         tax_free_gains=round(tax_free_gains, 2),
         taxable_gains=round(tax_taxable_gains, 2),
         estimated_tax_liability=round(tax_estimated_liability, 2),
+        debt_taxable_gains=round(taxable_debt, 2),
+        debt_tax_rate_pct=round(tax_debt_rate, 2),
+        debt_estimated_tax_liability=round(debt_tax_estimated_liability, 2),
         equity_stcg_rate_pct=tax_stcg_rate,
         equity_ltcg_rate_pct=tax_ltcg_rate,
         equity_ltcg_exemption=tax_ltcg_exemption,
@@ -1605,8 +1838,15 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         "TAX_ESTIMATED",
         "tax",
         "info",
-        "Tax estimates are indicative, based on lot-level holding periods and unrealized gains/loss set-off; verify with a tax advisor before filing.",
+        "Tax estimates are indicative, based on lot-level holding periods and unrealized gains/loss set-off (including debt gains at a configurable slab proxy); verify with a tax advisor before filing.",
     )
+    if taxable_debt > 0:
+        add_warning(
+            "TAX_DEBT_PROXY",
+            "tax",
+            "info",
+            f"Debt-fund tax is estimated using a flat {tax_debt_rate}% slab proxy; actual liability depends on your income slab and filing context.",
+        )
     add_warning(
         "GUIDELINES_TEMPLATE",
         "guidelines",
@@ -1842,9 +2082,10 @@ async def health():
     return {"status": "ok"}
 
 
-@app.get("/test")
-async def test_api():
-    return {"message": "API is alive"}
+if ENABLE_TEST_ENDPOINT:
+    @app.get("/test")
+    async def test_api():
+        return {"message": "API is alive"}
 
 
 @app.get("/")

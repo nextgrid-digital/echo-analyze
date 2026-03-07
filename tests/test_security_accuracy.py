@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from app.Code.main import (
+    _REQUEST_RATE_BUCKETS,
     _benchmark_nav_for_date,
     _current_holding_entry_date,
     _prepare_benchmark_history,
@@ -14,7 +15,8 @@ from app.Code.main import (
     app,
     map_casparser_to_analysis,
 )
-from app.Code.utils import calculate_xirr
+from app.Code.overlap import compute_overlap_matrix
+from app.Code.utils import calculate_xirr, fetch_nav_history
 
 
 class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
@@ -313,6 +315,24 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(entry_dt, datetime(2024, 1, 1))
 
+    def test_overlap_falls_back_to_zero_for_sparse_constituent_pairs(self):
+        holdings_by_scheme = {
+            "A": [("Single Asset", 100.0)],
+            "B": [("Name 1", 50.0), ("Name 2", 50.0)],
+        }
+        _, matrix = compute_overlap_matrix(holdings_by_scheme, ["A", "B"])
+        self.assertEqual(matrix[0][1], 0.0)
+        self.assertEqual(matrix[1][0], 0.0)
+
+    def test_overlap_keeps_zero_for_comparable_disjoint_funds(self):
+        holdings_by_scheme = {
+            "A": [(f"A{i}", 12.5) for i in range(8)],
+            "B": [(f"B{i}", 12.5) for i in range(8)],
+        }
+        _, matrix = compute_overlap_matrix(holdings_by_scheme, ["A", "B"])
+        self.assertEqual(matrix[0][1], 0.0)
+        self.assertEqual(matrix[1][0], 0.0)
+
     def test_benchmark_mapping_uses_more_specific_proxies(self):
         flexi = _resolve_benchmark_components(
             "Test Flexi Cap Fund - Direct Plan - Growth",
@@ -338,14 +358,32 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual([c.code for c in gold], ["119132"])
 
-    def test_sectoral_equity_funds_do_not_fall_back_to_broad_proxy(self):
+        nifty200_momentum = _resolve_benchmark_components(
+            "Test Nifty200 Momentum 30 Index Fund - Direct Plan",
+            "EQUITY",
+            "Index Fund",
+            "Equity",
+        )
+        self.assertEqual([c.code for c in nifty200_momentum], ["147666", "148726"])
+
+    def test_index_funds_have_fallback_benchmark_mapping(self):
+        unknown_index = _resolve_benchmark_components(
+            "Test Smart Beta ETF - Direct Plan",
+            "EQUITY",
+            "Index Fund",
+            "Equity",
+            "199999",
+        )
+        self.assertEqual([c.code for c in unknown_index], ["199999"])
+
+    def test_sectoral_equity_funds_use_composite_proxy(self):
         sectoral = _resolve_benchmark_components(
             "Test Banking and Financial Services Fund",
             "EQUITY",
             "Equity - Other",
             "Equity",
         )
-        self.assertEqual(sectoral, [])
+        self.assertEqual([c.code for c in sectoral], ["147666", "152731"])
 
     async def test_analysis_uses_updated_benchmark_name_for_flexi_cap_funds(self):
         cas_data = {
@@ -443,7 +481,7 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(response.success)
         summary = response.summary
         assert summary is not None and summary.performance_summary is not None
-        self.assertEqual(summary.performance_summary.one_year.comparable_pct, 50.0)
+        self.assertEqual(summary.performance_summary.one_year.comparable_pct, 100.0)
 
     async def test_analysis_uses_remaining_holding_entry_date_and_parses_statement_cost(self):
         cas_data = {
@@ -551,6 +589,12 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(summary.fixed_income)
         assert summary.fixed_income is not None
         self.assertGreater(summary.fixed_income.current_value, 0.0)
+        self.assertEqual(summary.tax.debt_taxable_gains, 200.0)
+        self.assertEqual(summary.tax.debt_estimated_tax_liability, 60.0)
+        self.assertEqual(summary.tax.estimated_tax_liability, 60.0)
+
+    async def test_invalid_amfi_code_returns_empty_history(self):
+        self.assertEqual(await fetch_nav_history("../120716"), {})
 
 
 class TestErrorSanitization(unittest.TestCase):
@@ -570,3 +614,22 @@ class TestErrorSanitization(unittest.TestCase):
         body = response.json()
         self.assertFalse(body.get("success", True))
         self.assertIn("invalid or corrupted", body.get("error", "").lower())
+
+    def test_api_key_auth_blocks_unauthorized_calls(self):
+        client = TestClient(app)
+        files = {"file": ("sample.json", b'{"folios": []}', "application/json")}
+        with patch("app.Code.main.API_KEY", "secret-token"):
+            response = client.post("/api/analyze", files=files, data={"password": ""})
+        self.assertEqual(response.status_code, 401)
+
+    def test_rate_limit_returns_429_when_threshold_exceeded(self):
+        client = TestClient(app)
+        files = {"file": ("sample.json", b'{"folios": []}', "application/json")}
+        _REQUEST_RATE_BUCKETS.clear()
+        with patch("app.Code.main.RATE_LIMIT_ENABLED", True), patch(
+            "app.Code.main.RATE_LIMIT_MAX_PER_WINDOW", 1
+        ), patch("app.Code.main.RATE_LIMIT_WINDOW_SEC", 60):
+            first = client.post("/api/analyze", files=files, data={"password": ""})
+            second = client.post("/api/analyze", files=files, data={"password": ""})
+        self.assertNotEqual(first.status_code, 429)
+        self.assertEqual(second.status_code, 429)

@@ -82,6 +82,9 @@ export interface TaxSummary {
   tax_free_gains: number
   taxable_gains: number
   estimated_tax_liability: number
+  debt_taxable_gains?: number
+  debt_tax_rate_pct?: number
+  debt_estimated_tax_liability?: number
   equity_stcg_rate_pct: number
   equity_ltcg_rate_pct: number
   equity_ltcg_exemption: number

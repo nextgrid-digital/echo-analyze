@@ -57,7 +57,8 @@ def _load_amfi_cache():
                     }
                 # Always rebuild holdings from live source in each runtime.
                 _groww_holdings_cache = {}
-        except: pass
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            pass
 
 async def save_amfi_cache_async():
     """Save AMFI cache to disk without blocking the event loop."""
@@ -73,7 +74,7 @@ async def save_amfi_cache_async():
                 },
                 f,
             )
-    except: 
+    except (OSError, TypeError, ValueError):
         pass
 
 
@@ -83,7 +84,8 @@ def log_holdings(msg):
     try:
         with open("data/backend_debug.log", "a") as f:
             f.write(f"[{datetime.now()}] [Holdings] {msg}\n")
-    except: pass
+    except OSError:
+        pass
 
 
 def _normalize_scheme_key(s: str) -> str:

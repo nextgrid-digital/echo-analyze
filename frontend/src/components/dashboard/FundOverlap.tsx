@@ -82,7 +82,6 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
     matrix.forEach((row, i) => {
       const csvRow = [fund_names[i]]
       row.forEach((val, j) => {
-        // Use raw value, diagonal is 100% or "-" representation, but CSV should be simple
         csvRow.push(i === j ? "100" : String(val))
       })
       rows.push(csvRow)

@@ -78,7 +78,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
             <div className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-primary" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Volatility
+                Volatility (Est.)
               </p>
             </div>
             <SectionInfoTooltip
@@ -86,7 +86,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
               formula={
                 <>
                   Volatility = Standard Deviation of Returns<br />
-                  Estimated from equity allocation and portfolio characteristics
+                  Proxy used here: min(Equity Allocation % * 0.15, 25)
                 </>
               }
               content={
@@ -108,15 +108,15 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
             <div className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-muted-foreground" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Sharpe Ratio
+                Sharpe Ratio (Proxy)
               </p>
             </div>
             <SectionInfoTooltip
               title="Sharpe Ratio"
               formula={
                 <>
-                  Sharpe Ratio = (Portfolio Return - Risk-Free Rate) / Volatility<br />
-                  Higher ratio = Better risk-adjusted returns
+                  Sharpe Proxy = (Portfolio XIRR - 6%) / Estimated Volatility<br />
+                  Uses proxy volatility from current allocation
                 </>
               }
               content={
@@ -138,16 +138,15 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
             <div className="flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-muted-foreground" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Beta
+                Beta (Proxy)
               </p>
             </div>
             <SectionInfoTooltip
               title="Beta"
               formula={
                 <>
-                  Beta = Covariance(Portfolio, Market) / Variance(Market)<br />
-                  Beta &gt; 1 = More volatile than market<br />
-                  Beta &lt; 1 = Less volatile than market
+                  Beta Proxy = (Equity Allocation % / 100) * 1.2<br />
+                  Not covariance-based market beta
                 </>
               }
               content={
@@ -169,7 +168,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-muted-foreground" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Risk Score
+                Risk Score (Proxy)
               </p>
             </div>
             <div className="flex items-center gap-2">
