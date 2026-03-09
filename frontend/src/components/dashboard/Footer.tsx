@@ -58,6 +58,18 @@ export const Footer = memo(function Footer() {
               will not share, distribute, or disclose this report to any unauthorized
               third party.
             </p>
+            <p className="mt-3 text-[10px] text-muted-foreground leading-tight text-center">
+              A Venture By{" "}
+              <a
+                href="https://nextgrid.digital"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-2 hover:text-primary transition-colors"
+              >
+                NextGrid Digital
+              </a>{" "}
+              @All Rights Reserved
+            </p>
           </div>
         </div>
       </div>
