@@ -499,6 +499,7 @@ export const HoldingsTable = memo(function HoldingsTable({
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+    URL.revokeObjectURL(url)
   }
 
   const renderSectionRow = (rowNum: number, label: string) => {

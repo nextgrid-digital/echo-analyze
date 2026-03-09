@@ -1,73 +1,40 @@
-# React + TypeScript + Vite
+# Frontend Documentation
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Last updated: 2026-03-08
 
-Currently, two official plugins are available:
+## Overview
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+The frontend is a React + TypeScript single-page app that:
 
-## React Compiler
+- uploads CAS files (`.pdf`/`.json`) to `/api/analyze`
+- renders a multi-section analysis dashboard
+- supports CSV/PDF/image export for key sections
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Build toolchain: Vite + ESLint + Vitest.
 
-## Expanding the ESLint configuration
+## Main files
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- `src/pages/UploadPage.tsx`: file upload and analysis trigger
+- `src/pages/DashboardPage.tsx`: top-level dashboard route and export controls
+- `src/components/dashboard/Dashboard.tsx`: section composition/layout
+- `src/types/api.ts`: backend response contract mirror
+- `src/api/analyze.ts`: API transport client
+- `src/lib/portfolioAnalysis.ts`: allocation/coverage helper logic used by multiple sections
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Data flow
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+1. User selects file on upload page.
+2. `analyzePortfolio()` posts multipart form to `/api/analyze`.
+3. Response (`AnalysisResponse`) is passed via route state to `/dashboard`.
+4. Dashboard sections read the same `summary` + `holdings` objects and render independently.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## Testing and linting
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+- `npm run lint`
+- `npm test -- --run`
+- `npm run build`
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Notes
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+- Backend is source-of-truth for financial calculations and warning generation.
+- Frontend should avoid introducing alternative financial formulas; display text/tooltips should remain aligned with backend semantics.

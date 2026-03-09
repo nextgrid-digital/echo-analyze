@@ -103,6 +103,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+    URL.revokeObjectURL(url)
   }
 
   const handleDownloadImage = async () => {
@@ -184,6 +185,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
           <div className="flex flex-wrap items-center gap-2">
             <Button
               onClick={handleDownloadCSV}
+              disabled={!hasData}
               variant="outline"
               size="sm"
               className="flex items-center gap-2 h-9 px-3 text-xs bg-black text-white hover:bg-black/90 font-bold shadow-md border-0"
@@ -194,6 +196,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
             </Button>
             <Button
               onClick={handleDownloadImage}
+              disabled={!hasData}
               variant="outline"
               size="sm"
               className="flex items-center gap-2 h-9 px-3 text-xs bg-blue-600 text-white hover:bg-blue-700 font-bold shadow-md border-0"
@@ -204,6 +207,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
             </Button>
             <Button
               onClick={handleDownloadPDF}
+              disabled={!hasData}
               variant="outline"
               size="sm"
               className="flex items-center gap-2 h-9 px-3 text-xs bg-red-600 text-white hover:bg-red-700 font-bold shadow-md border-0"

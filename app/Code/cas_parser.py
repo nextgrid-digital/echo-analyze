@@ -44,31 +44,10 @@ def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: s
     import tempfile
     import os
 
-    tmp_path = None
-    try:
-        # Write buffer to a temp file (casparser needs a file path)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            if hasattr(pdf_path_or_buffer, "read"):
-                tmp.write(pdf_path_or_buffer.read())
-                tmp_path = tmp.name
-            else:
-                # Already a path string
-                tmp_path = None
-                try:
-                    data = read_cas_pdf(pdf_path_or_buffer, password=password)
-                    return {"success": True, "data": recursive_to_dict(data)}
-                except Exception as e:
-                    if _is_password_error(str(e)):
-                        if not password:
-                            return {"success": False, "error": "This PDF is password-protected. Please enter the password (usually your PAN, e.g. ABCDE1234F)."}
-                        return {"success": False, "error": "Incorrect password. CAS PDFs are usually protected with your PAN (e.g. ABCDE1234F). Please try again."}
-                    return {"success": False, "error": _safe_parse_error(str(e))}
-
-        # Parse the temp file
+    if not hasattr(pdf_path_or_buffer, "read"):
         try:
-            data = read_cas_pdf(tmp_path, password=password)
-            data = recursive_to_dict(data)
-            return {"success": True, "data": data}
+            data = read_cas_pdf(pdf_path_or_buffer, password=password)
+            return {"success": True, "data": recursive_to_dict(data)}
         except Exception as e:
             err_msg = str(e)
             if _is_password_error(err_msg):
@@ -79,8 +58,24 @@ def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: s
                 return {"success": False, "error": "Failed to parse PDF. Please verify your password and file integrity."}
             return {"success": False, "error": _safe_parse_error(err_msg)}
 
+    tmp_path = None
+    try:
+        # casparser accepts only a file path, so buffers are written to a temp file.
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(pdf_path_or_buffer.read())
+            tmp_path = tmp.name
+
+        data = read_cas_pdf(tmp_path, password=password)
+        return {"success": True, "data": recursive_to_dict(data)}
     except Exception as e:
-        return {"success": False, "error": _safe_parse_error(str(e))}
+        err_msg = str(e)
+        if _is_password_error(err_msg):
+            if not password:
+                return {"success": False, "error": "This PDF is password-protected. Please enter the password (usually your PAN, e.g. ABCDE1234F)."}
+            return {"success": False, "error": "Incorrect password. CAS PDFs are usually protected with your PAN (e.g. ABCDE1234F). Please try again."}
+        if password:
+            return {"success": False, "error": "Failed to parse PDF. Please verify your password and file integrity."}
+        return {"success": False, "error": _safe_parse_error(err_msg)}
     finally:
         if tmp_path and os.path.exists(tmp_path):
             try:

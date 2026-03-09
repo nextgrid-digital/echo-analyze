@@ -52,6 +52,8 @@ _FRONTEND_CHECK_INTERVAL_SEC = 1.0
 _PROTECTED_API_PATHS = {"/api/analyze", "/api/parse_pdf"}
 _REQUEST_RATE_LOCK = threading.Lock()
 _REQUEST_RATE_BUCKETS: Dict[str, List[float]] = {}
+_REQUEST_RATE_LAST_SWEEP_AT = 0.0
+_REQUEST_RATE_SWEEP_INTERVAL_SEC = 60.0
 
 
 def _read_env_int(name: str, default: int, minimum: int = 0) -> int:
@@ -81,6 +83,7 @@ API_KEY = os.environ.get("ECHO_ANALYZE_API_KEY", "").strip()
 RATE_LIMIT_ENABLED = _read_env_bool("ANALYZE_RATE_LIMIT_ENABLED", True)
 RATE_LIMIT_MAX_PER_WINDOW = _read_env_int("ANALYZE_RATE_LIMIT_PER_MIN", 10, minimum=1)
 RATE_LIMIT_WINDOW_SEC = _read_env_int("ANALYZE_RATE_LIMIT_WINDOW_SEC", 60, minimum=1)
+TRUST_PROXY_CLIENT_IP = _read_env_bool("TRUST_PROXY_CLIENT_IP", bool(os.environ.get("VERCEL")))
 DEBT_TAX_RATE_PCT = _read_env_float("DEBT_TAX_RATE_PCT", 30.0, minimum=0.0)
 ENABLE_TEST_ENDPOINT = _read_env_bool("ENABLE_TEST_ENDPOINT", False)
 SECURITY_CSP = (
@@ -248,21 +251,36 @@ def _is_api_key_authorized(request: Request) -> bool:
 
 
 def _extract_client_ip(request: Request) -> str:
-    forwarded_for = (request.headers.get("x-forwarded-for") or "").strip()
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
+    if TRUST_PROXY_CLIENT_IP:
+        forwarded_for = (request.headers.get("x-forwarded-for") or "").strip()
+        if forwarded_for:
+            return forwarded_for.split(",")[0].strip()
+        real_ip = (request.headers.get("x-real-ip") or "").strip()
+        if real_ip:
+            return real_ip
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
 
 
 def _consume_rate_limit(path: str, request: Request) -> Optional[int]:
+    global _REQUEST_RATE_LAST_SWEEP_AT
     if not RATE_LIMIT_ENABLED or path not in _PROTECTED_API_PATHS:
         return None
 
     now_ts = time.time()
     key = f"{path}|{_extract_client_ip(request)}"
     with _REQUEST_RATE_LOCK:
+        if (now_ts - _REQUEST_RATE_LAST_SWEEP_AT) >= _REQUEST_RATE_SWEEP_INTERVAL_SEC:
+            min_allowed_ts = now_ts - RATE_LIMIT_WINDOW_SEC
+            for bucket_key in list(_REQUEST_RATE_BUCKETS.keys()):
+                active = [ts for ts in _REQUEST_RATE_BUCKETS[bucket_key] if ts > min_allowed_ts]
+                if active:
+                    _REQUEST_RATE_BUCKETS[bucket_key] = active
+                else:
+                    _REQUEST_RATE_BUCKETS.pop(bucket_key, None)
+            _REQUEST_RATE_LAST_SWEEP_AT = now_ts
+
         bucket = _REQUEST_RATE_BUCKETS.get(key, [])
         min_ts = now_ts - RATE_LIMIT_WINDOW_SEC
         bucket = [ts for ts in bucket if ts > min_ts]

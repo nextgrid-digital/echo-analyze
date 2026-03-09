@@ -10,8 +10,6 @@ import { WideCard } from "./cards/WideCard"
 import { PortfolioBenchmarkChart } from "./visualizations/PortfolioBenchmarkChart"
 import { ExecutiveSummary } from "./ExecutiveSummary"
 import { RiskMetrics } from "./RiskMetrics"
-import { Cost } from "./Cost"
-import { TaxAnalysis } from "./TaxAnalysis"
 import { KeyObservations } from "./KeyObservations"
 import { AllocationGapAnalysis } from "./AllocationGapAnalysis"
 import { InvestorDetails } from "./InvestorDetails"
@@ -190,32 +188,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             </div>
           </section>
 
-          {/* Section 4: Cost & Tax Analysis */}
-          <section
-            id="cost-tax-analysis"
-            className="scroll-mt-24 section-spacing pdf-section"
-          >
-            <div className="mb-4 sm:mb-6">
-              <h2 className="text-section-header text-foreground mb-1">
-                Cost & Tax Analysis
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Portfolio costs, expenses, and tax implications
-              </p>
-            </div>
-
-            {/* Tax Analysis */}
-            <div className="mb-6 sm:mb-8">
-              <Cost cost={summary.cost} />
-            </div>
-
-            {/* Tax Analysis */}
-            <div>
-              <TaxAnalysis summary={summary} />
-            </div>
-          </section>
-
-          {/* Section 5: Equity Portfolio Deep Dive */}
+          {/* Section 4: Equity Portfolio Deep Dive */}
           <section
             id="equity-portfolio-deep-dive"
             className="scroll-mt-24 section-spacing pdf-section"
@@ -231,7 +204,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             <EquityDeepDive summary={summary} />
           </section>
 
-          {/* Section 6: Fixed Income Analysis */}
+          {/* Section 5: Fixed Income Analysis */}
           <section
             id="fixed-income"
             className="scroll-mt-24 section-spacing pdf-section"
@@ -260,7 +233,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             />
           </section>
 
-          {/* Section 7: Proposed Allocation */}
+          {/* Section 6: Proposed Allocation */}
           <section
             id="detailed-holdings"
             className="scroll-mt-24 section-spacing pdf-section"
@@ -279,7 +252,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             />
           </section>
 
-          {/* Section 8: Overlapping Holdings */}
+          {/* Section 7: Overlapping Holdings */}
           <section
             id="overlapping-holdings"
             className="scroll-mt-24 section-spacing pdf-section"
@@ -303,7 +276,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             />
           </section>
 
-          {/* Section 9: Key Observations */}
+          {/* Section 8: Key Observations */}
           <section
             id="key-observations"
             className="scroll-mt-24 section-spacing pdf-section"

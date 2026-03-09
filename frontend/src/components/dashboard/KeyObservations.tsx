@@ -89,7 +89,7 @@ function KeyObservationsInner({ summary }: KeyObservationsProps) {
       })
     }
 
-    // Cost & Tax Highlights
+    // Cost Highlights
     const costItems: string[] = []
     const costPct = summary.cost?.portfolio_cost_pct ?? 0
     const annualCost = summary.cost?.annual_cost ?? 0

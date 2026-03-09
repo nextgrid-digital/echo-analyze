@@ -16,6 +16,7 @@ from app.Code.main import (
     map_casparser_to_analysis,
 )
 from app.Code.overlap import compute_overlap_matrix
+from app.Code.cas_parser import parse_with_casparser
 from app.Code.utils import calculate_xirr, fetch_nav_history
 
 
@@ -598,6 +599,16 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
 
 
 class TestErrorSanitization(unittest.TestCase):
+    def test_path_parse_skips_tempfile_creation(self):
+        with patch("app.Code.cas_parser.read_cas_pdf", return_value={"folios": []}) as read_pdf, patch(
+            "tempfile.NamedTemporaryFile"
+        ) as named_tmp:
+            response = parse_with_casparser("C:/tmp/sample.pdf", password="")
+
+        self.assertTrue(response.get("success"))
+        read_pdf.assert_called_once_with("C:/tmp/sample.pdf", password="")
+        named_tmp.assert_not_called()
+
     def test_analyze_returns_sanitized_internal_error(self):
         client = TestClient(app)
         files = {"file": ("sample.json", b'{"folios": []}', "application/json")}
