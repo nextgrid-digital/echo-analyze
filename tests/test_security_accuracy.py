@@ -599,6 +599,11 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
 
 
 class TestErrorSanitization(unittest.TestCase):
+    def setUp(self):
+        self.supabase_auth_patch = patch("app.Code.main.is_supabase_auth_enabled", return_value=False)
+        self.supabase_auth_patch.start()
+        self.addCleanup(self.supabase_auth_patch.stop)
+
     def test_path_parse_skips_tempfile_creation(self):
         with patch("app.Code.cas_parser.read_cas_pdf", return_value={"folios": []}) as read_pdf, patch(
             "tempfile.NamedTemporaryFile"

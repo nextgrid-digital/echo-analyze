@@ -1,0 +1,5 @@
+-- Replace the UUID below with the auth.users.id for the account you want to promote.
+-- Example:
+-- update public.profiles
+-- set role = 'admin'
+-- where id = '11111111-1111-1111-1111-111111111111';

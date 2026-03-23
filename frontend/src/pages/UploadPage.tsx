@@ -1,14 +1,16 @@
 import { useState, useEffect, useRef } from "react"
-import { useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { analyzePortfolio } from "@/api/analyze"
+import { useAuth } from "@/lib/auth"
 import type { AnalysisResponse } from "@/types/api"
 import { Upload, ArrowRight } from "lucide-react"
 
 export function UploadPage() {
   const navigate = useNavigate()
+  const { isConfigured, loading: authLoading, session, user, isAdmin, signOut } = useAuth()
   const [password, setPassword] = useState("")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
@@ -20,6 +22,10 @@ export function UploadPage() {
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const canUpload = Boolean(session)
+  const authDisabledMessage = !isConfigured
+    ? "Secure sign-in is temporarily unavailable."
+    : "Sign in or create an account to upload CAS reports."
 
   useEffect(() => {
     return () => {
@@ -30,18 +36,27 @@ export function UploadPage() {
   }, [])
 
   const handleDragOver = (e: React.DragEvent) => {
+    if (!canUpload) {
+      return
+    }
     e.preventDefault()
     e.stopPropagation()
     setIsDragging(true)
   }
 
   const handleDragLeave = (e: React.DragEvent) => {
+    if (!canUpload) {
+      return
+    }
     e.preventDefault()
     e.stopPropagation()
     setIsDragging(false)
   }
 
   const handleDrop = (e: React.DragEvent) => {
+    if (!canUpload) {
+      return
+    }
     e.preventDefault()
     e.stopPropagation()
     setIsDragging(false)
@@ -59,6 +74,9 @@ export function UploadPage() {
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canUpload) {
+      return
+    }
     const file = e.target.files?.[0]
     if (file) {
       setSelectedFile(file)
@@ -67,6 +85,10 @@ export function UploadPage() {
   }
 
   const handleAnalyze = async () => {
+    if (!session?.access_token) {
+      setError(authDisabledMessage)
+      return
+    }
     if (!selectedFile) {
       setError("Please select a CAS PDF or JSON file.")
       return
@@ -88,7 +110,7 @@ export function UploadPage() {
     }, 100)
 
     try {
-      const result = await analyzePortfolio(selectedFile, password)
+      const result = await analyzePortfolio(selectedFile, password, session.access_token)
 
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current)
@@ -120,15 +142,54 @@ export function UploadPage() {
         clearInterval(progressIntervalRef.current)
         progressIntervalRef.current = null
       }
-      setError(err instanceof Error ? err.message : "Connection error. Is the backend running?")
+      setError(err instanceof Error ? err.message : "Unable to connect right now. Please try again.")
       setProgress(0)
       setLoading(false)
+    }
+  }
+
+  const handleSignOut = async () => {
+    try {
+      await signOut()
+      setSelectedFile(null)
+      setPassword("")
+      setAnalysisComplete(false)
+      setAnalysisResult(null)
+      setError(null)
+      navigate("/", { replace: true })
+    } catch (signOutError) {
+      setError(signOutError instanceof Error ? signOutError.message : "Unable to sign out.")
     }
   }
 
   return (
     <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4 sm:px-6 py-8 sm:py-12">
       <div className="w-full max-w-2xl">
+        <div className="mb-8 flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="border border-border/60 bg-card/70 px-4 py-3 text-center sm:text-left">
+            <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground">ECHO Access</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {session
+                ? `Signed in as ${user?.email ?? "authenticated user"}`
+                : authLoading
+                  ? "Checking your session."
+                  : authDisabledMessage}
+            </p>
+          </div>
+          {session && (
+            <div className="flex flex-wrap gap-3">
+              {isAdmin && (
+                <Button asChild variant="outline" type="button">
+                  <Link to="/admin">Admin dashboard</Link>
+                </Button>
+              )}
+              <Button variant="outline" type="button" onClick={handleSignOut}>
+                Sign out
+              </Button>
+            </div>
+          )}
+        </div>
+
         {/* Header/Branding Section */}
         <header className="text-center mb-12 sm:mb-16">
           <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-foreground mb-4 tracking-tight">
@@ -137,25 +198,37 @@ export function UploadPage() {
           <p className="text-lg sm:text-xl text-muted-foreground font-medium">
             Mutual Fund Portfolio Analyzer
           </p>
+          <p className="mt-4 text-sm text-muted-foreground">
+            Secure upload access with session-only analysis. CAS files and generated reports are not stored.
+          </p>
         </header>
 
         {/* Upload Area */}
         <div
-          className={`relative border-2 border-dashed rounded-none p-12 sm:p-16 mb-8 bg-card transition-all duration-200 cursor-pointer ${
-            isDragging
+          className={`relative border-2 border-dashed rounded-none p-12 sm:p-16 mb-8 bg-card transition-all duration-200 ${
+            canUpload ? "cursor-pointer" : "opacity-90"
+          } ${
+            canUpload && isDragging
               ? "border-primary bg-primary/5 scale-[1.01]"
-              : "border-border hover:border-primary/50"
+              : canUpload
+                ? "border-border hover:border-primary/50"
+                : "border-border"
           }`}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => {
+            if (canUpload) {
+              fileInputRef.current?.click()
+            }
+          }}
         >
           <input
             ref={fileInputRef}
             type="file"
             accept=".pdf,.json"
             onChange={handleFileSelect}
+            disabled={!canUpload}
             className="hidden"
           />
 
@@ -164,7 +237,7 @@ export function UploadPage() {
               <Upload className="w-16 h-16 text-muted-foreground" />
             </div>
             <p className="text-lg sm:text-xl font-medium text-foreground mb-2">
-              Upload CAS PDF or JSON to view insights
+              Upload a CAS PDF or JSON file to generate your report
             </p>
             <p className="text-sm text-muted-foreground mb-4">
               or drag and drop
@@ -177,11 +250,14 @@ export function UploadPage() {
             <p className="text-xs text-muted-foreground mt-2">
               (Max. File size: 25 MB)
             </p>
+            {!canUpload && (
+              <p className="mt-6 text-sm text-muted-foreground">{authDisabledMessage}</p>
+            )}
           </div>
         </div>
 
         {/* Password Input */}
-        {selectedFile && selectedFile.name.toLowerCase().endsWith(".pdf") && (
+        {canUpload && selectedFile && selectedFile.name.toLowerCase().endsWith(".pdf") && (
           <div className="mb-6">
             <Input
               type="password"
@@ -214,7 +290,16 @@ export function UploadPage() {
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          {analysisComplete && analysisResult ? (
+          {!canUpload ? (
+            <>
+              <Button asChild type="button" disabled={!isConfigured}>
+                <Link to="/auth">Sign in</Link>
+              </Button>
+              <Button asChild type="button" variant="outline" disabled={!isConfigured}>
+                <Link to="/auth?mode=sign_up">Create account</Link>
+              </Button>
+            </>
+          ) : analysisComplete && analysisResult ? (
             <Button
               onClick={() => navigate("/dashboard", { state: { result: analysisResult } })}
               className="bg-primary text-primary-foreground hover:bg-primary/90 min-h-[48px] px-8 rounded-none flex items-center gap-2 transition-all duration-200 hover:shadow-md active:scale-[0.98]"
@@ -225,10 +310,10 @@ export function UploadPage() {
           ) : (
             <Button
               onClick={handleAnalyze}
-              disabled={loading || !selectedFile}
+              disabled={loading || !selectedFile || authLoading}
               className="bg-primary text-primary-foreground hover:bg-primary/90 min-h-[48px] px-8 rounded-none disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:shadow-md active:scale-[0.98]"
             >
-              {loading ? "Processing..." : "Analyze Portfolio"}
+              {loading ? "Generating report..." : "Generate Report"}
             </Button>
           )}
         </div>

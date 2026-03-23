@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState, useRef } from "react"
 import html2canvas from "html2canvas"
 import { jsPDF } from "jspdf"
 import { CircleAlert, X } from "lucide-react"
-import { useNavigate, useLocation } from "react-router-dom"
+import { Link, useNavigate, useLocation } from "react-router-dom"
 import { Dashboard } from "@/components/dashboard/Dashboard"
 import { Footer } from "@/components/dashboard/Footer"
 import { WarningRail } from "@/components/dashboard/WarningRail"
 import { Button } from "@/components/ui/button"
 import { createEmptySummary, createEmptyHoldings } from "@/lib/emptyData"
+import { useAuth } from "@/lib/auth"
 import { getDashboardMethodologyWarnings } from "@/lib/portfolioAnalysis"
 import type { AnalysisResponse } from "@/types/api"
 
@@ -16,6 +17,7 @@ const MODAL_ANIMATION_MS = 220
 export function DashboardPage() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { isAdmin } = useAuth()
   const [isNoticesModalMounted, setIsNoticesModalMounted] = useState(false)
   const [isNoticesModalVisible, setIsNoticesModalVisible] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
@@ -181,6 +183,30 @@ export function DashboardPage() {
     }
   }, [isNoticesModalMounted, isNoticesModalVisible])
 
+  if (!hasData) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4">
+        <div className="max-w-xl border border-border bg-card p-8 text-center">
+          <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground">No Active Report</p>
+          <h1 className="mt-4 text-3xl font-semibold">This dashboard is session-only.</h1>
+          <p className="mt-4 text-sm text-muted-foreground">
+            Upload a CAS report to generate a dashboard. Reports are intentionally not stored after the session flow.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <Button type="button" onClick={() => navigate("/")}>
+              Go to upload
+            </Button>
+            {isAdmin && (
+              <Button asChild type="button" variant="outline">
+                <Link to="/admin">Open admin dashboard</Link>
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-background text-foreground" ref={dashboardRef} id="dashboard-capture-root">
       {hasData && (
@@ -239,6 +265,11 @@ export function DashboardPage() {
             >
               Upload another
             </Button>
+            {isAdmin && (
+              <Button asChild type="button" variant="link" className="text-primary hover:text-primary/90 min-h-[44px] sm:min-h-0 py-2">
+                <Link to="/admin">Admin dashboard</Link>
+              </Button>
+            )}
           </div>
         </div>
       )}
