@@ -10,7 +10,7 @@ import { Upload, ArrowRight } from "lucide-react"
 
 export function UploadPage() {
   const navigate = useNavigate()
-  const { isConfigured, loading: authLoading, session, user, isAdmin, signOut } = useAuth()
+  const { isConfigured, session, isAdmin, signOut } = useAuth()
   const [password, setPassword] = useState("")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
@@ -165,17 +165,7 @@ export function UploadPage() {
   return (
     <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4 sm:px-6 py-8 sm:py-12">
       <div className="w-full max-w-2xl">
-        <div className="mb-8 flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="border border-border/60 bg-card/70 px-4 py-3 text-center sm:text-left">
-            <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground">ECHO Access</p>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {session
-                ? `Signed in as ${user?.email ?? "authenticated user"}`
-                : authLoading
-                  ? "Checking your session."
-                  : authDisabledMessage}
-            </p>
-          </div>
+        <div className="mb-8 flex justify-end">
           {session && (
             <div className="flex flex-wrap gap-3">
               {isAdmin && (
