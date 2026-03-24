@@ -300,7 +300,7 @@ export function UploadPage() {
           ) : (
             <Button
               onClick={handleAnalyze}
-              disabled={loading || !selectedFile || authLoading}
+              disabled={loading || !selectedFile}
               className="bg-primary text-primary-foreground hover:bg-primary/90 min-h-[48px] px-8 rounded-none disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:shadow-md active:scale-[0.98]"
             >
               {loading ? "Generating report..." : "Generate Report"}
