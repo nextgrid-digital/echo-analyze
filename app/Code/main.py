@@ -5,7 +5,7 @@ import os
 import re
 import secrets
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import threading
 import time
 import uuid
@@ -50,6 +50,7 @@ FRONTEND_SRC_DIR = FRONTEND_DIR / "src"
 
 LOG_FILE = "data/backend_debug.log"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
 ALLOWED_EXTENSIONS = {".pdf", ".json"}
 ALLOWED_CONTENT_TYPES = {
     ".pdf": {"application/pdf", "application/octet-stream"},
@@ -96,9 +97,14 @@ API_KEY = os.environ.get("ECHO_ANALYZE_API_KEY", "").strip()
 RATE_LIMIT_ENABLED = _read_env_bool("ANALYZE_RATE_LIMIT_ENABLED", True)
 RATE_LIMIT_MAX_PER_WINDOW = _read_env_int("ANALYZE_RATE_LIMIT_PER_MIN", 10, minimum=1)
 RATE_LIMIT_WINDOW_SEC = _read_env_int("ANALYZE_RATE_LIMIT_WINDOW_SEC", 60, minimum=1)
-TRUST_PROXY_CLIENT_IP = _read_env_bool("TRUST_PROXY_CLIENT_IP", bool(os.environ.get("VERCEL")))
+TRUST_PROXY_CLIENT_IP = _read_env_bool("TRUST_PROXY_CLIENT_IP", False)
 DEBT_TAX_RATE_PCT = _read_env_float("DEBT_TAX_RATE_PCT", 30.0, minimum=0.0)
 ENABLE_TEST_ENDPOINT = _read_env_bool("ENABLE_TEST_ENDPOINT", False)
+MAX_CAS_FOLIOS = _read_env_int("MAX_CAS_FOLIOS", 250, minimum=1)
+MAX_CAS_SCHEMES = _read_env_int("MAX_CAS_SCHEMES", 500, minimum=1)
+MAX_CAS_TRANSACTIONS = _read_env_int("MAX_CAS_TRANSACTIONS", 50000, minimum=1)
+ANALYZE_PREFETCH_CONCURRENCY = _read_env_int("ANALYZE_PREFETCH_CONCURRENCY", 12, minimum=1)
+OVERLAP_MAX_SCHEMES = max(2, _read_env_int("OVERLAP_MAX_SCHEMES", 40, minimum=1))
 SECURITY_CONNECT_SOURCES = ["'self'"]
 SUPABASE_CONNECT_ORIGIN = get_supabase_origin()
 if SUPABASE_CONNECT_ORIGIN:
@@ -232,7 +238,7 @@ def ensure_frontend_static_up_to_date() -> None:
             return
         log_debug("Frontend source is newer than static build. Running `npm run build`.")
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603
                 [npm_bin, "run", "build"],
                 cwd=str(FRONTEND_DIR),
                 capture_output=True,
@@ -271,7 +277,7 @@ def _extract_bearer_token(request: Request) -> str:
 
 def _is_api_key_authorized(request: Request) -> bool:
     if not API_KEY:
-        return True
+        return False
     presented = _extract_request_api_key(request)
     return bool(presented) and secrets.compare_digest(presented, API_KEY)
 
@@ -319,6 +325,35 @@ def _consume_rate_limit(path: str, request: Request) -> Optional[int]:
     return None
 
 
+async def _read_upload_limited(file: UploadFile) -> Tuple[Optional[bytes], Optional[str]]:
+    chunks: List[bytes] = []
+    total_size = 0
+
+    while True:
+        chunk = await file.read(UPLOAD_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        total_size += len(chunk)
+        if total_size > MAX_UPLOAD_BYTES:
+            return None, "File is too large. Maximum supported size is 25 MB."
+        chunks.append(chunk)
+
+    return b"".join(chunks), None
+
+
+async def _gather_limited(limit: int, awaitables: List[Any]) -> List[Any]:
+    if not awaitables:
+        return []
+
+    semaphore = asyncio.Semaphore(max(1, limit))
+
+    async def _run(awaitable):
+        async with semaphore:
+            return await awaitable
+
+    return await asyncio.gather(*[_run(awaitable) for awaitable in awaitables], return_exceptions=True)
+
+
 log_debug("--- Starting MF-CAS Analyzer Backend (Security + Accuracy Remediated) ---")
 app.add_middleware(
     CORSMiddleware,
@@ -334,13 +369,6 @@ async def add_no_cache_for_html(request: Request, call_next):
     path = request.url.path
     if request.method == "GET" and _should_check_frontend_sync(path):
         ensure_frontend_static_up_to_date()
-
-    if path in _PROTECTED_API_PATHS and API_KEY and not _extract_bearer_token(request) and not _is_api_key_authorized(request):
-        unauthorized = JSONResponse(
-            status_code=401,
-            content={"success": False, "error": "Unauthorized request. Missing or invalid API key."},
-        )
-        return _set_security_headers(unauthorized)
 
     retry_after = _consume_rate_limit(path, request)
     if retry_after is not None:
@@ -917,6 +945,41 @@ def _validate_upload(file: UploadFile, content: bytes) -> Optional[str]:
     return None
 
 
+def _validate_cas_payload_shape(cas_data: Any) -> Optional[str]:
+    if not isinstance(cas_data, dict):
+        return "Invalid CAS payload."
+
+    folios = cas_data.get("folios")
+    if not isinstance(folios, list):
+        return "Invalid CAS payload."
+    if len(folios) > MAX_CAS_FOLIOS:
+        return "CAS file is too large to analyze safely. Reduce folio count and retry."
+
+    scheme_count = 0
+    txn_count = 0
+    for folio in folios:
+        if not isinstance(folio, dict):
+            return "Invalid CAS payload."
+        schemes = folio.get("schemes") or []
+        if not isinstance(schemes, list):
+            return "Invalid CAS payload."
+        scheme_count += len(schemes)
+        if scheme_count > MAX_CAS_SCHEMES:
+            return "CAS file is too large to analyze safely. Reduce scheme count and retry."
+
+        for scheme in schemes:
+            if not isinstance(scheme, dict):
+                return "Invalid CAS payload."
+            transactions = scheme.get("transactions") or []
+            if not isinstance(transactions, list):
+                return "Invalid CAS payload."
+            txn_count += len(transactions)
+            if txn_count > MAX_CAS_TRANSACTIONS:
+                return "CAS file is too large to analyze safely. Reduce transaction count and retry."
+
+    return None
+
+
 class Holding(BaseModel):
     fund_family: str
     folio: str
@@ -1196,23 +1259,59 @@ def _auth_error_response(status_code: int, error: str) -> JSONResponse:
 
 
 async def _require_authenticated_user(request: Request, require_admin: bool = False):
-    if not is_supabase_auth_enabled():
-        if require_admin:
+    auth_enabled = is_supabase_auth_enabled()
+    bearer_token = _extract_bearer_token(request)
+    api_key_authorized = _is_api_key_authorized(request)
+
+    if require_admin:
+        if not auth_enabled:
             return None, _auth_error_response(
                 503,
                 "Supabase auth is not configured on the backend. Set SUPABASE_URL and SUPABASE_ANON_KEY first.",
             )
+        if not bearer_token:
+            return None, _auth_error_response(401, "Missing bearer token.")
+        try:
+            user = await authenticate_access_token(bearer_token, require_admin=True)
+            return user, None
+        except SupabaseConfigError as exc:
+            return None, _auth_error_response(503, str(exc))
+        except SupabaseUnauthorizedError as exc:
+            return None, _auth_error_response(401, str(exc))
+        except SupabaseForbiddenError as exc:
+            return None, _auth_error_response(403, str(exc))
+
+    if api_key_authorized:
         return None, None
 
-    try:
-        user = await authenticate_access_token(_extract_bearer_token(request), require_admin=require_admin)
-        return user, None
-    except SupabaseConfigError as exc:
-        return None, _auth_error_response(503, str(exc))
-    except SupabaseUnauthorizedError as exc:
-        return None, _auth_error_response(401, str(exc))
-    except SupabaseForbiddenError as exc:
-        return None, _auth_error_response(403, str(exc))
+    if bearer_token:
+        if not auth_enabled:
+            if API_KEY:
+                return None, _auth_error_response(401, "Unauthorized request. Missing or invalid API key.")
+            return None, _auth_error_response(
+                503,
+                "Protected endpoints require either Supabase bearer auth or ECHO_ANALYZE_API_KEY.",
+            )
+        try:
+            user = await authenticate_access_token(bearer_token, require_admin=False)
+            return user, None
+        except SupabaseConfigError as exc:
+            return None, _auth_error_response(503, str(exc))
+        except SupabaseUnauthorizedError as exc:
+            return None, _auth_error_response(401, str(exc))
+        except SupabaseForbiddenError as exc:
+            return None, _auth_error_response(403, str(exc))
+
+    if auth_enabled:
+        return None, _auth_error_response(401, "Missing bearer token.")
+
+    if API_KEY:
+        return None, _auth_error_response(401, "Unauthorized request. Missing or invalid API key.")
+
+    return None, _auth_error_response(
+        503,
+        "Protected endpoints require either Supabase bearer auth or ECHO_ANALYZE_API_KEY.",
+    )
 
 
 async def _safe_finalize_analysis_run(
@@ -1340,9 +1439,18 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         benchmark_codes = sorted(benchmark_codes_needed)
 
         live_nav_results, benchmark_history_results, scheme_history_results = await asyncio.gather(
-            asyncio.gather(*[fetch_live_nav(code) for code in amfi_codes], return_exceptions=True),
-            asyncio.gather(*[fetch_nav_history(code) for code in benchmark_codes], return_exceptions=True),
-            asyncio.gather(*[fetch_nav_history(code) for code in amfi_codes], return_exceptions=True),
+            _gather_limited(
+                ANALYZE_PREFETCH_CONCURRENCY,
+                [fetch_live_nav(code) for code in amfi_codes],
+            ),
+            _gather_limited(
+                ANALYZE_PREFETCH_CONCURRENCY,
+                [fetch_nav_history(code) for code in benchmark_codes],
+            ),
+            _gather_limited(
+                ANALYZE_PREFETCH_CONCURRENCY,
+                [fetch_nav_history(code) for code in amfi_codes],
+            ),
         )
 
         for code, result in zip(amfi_codes, live_nav_results):
@@ -2059,13 +2167,23 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         seen = set()
         scheme_order = []
         scheme_names_map = {}
-        for h in equity_holdings:
+        for h in sorted(equity_holdings, key=lambda item: item.market_value, reverse=True):
             key = (h.amfi or "").strip() or h.scheme_name
             if not key or key in seen:
                 continue
             seen.add(key)
             scheme_order.append(key)
             scheme_names_map[key] = h.scheme_name
+
+        if len(scheme_order) > OVERLAP_MAX_SCHEMES:
+            add_warning(
+                "OVERLAP_SCHEME_LIMITED",
+                "overlap",
+                "info",
+                f"Overlap analysis was limited to the top {OVERLAP_MAX_SCHEMES} equity schemes by value to keep external holdings fetches bounded.",
+            )
+            scheme_order = scheme_order[:OVERLAP_MAX_SCHEMES]
+            scheme_names_map = {code: scheme_names_map[code] for code in scheme_order}
 
         try:
             holdings_by_scheme = await get_holdings_for_schemes(scheme_order, scheme_names=scheme_names_map)
@@ -2181,6 +2299,8 @@ async def bootstrap_auth_session(payload: AuthBootstrapRequest, request: Request
     current_user, auth_error = await _require_authenticated_user(request)
     if auth_error is not None:
         return auth_error
+    if current_user is None:
+        return _auth_error_response(401, "Bearer auth is required for auth bootstrap.")
 
     role = current_user.role
     if payload.event == "signed_in":
@@ -2204,7 +2324,11 @@ async def analyze(request: Request, file: UploadFile = File(...), password: str 
     started_at_perf = time.perf_counter()
     run_id: Optional[str] = None
     try:
-        content = await file.read()
+        content, read_error = await _read_upload_limited(file)
+        if read_error:
+            return AnalysisResponse(success=False, error=read_error)
+        if content is None:
+            return AnalysisResponse(success=False, error="Uploaded file could not be read.")
         filename = (file.filename or "").lower()
         file_suffix = Path(filename).suffix.lower()
         file_kind = file_suffix[1:] if file_suffix.startswith(".") else "unknown"
@@ -2231,7 +2355,7 @@ async def analyze(request: Request, file: UploadFile = File(...), password: str 
             return AnalysisResponse(success=False, error=validation_error)
 
         if filename.endswith(".pdf"):
-            parse_result = parse_with_casparser(io.BytesIO(content), password=password)
+            parse_result = await asyncio.to_thread(parse_with_casparser, io.BytesIO(content), password)
             if not parse_result["success"]:
                 await _safe_finalize_analysis_run(
                     run_id,
@@ -2240,6 +2364,15 @@ async def analyze(request: Request, file: UploadFile = File(...), password: str 
                     error_code="parse_failed",
                 )
                 return AnalysisResponse(success=False, error=parse_result["error"])
+            payload_error = _validate_cas_payload_shape(parse_result["data"])
+            if payload_error:
+                await _safe_finalize_analysis_run(
+                    run_id,
+                    status="failed",
+                    duration_ms=_elapsed_ms(started_at_perf),
+                    error_code="payload_too_large",
+                )
+                return AnalysisResponse(success=False, error=payload_error)
             response = await map_casparser_to_analysis(parse_result["data"])
             await _safe_finalize_analysis_run(
                 run_id,
@@ -2260,6 +2393,15 @@ async def analyze(request: Request, file: UploadFile = File(...), password: str 
                 )
                 return AnalysisResponse(success=False, error="Invalid JSON file.")
             if isinstance(json_data, dict) and "folios" in json_data:
+                payload_error = _validate_cas_payload_shape(json_data)
+                if payload_error:
+                    await _safe_finalize_analysis_run(
+                        run_id,
+                        status="failed",
+                        duration_ms=_elapsed_ms(started_at_perf),
+                        error_code="payload_too_large",
+                    )
+                    return AnalysisResponse(success=False, error=payload_error)
                 response = await map_casparser_to_analysis(json_data)
                 await _safe_finalize_analysis_run(
                     run_id,
@@ -2309,19 +2451,26 @@ async def parse_pdf(request: Request, file: UploadFile = File(...), password: st
 
     request_id = uuid.uuid4().hex[:10]
     try:
-        content = await file.read()
+        content, read_error = await _read_upload_limited(file)
+        if read_error:
+            return JSONResponse(status_code=400, content={"error": read_error})
+        if content is None:
+            return JSONResponse(status_code=400, content={"error": "Uploaded file could not be read."})
         validation_error = _validate_upload(file, content)
         if validation_error:
             return JSONResponse(status_code=400, content={"error": validation_error})
         if not (file.filename or "").lower().endswith(".pdf"):
             return JSONResponse(status_code=400, content={"error": "Only PDF files are supported for this endpoint."})
 
-        result = parse_with_casparser(io.BytesIO(content), password=password)
+        result = await asyncio.to_thread(parse_with_casparser, io.BytesIO(content), password)
         if not result["success"]:
             return JSONResponse(status_code=400, content={"error": result["error"]})
+        payload_error = _validate_cas_payload_shape(result["data"])
+        if payload_error:
+            return JSONResponse(status_code=400, content={"error": payload_error})
 
         if output_format.lower() == "excel":
-            excel_buffer = convert_to_excel(result["data"])
+            excel_buffer = await asyncio.to_thread(convert_to_excel, result["data"])
             return StreamingResponse(
                 excel_buffer,
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

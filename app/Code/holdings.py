@@ -25,6 +25,10 @@ _groww_index_entries: List[Dict[str, Any]] = []
 _groww_index_loaded = False
 AMFI_CACHE_FILE = "data/amfi_cache.json"
 DEBUG_LOG_ENABLED = os.environ.get("ENABLE_DEBUG_LOGS", "").strip().lower() in {"1", "true", "yes"}
+HOLDINGS_FETCH_CONCURRENCY = max(
+    1,
+    int(os.environ.get("HOLDINGS_FETCH_CONCURRENCY", "8").strip() or "8"),
+)
 
 def _load_amfi_cache():
     global _amfi_cache, _failed_urls, _groww_scheme_cache, _groww_holdings_cache
@@ -104,6 +108,19 @@ def _parse_weight(val) -> float:
         return float(s)
     except ValueError:
         return 0.0
+
+
+async def _gather_limited(limit: int, awaitables: List[Any]) -> List[Any]:
+    if not awaitables:
+        return []
+
+    semaphore = asyncio.Semaphore(max(1, limit))
+
+    async def _run(awaitable):
+        async with semaphore:
+            return await awaitable
+
+    return await asyncio.gather(*[_run(awaitable) for awaitable in awaitables], return_exceptions=True)
 
 
 _load_amfi_cache()
@@ -556,7 +573,7 @@ async def get_holdings_for_schemes(
                 name = (scheme_names or {}).get(code_str) or code_str
                 tasks.append(_fetch_holdings_from_groww(code_str, name, client))
 
-            fetched = await asyncio.gather(*tasks, return_exceptions=True)
+            fetched = await _gather_limited(HOLDINGS_FETCH_CONCURRENCY, tasks)
             for code, rows in zip(pending, fetched):
                 code_str = str(code).strip()
                 if isinstance(rows, Exception):

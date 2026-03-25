@@ -36,7 +36,7 @@ def _safe_parse_error(message: str) -> str:
         return "PDF parsing timed out. Please try again with a smaller file."
     return "Unable to parse the provided PDF file."
 
-def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: str = "") -> Dict[str, Any]:
+def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: str = "") -> Dict[str, Any]:  # nosec B107
     """
     Parses a CAS PDF file using casparser library.
     Handles password-protected PDFs gracefully.
@@ -83,6 +83,16 @@ def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: s
             except OSError:
                 pass
 
+
+def _sanitize_excel_cell(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+
+    stripped = value.lstrip()
+    if stripped and stripped[0] in {"=", "+", "-", "@"}:
+        return f"'{value}"
+    return value
+
 def convert_to_excel(json_data: Dict[str, Any]) -> io.BytesIO:
     """
     Converts parsed JSON data to an Excel file buffer (openpyxl only, no pandas).
@@ -108,17 +118,17 @@ def convert_to_excel(json_data: Dict[str, Any]) -> io.BytesIO:
 
             for txn in scheme.get("transactions", []):
                 row = [
-                    amc,
-                    folio_num,
-                    scheme_name,
-                    advisor,
-                    txn.get("date"),
-                    txn.get("description"),
+                    _sanitize_excel_cell(amc),
+                    _sanitize_excel_cell(folio_num),
+                    _sanitize_excel_cell(scheme_name),
+                    _sanitize_excel_cell(advisor),
+                    _sanitize_excel_cell(txn.get("date")),
+                    _sanitize_excel_cell(txn.get("description")),
                     txn.get("amount"),
                     txn.get("units"),
                     txn.get("nav"),
                     txn.get("balance"),
-                    txn.get("type"),
+                    _sanitize_excel_cell(txn.get("type")),
                 ]
                 ws.append(row)
 

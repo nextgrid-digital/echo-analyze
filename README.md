@@ -5,6 +5,7 @@ A FastAPI-based application for analyzing mutual fund portfolios from CAS (Conso
 ## Features
 
 - Parse CAS PDF files with password support
+- Protect upload/parse routes with Supabase bearer auth or `x-api-key`
 - Analyze portfolio holdings with XIRR calculations
 - Calculate benchmark comparisons (UTI Nifty 50)
 - Portfolio overlap analysis
@@ -46,7 +47,7 @@ This will:
 
 3. **Install dependencies:**
    ```cmd
-   pip install -r requirements.txt
+   python -m pip install --no-deps -r requirements.txt
    ```
 
 4. **Create data directory:**
@@ -62,11 +63,13 @@ This will:
 6. **Open your browser:**
    Navigate to http://localhost:8000
 
+Frontend build tooling requires Node `20.19+` or `22.12+`.
+
 ## API Endpoints
 
 - `GET /` - Portfolio Overview UI (home page)
-- `POST /api/analyze` - Analyze CAS file (PDF or JSON)
-- `POST /api/parse_pdf` - Parse CAS PDF to JSON/Excel
+- `POST /api/analyze` - Analyze CAS file (PDF or JSON), requires bearer auth or `x-api-key`
+- `POST /api/parse_pdf` - Parse CAS PDF to JSON/Excel, requires bearer auth or `x-api-key`
 - `GET /api/health` - Health check endpoint
 - `GET /test` - Test API endpoint
 
@@ -120,6 +123,8 @@ You can disable this with:
 ```cmd
 set AUTO_SYNC_FRONTEND=0
 ```
+
+Proxy IP trust is opt-in. Only set `TRUST_PROXY_CLIENT_IP=1` behind a trusted proxy that overwrites `X-Forwarded-For`.
 
 Debug logs are written to `data/backend_debug.log`.
 
