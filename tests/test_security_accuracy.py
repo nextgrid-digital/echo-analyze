@@ -4,10 +4,12 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pdfminer.cmapdb as pdfminer_cmapdb
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
+import app.Code.utils as utils_module
 from app.Code.main import (
     _REQUEST_RATE_BUCKETS,
     _benchmark_nav_for_date,
@@ -598,6 +600,62 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
 
     async def test_invalid_amfi_code_returns_empty_history(self):
         self.assertEqual(await fetch_nav_history("../120716"), {})
+
+    async def test_fetch_nav_history_retries_transient_upstream_failures(self):
+        code = "120716"
+        original_history_cache = dict(utils_module._history_cache)
+        original_history_meta = dict(utils_module._history_cache_meta)
+        original_fetch_locks = dict(utils_module._fetch_locks)
+        utils_module._history_cache.clear()
+        utils_module._history_cache_meta.clear()
+        utils_module._fetch_locks.clear()
+
+        def restore_utils_state():
+            utils_module._history_cache.clear()
+            utils_module._history_cache.update(original_history_cache)
+            utils_module._history_cache_meta.clear()
+            utils_module._history_cache_meta.update(original_history_meta)
+            utils_module._fetch_locks.clear()
+            utils_module._fetch_locks.update(original_fetch_locks)
+
+        self.addCleanup(restore_utils_state)
+
+        class FakeResponse:
+            def __init__(self, status_code, payload):
+                self.status_code = status_code
+                self._payload = payload
+
+            def json(self):
+                return self._payload
+
+        class FakeClient:
+            def __init__(self):
+                self.calls = 0
+
+            async def get(self, _url, timeout=None):
+                self.calls += 1
+                if self.calls == 1:
+                    raise httpx.ReadTimeout("timed out")
+                if self.calls == 2:
+                    return FakeResponse(502, {})
+                return FakeResponse(
+                    200,
+                    {
+                        "data": [
+                            {"date": "02-01-2024", "nav": "101.50"},
+                            {"date": "01-01-2024", "nav": "100.00"},
+                        ]
+                    },
+                )
+
+        fake_client = FakeClient()
+        with patch("app.Code.utils._get_client", new=AsyncMock(return_value=fake_client)), patch(
+            "app.Code.utils.asyncio.sleep", new=AsyncMock()
+        ):
+            history = await fetch_nav_history(code)
+
+        self.assertEqual(fake_client.calls, 3)
+        self.assertEqual(history, {"02-01-2024": 101.5, "01-01-2024": 100.0})
 
     def test_excel_export_escapes_formula_like_cells(self):
         excel_buffer = convert_to_excel(

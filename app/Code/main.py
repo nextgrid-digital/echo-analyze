@@ -103,7 +103,11 @@ ENABLE_TEST_ENDPOINT = _read_env_bool("ENABLE_TEST_ENDPOINT", False)
 MAX_CAS_FOLIOS = _read_env_int("MAX_CAS_FOLIOS", 250, minimum=1)
 MAX_CAS_SCHEMES = _read_env_int("MAX_CAS_SCHEMES", 500, minimum=1)
 MAX_CAS_TRANSACTIONS = _read_env_int("MAX_CAS_TRANSACTIONS", 50000, minimum=1)
-ANALYZE_PREFETCH_CONCURRENCY = _read_env_int("ANALYZE_PREFETCH_CONCURRENCY", 12, minimum=1)
+ANALYZE_PREFETCH_CONCURRENCY = _read_env_int(
+    "ANALYZE_PREFETCH_CONCURRENCY",
+    6 if os.environ.get("VERCEL") else 12,
+    minimum=1,
+)
 OVERLAP_MAX_SCHEMES = max(2, _read_env_int("OVERLAP_MAX_SCHEMES", 40, minimum=1))
 SECURITY_CONNECT_SOURCES = ["'self'"]
 SUPABASE_CONNECT_ORIGIN = get_supabase_origin()
@@ -1438,20 +1442,22 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         amfi_codes = sorted(all_amfis)
         benchmark_codes = sorted(benchmark_codes_needed)
 
-        live_nav_results, benchmark_history_results, scheme_history_results = await asyncio.gather(
-            _gather_limited(
-                ANALYZE_PREFETCH_CONCURRENCY,
-                [fetch_live_nav(code) for code in amfi_codes],
-            ),
-            _gather_limited(
-                ANALYZE_PREFETCH_CONCURRENCY,
-                [fetch_nav_history(code) for code in benchmark_codes],
-            ),
-            _gather_limited(
-                ANALYZE_PREFETCH_CONCURRENCY,
-                [fetch_nav_history(code) for code in amfi_codes],
-            ),
+        # Use one shared limiter across all prefetch work. Running three separately
+        # limited groups in parallel can otherwise triple the actual outbound burst.
+        prefetch_tasks = (
+            [fetch_live_nav(code) for code in amfi_codes]
+            + [fetch_nav_history(code) for code in benchmark_codes]
+            + [fetch_nav_history(code) for code in amfi_codes]
         )
+        prefetch_results = await _gather_limited(
+            ANALYZE_PREFETCH_CONCURRENCY,
+            prefetch_tasks,
+        )
+        live_nav_end = len(amfi_codes)
+        benchmark_end = live_nav_end + len(benchmark_codes)
+        live_nav_results = prefetch_results[:live_nav_end]
+        benchmark_history_results = prefetch_results[live_nav_end:benchmark_end]
+        scheme_history_results = prefetch_results[benchmark_end:]
 
         for code, result in zip(amfi_codes, live_nav_results):
             if isinstance(result, Exception):
