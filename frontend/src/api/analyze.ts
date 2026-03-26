@@ -2,8 +2,7 @@ import type { AnalysisResponse } from "@/types/api"
 
 export async function analyzePortfolio(
   file: File,
-  password: string,
-  accessToken: string
+  password: string
 ): Promise<AnalysisResponse> {
   const formData = new FormData()
   formData.append("file", file)
@@ -11,9 +10,6 @@ export async function analyzePortfolio(
 
   const response = await fetch("/api/analyze", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
     body: formData,
   })
 

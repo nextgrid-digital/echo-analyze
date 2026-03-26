@@ -26,20 +26,6 @@
       "continue": true
     },
     {
-      "src": "^/auth$",
-      "headers": {
-        "Cache-Control": "no-store, max-age=0"
-      },
-      "continue": true
-    },
-    {
-      "src": "^/admin$",
-      "headers": {
-        "Cache-Control": "no-store, max-age=0"
-      },
-      "continue": true
-    },
-    {
       "src": "^/dashboard/(.*)$",
       "headers": {
         "Cache-Control": "no-store, max-age=0"
@@ -60,14 +46,6 @@
     },
     {
       "src": "/dashboard",
-      "dest": "/static/index.html"
-    },
-    {
-      "src": "/auth",
-      "dest": "/static/index.html"
-    },
-    {
-      "src": "/admin",
       "dest": "/static/index.html"
     },
     {

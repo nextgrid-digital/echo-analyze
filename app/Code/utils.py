@@ -2,7 +2,7 @@ import re
 from datetime import datetime, date
 import httpx
 import math
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 import json
 import os
@@ -22,9 +22,6 @@ _navall_lock = asyncio.Lock()
 NAV_ALL_URL = "https://portal.amfiindia.com/spages/NAVAll.txt"
 NAV_ALL_MIN_COLUMNS = 6
 NAV_ALL_DATE_PATTERN = re.compile(r"^\d{2}-[A-Za-z]{3}-\d{4}$")
-MFAPI_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
-MFAPI_FALLBACK_TIMEOUTS_SEC: Tuple[float, ...] = (2.0, 4.0)
-MFAPI_HISTORY_TIMEOUTS_SEC: Tuple[float, ...] = (4.0, 6.0, 8.0)
 
 
 def _history_cache_ttl_days() -> int:
@@ -164,24 +161,6 @@ async def _get_navall_map() -> Dict[str, float]:
     return _navall_map
 
 
-async def _fetch_mfapi_json(url: str, *, timeouts: Tuple[float, ...]) -> Optional[dict]:
-    client = await _get_client()
-    for attempt, timeout in enumerate(timeouts):
-        try:
-            response = await client.get(url, timeout=timeout)
-            if response.status_code == 200:
-                return response.json()
-            if response.status_code not in MFAPI_RETRYABLE_STATUS_CODES:
-                return None
-        except (httpx.RequestError, ValueError):
-            pass
-
-        if attempt < len(timeouts) - 1:
-            await asyncio.sleep(0.25 * (attempt + 1))
-
-    return None
-
-
 async def save_cache_async():
     """Save cache to disk without blocking the event loop."""
     try:
@@ -247,11 +226,18 @@ async def fetch_live_nav(amfi_code: str) -> float:
             return nav_from_amfi
             
         url = f"https://api.mfapi.in/mf/{code}"
-        data = await _fetch_mfapi_json(url, timeouts=MFAPI_FALLBACK_TIMEOUTS_SEC)
-        if data and data.get("data") and len(data["data"]) > 0:
-            nav = float(data["data"][0].get("nav") or 0.0)
-            _nav_cache[code] = nav
-            return nav
+        try:
+            client = await _get_client()
+            response = await client.get(url, timeout=2.0)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("data") and len(data["data"]) > 0:
+                    nav = float(data["data"][0].get("nav") or 0.0)
+                    _nav_cache[code] = nav
+                    return nav
+        except Exception as e:
+            # Silently fail for performance, but we should eventually log
+            pass
             
     return 0.0
 
@@ -278,19 +264,29 @@ async def fetch_nav_history(amfi_code: str) -> dict:
         stale_history = _history_cache.get(code, {})
         url = f"https://api.mfapi.in/mf/{code}"
         history_map = {}
-        data = await _fetch_mfapi_json(url, timeouts=MFAPI_HISTORY_TIMEOUTS_SEC)
-        if data and data.get("data"):
-            for entry in data["data"]:
-                d = entry.get("date")
-                n = entry.get("nav")
-                if d and n:
-                    try:
-                        history_map[d] = float(n)
-                    except ValueError:
-                        pass
-            if history_map:
-                _history_cache[code] = history_map
-                _history_cache_meta[code] = date.today().isoformat()
+         
+        try:
+            client = await _get_client()
+            # Increased timeout to 6s for better reliability on Vercel
+            response = await client.get(url, timeout=6.0)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("data"):
+                    for entry in data["data"]:
+                        d = entry.get("date")
+                        n = entry.get("nav")
+                        if d and n:
+                            try:
+                                history_map[d] = float(n)
+                            except ValueError:
+                                pass
+                if history_map:
+                    _history_cache[code] = history_map
+                    _history_cache_meta[code] = date.today().isoformat()
+        except Exception as e:
+            if stale_history:
+                return stale_history
+            pass
 
         if history_map:
             return history_map

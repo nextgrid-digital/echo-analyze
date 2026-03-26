@@ -23,7 +23,7 @@ call venv\Scripts\activate.bat
 REM Install dependencies
 echo.
 echo Installing dependencies...
-python -m pip install --no-deps -r requirements.txt
+pip install -r requirements.txt
 if errorlevel 1 (
     echo Error: Failed to install dependencies
     pause

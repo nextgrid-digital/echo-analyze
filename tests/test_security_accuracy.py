@@ -4,12 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-import httpx
-import pdfminer.cmapdb as pdfminer_cmapdb
 from fastapi.testclient import TestClient
-from openpyxl import load_workbook
 
-import app.Code.utils as utils_module
 from app.Code.main import (
     _REQUEST_RATE_BUCKETS,
     _benchmark_nav_for_date,
@@ -20,7 +16,7 @@ from app.Code.main import (
     map_casparser_to_analysis,
 )
 from app.Code.overlap import compute_overlap_matrix
-from app.Code.cas_parser import convert_to_excel, parse_with_casparser
+from app.Code.cas_parser import parse_with_casparser
 from app.Code.utils import calculate_xirr, fetch_nav_history
 
 
@@ -601,107 +597,8 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_amfi_code_returns_empty_history(self):
         self.assertEqual(await fetch_nav_history("../120716"), {})
 
-    async def test_fetch_nav_history_retries_transient_upstream_failures(self):
-        code = "120716"
-        original_history_cache = dict(utils_module._history_cache)
-        original_history_meta = dict(utils_module._history_cache_meta)
-        original_fetch_locks = dict(utils_module._fetch_locks)
-        utils_module._history_cache.clear()
-        utils_module._history_cache_meta.clear()
-        utils_module._fetch_locks.clear()
-
-        def restore_utils_state():
-            utils_module._history_cache.clear()
-            utils_module._history_cache.update(original_history_cache)
-            utils_module._history_cache_meta.clear()
-            utils_module._history_cache_meta.update(original_history_meta)
-            utils_module._fetch_locks.clear()
-            utils_module._fetch_locks.update(original_fetch_locks)
-
-        self.addCleanup(restore_utils_state)
-
-        class FakeResponse:
-            def __init__(self, status_code, payload):
-                self.status_code = status_code
-                self._payload = payload
-
-            def json(self):
-                return self._payload
-
-        class FakeClient:
-            def __init__(self):
-                self.calls = 0
-
-            async def get(self, _url, timeout=None):
-                self.calls += 1
-                if self.calls == 1:
-                    raise httpx.ReadTimeout("timed out")
-                if self.calls == 2:
-                    return FakeResponse(502, {})
-                return FakeResponse(
-                    200,
-                    {
-                        "data": [
-                            {"date": "02-01-2024", "nav": "101.50"},
-                            {"date": "01-01-2024", "nav": "100.00"},
-                        ]
-                    },
-                )
-
-        fake_client = FakeClient()
-        with patch("app.Code.utils._get_client", new=AsyncMock(return_value=fake_client)), patch(
-            "app.Code.utils.asyncio.sleep", new=AsyncMock()
-        ):
-            history = await fetch_nav_history(code)
-
-        self.assertEqual(fake_client.calls, 3)
-        self.assertEqual(history, {"02-01-2024": 101.5, "01-01-2024": 100.0})
-
-    def test_excel_export_escapes_formula_like_cells(self):
-        excel_buffer = convert_to_excel(
-            {
-                "folios": [
-                    {
-                        "amc": "Test AMC",
-                        "folio": "1/1",
-                        "schemes": [
-                            {
-                                "scheme": "Test Scheme",
-                                "transactions": [
-                                    {
-                                        "date": "2024-01-01",
-                                        "description": "=2+2",
-                                        "amount": 100.0,
-                                        "units": 1.0,
-                                        "nav": 100.0,
-                                        "balance": 1.0,
-                                        "type": "@cmd",
-                                    }
-                                ],
-                            }
-                        ],
-                    }
-                ]
-            }
-        )
-
-        worksheet = load_workbook(excel_buffer, data_only=False).active
-        self.assertEqual(worksheet["F2"].value, "'=2+2")
-        self.assertEqual(worksheet["F2"].data_type, "s")
-        self.assertEqual(worksheet["K2"].value, "'@cmd")
-        self.assertEqual(worksheet["K2"].data_type, "s")
-
 
 class TestErrorSanitization(unittest.TestCase):
-    def setUp(self):
-        self.supabase_auth_patch = patch("app.Code.main.is_supabase_auth_enabled", return_value=False)
-        self.supabase_auth_patch.start()
-        self.addCleanup(self.supabase_auth_patch.stop)
-        self.api_key_patch = patch("app.Code.main.API_KEY", "test-api-key")
-        self.api_key_patch.start()
-        self.addCleanup(self.api_key_patch.stop)
-        self.auth_headers = {"x-api-key": "test-api-key"}
-
     def test_path_parse_skips_tempfile_creation(self):
         with patch("app.Code.cas_parser.read_cas_pdf", return_value={"folios": []}) as read_pdf, patch(
             "tempfile.NamedTemporaryFile"
@@ -716,7 +613,7 @@ class TestErrorSanitization(unittest.TestCase):
         client = TestClient(app)
         files = {"file": ("sample.json", b'{"folios": []}', "application/json")}
         with patch("app.Code.main.map_casparser_to_analysis", side_effect=RuntimeError("boom secret details")):
-            response = client.post("/api/analyze", files=files, data={"password": ""}, headers=self.auth_headers)
+            response = client.post("/api/analyze", files=files, data={"password": ""})
         body = response.json()
         self.assertIn("Request ID", body.get("error", ""))
         self.assertNotIn("secret details", body.get("error", ""))
@@ -724,7 +621,7 @@ class TestErrorSanitization(unittest.TestCase):
     def test_upload_signature_validation_rejects_invalid_pdf_bytes(self):
         client = TestClient(app)
         files = {"file": ("statement.pdf", b"not-a-real-pdf", "application/pdf")}
-        response = client.post("/api/analyze", files=files, data={"password": ""}, headers=self.auth_headers)
+        response = client.post("/api/analyze", files=files, data={"password": ""})
         body = response.json()
         self.assertFalse(body.get("success", True))
         self.assertIn("invalid or corrupted", body.get("error", "").lower())
@@ -736,12 +633,6 @@ class TestErrorSanitization(unittest.TestCase):
             response = client.post("/api/analyze", files=files, data={"password": ""})
         self.assertEqual(response.status_code, 401)
 
-    def test_auth_bootstrap_requires_bearer_auth_and_does_not_crash_on_api_key(self):
-        client = TestClient(app)
-        response = client.post("/api/auth/bootstrap", json={"event": "signed_in"}, headers=self.auth_headers)
-        self.assertEqual(response.status_code, 401)
-        self.assertIn("bearer auth", response.json().get("error", "").lower())
-
     def test_rate_limit_returns_429_when_threshold_exceeded(self):
         client = TestClient(app)
         files = {"file": ("sample.json", b'{"folios": []}', "application/json")}
@@ -749,53 +640,7 @@ class TestErrorSanitization(unittest.TestCase):
         with patch("app.Code.main.RATE_LIMIT_ENABLED", True), patch(
             "app.Code.main.RATE_LIMIT_MAX_PER_WINDOW", 1
         ), patch("app.Code.main.RATE_LIMIT_WINDOW_SEC", 60):
-            first = client.post("/api/analyze", files=files, data={"password": ""}, headers=self.auth_headers)
-            second = client.post("/api/analyze", files=files, data={"password": ""}, headers=self.auth_headers)
+            first = client.post("/api/analyze", files=files, data={"password": ""})
+            second = client.post("/api/analyze", files=files, data={"password": ""})
         self.assertNotEqual(first.status_code, 429)
         self.assertEqual(second.status_code, 429)
-
-    def test_fake_bearer_cannot_bypass_api_key_when_supabase_auth_disabled(self):
-        client = TestClient(app)
-        files = {"file": ("sample.json", b'{"folios": []}', "application/json")}
-        response = client.post(
-            "/api/analyze",
-            files=files,
-            data={"password": ""},
-            headers={"Authorization": "Bearer fake-token"},
-        )
-        self.assertEqual(response.status_code, 401)
-        self.assertIn("api key", response.json().get("error", "").lower())
-
-    def test_protected_routes_fail_closed_when_no_auth_mechanism_is_configured(self):
-        client = TestClient(app)
-        files = {"file": ("sample.json", b'{"folios": []}', "application/json")}
-        with patch("app.Code.main.API_KEY", ""):
-            response = client.post("/api/analyze", files=files, data={"password": ""})
-        self.assertEqual(response.status_code, 503)
-        self.assertIn("require either supabase bearer auth or echo_analyze_api_key", response.json().get("error", "").lower())
-
-    def test_analyze_rejects_excessive_scheme_counts_before_analysis(self):
-        client = TestClient(app)
-        payload = {
-            "folios": [
-                {
-                    "folio": "1/1",
-                    "schemes": [{"scheme": "A", "transactions": []}, {"scheme": "B", "transactions": []}],
-                }
-            ]
-        }
-        files = {
-            "file": ("sample.json", json.dumps(payload).encode("utf-8"), "application/json")
-        }
-        with patch("app.Code.main.MAX_CAS_SCHEMES", 1):
-            response = client.post("/api/analyze", files=files, data={"password": ""}, headers=self.auth_headers)
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertFalse(body.get("success", True))
-        self.assertIn("too large to analyze safely", body.get("error", "").lower())
-
-    def test_pdfminer_cmap_loader_rejects_path_like_names(self):
-        with patch("app.Code.pdfminer_hardening.gzip.open") as gzip_open:
-            with self.assertRaises(pdfminer_cmapdb.CMapDB.CMapNotFound):
-                pdfminer_cmapdb.CMapDB._load_data(r"\\\\attacker\\share\\evil")
-        gzip_open.assert_not_called()
