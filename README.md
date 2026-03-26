@@ -12,6 +12,14 @@ A FastAPI-based application for analyzing mutual fund portfolios from CAS (Conso
 - Fixed income analysis
 - Performance tracking
 
+<<<<<<< Updated upstream
+=======
+## Documentation
+-
+- Full codebase guide: `docs/CODEBASE_DOCUMENTATION.md`
+- Latest audit + discrepancy report: `docs/CODE_REVIEW_REPORT_2026-03-08.md`
+
+>>>>>>> Stashed changes
 ## Quick Start (Windows)
 
 ### Option 1: Using the Batch Script (Easiest)
