@@ -8,11 +8,11 @@ interface MarketCapDataPoint {
 }
 
 interface EquityMarketCapDonutChartProps {
-  mcData: MarketCapDataPoint[]
+  data: MarketCapDataPoint[]
 }
 
-function EquityMarketCapDonutChartInner({ mcData }: EquityMarketCapDonutChartProps) {
-  if (mcData.length === 0) {
+function EquityMarketCapDonutChartInner({ data }: EquityMarketCapDonutChartProps) {
+  if (data.length === 0) {
     return (
       <div className="h-56 w-full flex items-center justify-center">
         <p className="text-sm text-muted-foreground">No data available</p>
@@ -26,7 +26,7 @@ function EquityMarketCapDonutChartInner({ mcData }: EquityMarketCapDonutChartPro
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
-              data={mcData}
+              data={data}
               cx="50%"
               cy="50%"
               innerRadius={50}
@@ -35,7 +35,7 @@ function EquityMarketCapDonutChartInner({ mcData }: EquityMarketCapDonutChartPro
               dataKey="value"
               stroke="none"
             >
-              {mcData.map((entry, i) => (
+              {data.map((entry, i) => (
                 <Cell key={i} fill={entry.color} />
               ))}
             </Pie>
@@ -54,7 +54,7 @@ function EquityMarketCapDonutChartInner({ mcData }: EquityMarketCapDonutChartPro
         </ResponsiveContainer>
       </div>
       <div className="flex flex-wrap gap-4 justify-center">
-        {mcData.map((entry, i) => (
+        {data.map((entry, i) => (
           <div key={i} className="flex items-center gap-2">
             <div
               className="size-3 rounded-full"
