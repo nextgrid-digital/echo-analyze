@@ -17,7 +17,7 @@ A FastAPI-based application for analyzing mutual fund portfolios from CAS (Conso
 ## Documentation
 - Repo operating guide: `AGENT.md`
 - Frontend notes: `frontend/Docs/README.md`
-## Quick Start (Windows)
+## Quickstart (Windows)
 
 ### Option 1: Using the Batch Script (Easiest)
 
