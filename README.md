@@ -27,8 +27,9 @@ Simply double-click `run_local.bat` or run it from command prompt:
 run_local.bat
 ```
 
+
 This will:
-1. Create a virtual environment (if not exists)
+1. Create a virtual environment (if doesnt exists)
 2. Install all dependencies
 3. Start the development server at http://localhost:8000
 
