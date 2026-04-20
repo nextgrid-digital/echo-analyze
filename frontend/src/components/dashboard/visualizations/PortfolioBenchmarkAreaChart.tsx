@@ -31,58 +31,58 @@ interface CustomTooltipProps {
   payload?: Array<{ payload?: ChartDataPoint }>
 }
 
+function CustomTooltip({ active, payload }: CustomTooltipProps) {
+  if (!active || !payload || payload.length === 0) return null
+
+  const data = payload[0]?.payload
+  const portfolioValue = data?.portfolio || 0
+  const benchmarkValue = data?.benchmark || 0
+  const portfolioPct = data?.portfolioPct || 0
+  const benchmarkPct = data?.benchmarkPct || 0
+  const difference = data?.difference || 0
+
+  return (
+    <div className="bg-background border border-border rounded-none p-2 shadow-sm">
+      <p className="text-xs font-semibold text-foreground mb-1.5">
+        {data?.date || ""}
+      </p>
+      <div className="space-y-0.5">
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-none" style={{ backgroundColor: CHART_COLORS[0] }} />
+          <span className="text-[10px] text-muted-foreground">Portfolio:</span>
+          <span className="text-[10px] font-semibold text-foreground">
+            {toLakhs(portfolioValue)} ({portfolioPct >= 0 ? "+" : ""}{portfolioPct.toFixed(2)}%)
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-none" style={{ backgroundColor: CHART_COLORS[1] }} />
+          <span className="text-[10px] text-muted-foreground">Benchmark:</span>
+          <span className="text-[10px] font-semibold text-foreground">
+            {toLakhs(benchmarkValue)} ({benchmarkPct >= 0 ? "+" : ""}{benchmarkPct.toFixed(2)}%)
+          </span>
+        </div>
+        <div className="pt-0.5 mt-0.5 border-t border-border">
+          <span className="text-[10px] text-muted-foreground">Difference: </span>
+          <span
+            className={`text-[10px] font-semibold ${
+              difference >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+            }`}
+          >
+            {difference >= 0 ? "+" : ""}
+            {toLakhs(difference)} ({(portfolioPct - benchmarkPct).toFixed(2)}%)
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function PortfolioBenchmarkAreaChartInner({
   chartData,
   chartId = "portfolio-benchmark",
 }: PortfolioBenchmarkAreaChartProps) {
   const portfolioGradientId = `${chartId}-portfolio`
   const benchmarkGradientId = `${chartId}-benchmark`
-
-  const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
-    if (!active || !payload || payload.length === 0) return null
-
-    const data = payload[0]?.payload
-    const portfolioValue = data?.portfolio || 0
-    const benchmarkValue = data?.benchmark || 0
-    const portfolioPct = data?.portfolioPct || 0
-    const benchmarkPct = data?.benchmarkPct || 0
-    const difference = data?.difference || 0
-
-    return (
-      <div className="bg-background border border-border rounded-none p-2 shadow-sm">
-        <p className="text-xs font-semibold text-foreground mb-1.5">
-          {data?.date || ""}
-        </p>
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-none" style={{ backgroundColor: CHART_COLORS[0] }} />
-            <span className="text-[10px] text-muted-foreground">Portfolio:</span>
-            <span className="text-[10px] font-semibold text-foreground">
-              {toLakhs(portfolioValue)} ({portfolioPct >= 0 ? "+" : ""}{portfolioPct.toFixed(2)}%)
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-none" style={{ backgroundColor: CHART_COLORS[1] }} />
-            <span className="text-[10px] text-muted-foreground">Benchmark:</span>
-            <span className="text-[10px] font-semibold text-foreground">
-              {toLakhs(benchmarkValue)} ({benchmarkPct >= 0 ? "+" : ""}{benchmarkPct.toFixed(2)}%)
-            </span>
-          </div>
-          <div className="pt-0.5 mt-0.5 border-t border-border">
-            <span className="text-[10px] text-muted-foreground">Difference: </span>
-            <span
-              className={`text-[10px] font-semibold ${
-                difference >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-              }`}
-            >
-              {difference >= 0 ? "+" : ""}
-              {toLakhs(difference)} ({(portfolioPct - benchmarkPct).toFixed(2)}%)
-            </span>
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <ResponsiveContainer width="100%" height="100%">

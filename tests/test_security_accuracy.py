@@ -1,11 +1,18 @@
 import json
+import os
+import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+from openpyxl import load_workbook
 from fastapi.testclient import TestClient
 
+import app.Code.holdings as holdings_module
+from app.Code.auth import AuthContext, require_admin_user, require_authenticated_user
+from app.Code.cas_parser import convert_to_excel, parse_with_casparser
+from app.Code.env_loader import load_local_env
 from app.Code.main import (
     _benchmark_nav_for_date,
     _current_holding_entry_date,
@@ -15,6 +22,42 @@ from app.Code.main import (
     map_casparser_to_analysis,
 )
 from app.Code.utils import calculate_xirr
+
+
+async def _fake_auth_context():
+    return AuthContext(
+        user_id="user_test",
+        session_id="sess_test",
+        is_admin=True,
+        claims={"sub": "user_test", "sid": "sess_test"},
+    )
+
+
+app.dependency_overrides[require_authenticated_user] = _fake_auth_context
+app.dependency_overrides[require_admin_user] = _fake_auth_context
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int, payload=None):
+        self.status_code = status_code
+        self._payload = payload or {}
+
+    def json(self):
+        return self._payload
+
+
+class _FailingAsyncClient:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def get(self, url):
+        raise RuntimeError("timeout")
 
 
 class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
@@ -495,6 +538,94 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(holding.date_of_entry, "2024-01-01")
         self.assertEqual(holding.cost_value, 7000.0)
 
+    async def test_partial_redemption_reconstructs_remaining_cost_basis(self):
+        cas_data = {
+            "folios": [
+                {
+                    "amc": "Test AMC",
+                    "folio": "1/1",
+                    "schemes": [
+                        {
+                            "scheme": "Partial Redemption Fund",
+                            "amfi": "100001",
+                            "type": "EQUITY",
+                            "close": 50.0,
+                            "valuation": {"nav": 100.0, "value": 5000.0},
+                            "transactions": [
+                                {"date": "2024-01-01", "amount": 10000.0, "units": 100.0, "description": "Purchase"},
+                                {"date": "2025-01-01", "amount": 7500.0, "units": -50.0, "description": "Redemption"},
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "statement_period": {"from": "01-Jan-2024", "to": "01-Jan-2026"},
+        }
+
+        async def fake_live_nav(_):
+            return 0.0
+
+        async def fake_nav_history(_):
+            return {"01-01-2024": 100.0, "01-01-2025": 110.0, "01-01-2026": 100.0}
+
+        with patch("app.Code.main.fetch_live_nav", new=fake_live_nav), patch(
+            "app.Code.main.fetch_nav_history", new=fake_nav_history
+        ), patch("app.Code.main.save_cache_async", new=AsyncMock()), patch(
+            "app.Code.main.get_holdings_for_schemes", new=AsyncMock(return_value={})
+        ), patch(
+            "app.Code.main.save_amfi_cache_async", new=AsyncMock()
+        ):
+            response = await map_casparser_to_analysis(cas_data)
+
+        self.assertTrue(response.success)
+        holding = response.holdings[0]
+        self.assertEqual(holding.cost_value, 5000.0)
+        self.assertEqual(holding.gain_loss, 0.0)
+        self.assertEqual(response.summary.total_cost_value, 5000.0)
+
+    async def test_analysis_parses_comma_formatted_numeric_strings(self):
+        cas_data = {
+            "folios": [
+                {
+                    "amc": "Test AMC",
+                    "folio": "1/1",
+                    "schemes": [
+                        {
+                            "scheme": "Formatted Numbers Fund",
+                            "amfi": "100001",
+                            "type": "EQUITY",
+                            "close": "70",
+                            "valuation": {"nav": "100.50", "value": "7,035.00", "cost": "6,000.00"},
+                            "transactions": [{"date": "2024-01-01", "amount": "6,000.00", "units": "70", "description": "Purchase"}],
+                        }
+                    ],
+                }
+            ],
+            "statement_period": {"from": "01-Jan-2024", "to": "01-Jan-2026"},
+        }
+
+        async def fake_live_nav(_):
+            return 0.0
+
+        async def fake_nav_history(_):
+            return {"01-01-2024": 100.0, "01-01-2026": 100.5}
+
+        with patch("app.Code.main.fetch_live_nav", new=fake_live_nav), patch(
+            "app.Code.main.fetch_nav_history", new=fake_nav_history
+        ), patch("app.Code.main.save_cache_async", new=AsyncMock()), patch(
+            "app.Code.main.get_holdings_for_schemes", new=AsyncMock(return_value={})
+        ), patch(
+            "app.Code.main.save_amfi_cache_async", new=AsyncMock()
+        ):
+            response = await map_casparser_to_analysis(cas_data)
+
+        self.assertTrue(response.success)
+        holding = response.holdings[0]
+        self.assertEqual(holding.units, 70.0)
+        self.assertEqual(holding.nav, 100.5)
+        self.assertEqual(holding.market_value, 7035.0)
+        self.assertEqual(response.summary.statement_market_value, 7035.0)
+
     def test_eval_removed_from_holdings_cache_loader(self):
         holdings_source = Path("app/Code/holdings.py").read_text(encoding="utf-8")
         self.assertNotIn("eval(", holdings_source)
@@ -554,6 +685,36 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
 
 
 class TestErrorSanitization(unittest.TestCase):
+    def test_load_local_env_sets_missing_values_without_overwriting_existing_ones(self):
+        temp_key = "TEST_ENV_LOADER_KEY"
+        preserved_key = "TEST_ENV_LOADER_PRESERVE"
+        original_temp = os.environ.pop(temp_key, None)
+        original_preserved = os.environ.get(preserved_key)
+        os.environ[preserved_key] = "already-set"
+
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                env_path = Path(tmpdir) / ".env"
+                env_path.write_text(
+                    f"{temp_key}=loaded-value\n{preserved_key}=should-not-overwrite\n",
+                    encoding="utf-8",
+                )
+
+                load_local_env(env_path)
+
+            self.assertEqual(os.environ.get(temp_key), "loaded-value")
+            self.assertEqual(os.environ.get(preserved_key), "already-set")
+        finally:
+            if original_temp is None:
+                os.environ.pop(temp_key, None)
+            else:
+                os.environ[temp_key] = original_temp
+
+            if original_preserved is None:
+                os.environ.pop(preserved_key, None)
+            else:
+                os.environ[preserved_key] = original_preserved
+
     def test_analyze_returns_sanitized_internal_error(self):
         client = TestClient(app)
         files = {"file": ("sample.json", b'{"folios": []}', "application/json")}
@@ -570,3 +731,121 @@ class TestErrorSanitization(unittest.TestCase):
         body = response.json()
         self.assertFalse(body.get("success", True))
         self.assertIn("invalid or corrupted", body.get("error", "").lower())
+
+    def test_analyze_rejects_invalid_cas_json_shape(self):
+        client = TestClient(app)
+        files = {"file": ("sample.json", b'{"folios":["oops"]}', "application/json")}
+        response = client.post("/api/analyze", files=files, data={"password": ""})
+        body = response.json()
+        self.assertFalse(body.get("success", True))
+        self.assertIn("invalid cas json format", body.get("error", "").lower())
+        self.assertNotIn("request id", body.get("error", "").lower())
+
+    def test_analyze_rejects_oversized_upload_before_processing(self):
+        client = TestClient(app)
+        with patch("app.Code.main.MAX_UPLOAD_BYTES", 10):
+            files = {"file": ("sample.json", b'{"folios": []}', "application/json")}
+            response = client.post("/api/analyze", files=files, data={"password": ""})
+        body = response.json()
+        self.assertFalse(body.get("success", True))
+        self.assertIn("too large", body.get("error", "").lower())
+
+    def test_spa_routes_return_index_html_locally(self):
+        client = TestClient(app)
+
+        admin_response = client.get("/admin")
+        dashboard_response = client.get("/dashboard")
+
+        self.assertEqual(admin_response.status_code, 200)
+        self.assertEqual(dashboard_response.status_code, 200)
+        self.assertIn("<!doctype html>", admin_response.text.lower())
+        self.assertIn("<!doctype html>", dashboard_response.text.lower())
+
+
+class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
+    def test_parse_with_casparser_path_input_skips_tempfile_creation(self):
+        with patch("app.Code.cas_parser.read_cas_pdf", return_value={"folios": []}), patch(
+            "tempfile.NamedTemporaryFile"
+        ) as named_tmp:
+            result = parse_with_casparser("dummy.pdf")
+
+        self.assertTrue(result["success"])
+        named_tmp.assert_not_called()
+
+    async def test_groww_index_failure_does_not_disable_future_retries(self):
+        old_loaded = holdings_module._groww_index_loaded
+        old_by_code = holdings_module._groww_index_by_code
+        old_entries = holdings_module._groww_index_entries
+        try:
+            holdings_module._groww_index_loaded = False
+            holdings_module._groww_index_by_code = {}
+            holdings_module._groww_index_entries = []
+
+            class FailingClient:
+                async def get(self, url):
+                    return _FakeResponse(500, {})
+
+            by_code, entries = await holdings_module._get_groww_index(FailingClient())
+            self.assertEqual(by_code, {})
+            self.assertEqual(entries, [])
+            self.assertFalse(holdings_module._groww_index_loaded)
+        finally:
+            holdings_module._groww_index_loaded = old_loaded
+            holdings_module._groww_index_by_code = old_by_code
+            holdings_module._groww_index_entries = old_entries
+
+    async def test_amfi_transient_failure_does_not_persist_failed_urls(self):
+        old_cache = holdings_module._amfi_cache
+        old_failed = holdings_module._failed_urls
+        try:
+            holdings_module._amfi_cache = {}
+            holdings_module._failed_urls = set()
+
+            with patch("app.Code.holdings.httpx.AsyncClient", _FailingAsyncClient), patch(
+                "app.Code.holdings.save_amfi_cache_async", new=AsyncMock()
+            ):
+                result = await holdings_module._fetch_amfi_monthly_file()
+
+            self.assertEqual(result, {})
+            self.assertEqual(holdings_module._failed_urls, set())
+        finally:
+            holdings_module._amfi_cache = old_cache
+            holdings_module._failed_urls = old_failed
+
+    def test_convert_to_excel_escapes_formula_like_cells(self):
+        payload = {
+            "folios": [
+                {
+                    "amc": "=AMC",
+                    "folio": "+12345",
+                    "schemes": [
+                        {
+                            "scheme": "@Danger Fund",
+                            "advisor": "-Advisor",
+                            "transactions": [
+                                {
+                                    "date": "2024-01-01",
+                                    "description": "=cmd",
+                                    "amount": 1000,
+                                    "units": 10,
+                                    "nav": 100,
+                                    "balance": 10,
+                                    "type": "@TYPE",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+
+        workbook_bytes = convert_to_excel(payload)
+        workbook = load_workbook(workbook_bytes)
+        sheet = workbook.active
+
+        self.assertEqual(sheet["A2"].value, "'=AMC")
+        self.assertEqual(sheet["B2"].value, "'+12345")
+        self.assertEqual(sheet["C2"].value, "'@Danger Fund")
+        self.assertEqual(sheet["D2"].value, "'-Advisor")
+        self.assertEqual(sheet["F2"].value, "'=cmd")
+        self.assertEqual(sheet["K2"].value, "'@TYPE")

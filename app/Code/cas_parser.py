@@ -4,6 +4,14 @@ import io
 import datetime
 from openpyxl import Workbook
 
+
+def _excel_safe_cell(value):
+    if not isinstance(value, str):
+        return value
+    if value.startswith(("=", "+", "-", "@")):
+        return f"'{value}"
+    return value
+
 def recursive_to_dict(obj):
     if hasattr(obj, "to_dict"):
         return recursive_to_dict(obj.to_dict())
@@ -46,23 +54,21 @@ def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: s
 
     tmp_path = None
     try:
+        if not hasattr(pdf_path_or_buffer, "read"):
+            try:
+                data = read_cas_pdf(pdf_path_or_buffer, password=password)
+                return {"success": True, "data": recursive_to_dict(data)}
+            except Exception as e:
+                if _is_password_error(str(e)):
+                    if not password:
+                        return {"success": False, "error": "This PDF is password-protected. Please enter the password (usually your PAN, e.g. ABCDE1234F)."}
+                    return {"success": False, "error": "Incorrect password. CAS PDFs are usually protected with your PAN (e.g. ABCDE1234F). Please try again."}
+                return {"success": False, "error": _safe_parse_error(str(e))}
+
         # Write buffer to a temp file (casparser needs a file path)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            if hasattr(pdf_path_or_buffer, "read"):
-                tmp.write(pdf_path_or_buffer.read())
-                tmp_path = tmp.name
-            else:
-                # Already a path string
-                tmp_path = None
-                try:
-                    data = read_cas_pdf(pdf_path_or_buffer, password=password)
-                    return {"success": True, "data": recursive_to_dict(data)}
-                except Exception as e:
-                    if _is_password_error(str(e)):
-                        if not password:
-                            return {"success": False, "error": "This PDF is password-protected. Please enter the password (usually your PAN, e.g. ABCDE1234F)."}
-                        return {"success": False, "error": "Incorrect password. CAS PDFs are usually protected with your PAN (e.g. ABCDE1234F). Please try again."}
-                    return {"success": False, "error": _safe_parse_error(str(e))}
+            tmp.write(pdf_path_or_buffer.read())
+            tmp_path = tmp.name
 
         # Parse the temp file
         try:
@@ -113,17 +119,17 @@ def convert_to_excel(json_data: Dict[str, Any]) -> io.BytesIO:
 
             for txn in scheme.get("transactions", []):
                 row = [
-                    amc,
-                    folio_num,
-                    scheme_name,
-                    advisor,
-                    txn.get("date"),
-                    txn.get("description"),
+                    _excel_safe_cell(amc),
+                    _excel_safe_cell(folio_num),
+                    _excel_safe_cell(scheme_name),
+                    _excel_safe_cell(advisor),
+                    _excel_safe_cell(txn.get("date")),
+                    _excel_safe_cell(txn.get("description")),
                     txn.get("amount"),
                     txn.get("units"),
                     txn.get("nav"),
                     txn.get("balance"),
-                    txn.get("type"),
+                    _excel_safe_cell(txn.get("type")),
                 ]
                 ws.append(row)
 

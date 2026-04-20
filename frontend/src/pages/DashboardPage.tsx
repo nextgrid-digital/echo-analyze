@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState, useRef } from "react"
-import html2canvas from "html2canvas"
-import { jsPDF } from "jspdf"
+import { useAuth } from "@clerk/react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { CircleAlert, X } from "lucide-react"
 import { useNavigate, useLocation } from "react-router-dom"
+import { AuthToolbar } from "@/components/auth/AuthToolbar"
 import { Dashboard } from "@/components/dashboard/Dashboard"
 import { Footer } from "@/components/dashboard/Footer"
 import { WarningRail } from "@/components/dashboard/WarningRail"
 import { Button } from "@/components/ui/button"
+import { useSessionAccess } from "@/hooks/useSessionAccess"
 import { createEmptySummary, createEmptyHoldings } from "@/lib/emptyData"
 import { getDashboardMethodologyWarnings } from "@/lib/portfolioAnalysis"
 import type { AnalysisResponse } from "@/types/api"
@@ -16,6 +17,8 @@ const MODAL_ANIMATION_MS = 220
 export function DashboardPage() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { isLoaded, isSignedIn } = useAuth()
+  const { session, loading: sessionLoading } = useSessionAccess()
   const [isNoticesModalMounted, setIsNoticesModalMounted] = useState(false)
   const [isNoticesModalVisible, setIsNoticesModalVisible] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
@@ -35,7 +38,7 @@ export function DashboardPage() {
     [result?.holdings]
   )
 
-  const hasData = result?.summary !== null && result?.summary !== undefined
+  const hasData = Boolean(result?.summary)
   const notices = useMemo(() => {
     const backendWarnings = displaySummary.warnings ?? []
     const clientWarnings = getDashboardMethodologyWarnings(displaySummary, displayHoldings)
@@ -70,6 +73,11 @@ export function DashboardPage() {
     setIsDownloading(true)
 
     try {
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+        import("html2canvas"),
+        import("jspdf"),
+      ])
+
       // Delay to ensure all charts and assets are stable
       await new Promise(resolve => setTimeout(resolve, 500))
 
@@ -153,6 +161,16 @@ export function DashboardPage() {
   }
 
   useEffect(() => {
+    if (!isLoaded || sessionLoading) {
+      return
+    }
+
+    if (!isSignedIn || !result?.summary) {
+      navigate("/", { replace: true })
+    }
+  }, [isLoaded, isSignedIn, navigate, result?.summary, sessionLoading])
+
+  useEffect(() => {
     if (!isNoticesModalMounted) return
 
     const previousOverflow = document.body.style.overflow
@@ -181,69 +199,85 @@ export function DashboardPage() {
     }
   }, [isNoticesModalMounted, isNoticesModalVisible])
 
+  if (!isLoaded || sessionLoading) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+        Loading dashboard...
+      </div>
+    )
+  }
+
+  if (!isSignedIn || !hasData) {
+    return null
+  }
+
   return (
     <div className="min-h-screen bg-background text-foreground" ref={dashboardRef} id="dashboard-capture-root">
-      {hasData && (
-        <div className="mb-4 px-4 sm:px-6 pt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 min-h-[44px]">
-          <p className="text-muted-foreground font-medium text-sm pdf-section">
-            Portfolio as on {displaySummary.statement_date ?? "N/A"}
+      <div className="mb-4 px-4 sm:px-6 pt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 min-h-[44px]">
+        <div className="pdf-section">
+          <p className="text-foreground font-medium text-sm">
+            Live portfolio valuation
           </p>
-          <div className="flex flex-wrap items-center gap-2 sm:gap-4 no-print">
-            <Button
-              type="button"
-              variant="default"
-              onClick={handleDownloadPDF}
-              disabled={isDownloading}
-              className="min-h-[44px] sm:min-h-0 py-2 px-6 shadow-md shadow-primary/10 flex items-center gap-2"
-            >
-              {isDownloading ? (
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Generating...
-                </div>
-              ) : (
-                <>
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" x2="12" y1="15" y2="3" />
-                  </svg>
-                  Download Dashboard PDF
-                </>
-              )}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={openNoticesModal}
-              className="min-h-[44px] sm:min-h-0 py-2 px-4 flex items-center gap-2"
-            >
-              <CircleAlert className="w-4 h-4" />
-              Data Quality & Methodology Notices
-            </Button>
-            <Button
-              type="button"
-              variant="link"
-              onClick={() => navigate("/")}
-              className="text-primary hover:text-primary/90 min-h-[44px] sm:min-h-0 py-2"
-            >
-              Upload another
-            </Button>
-          </div>
+          <p className="text-muted-foreground text-xs">
+            Statement date: {displaySummary.statement_date ?? "N/A"}
+          </p>
         </div>
-      )}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4 no-print">
+          <AuthToolbar isAdmin={session?.is_admin ?? false} />
+          <Button
+            type="button"
+            variant="default"
+            onClick={handleDownloadPDF}
+            disabled={isDownloading}
+            className="min-h-[44px] sm:min-h-0 py-2 px-6 shadow-md shadow-primary/10 flex items-center gap-2"
+          >
+            {isDownloading ? (
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Generating...
+              </div>
+            ) : (
+              <>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" x2="12" y1="15" y2="3" />
+                </svg>
+                Download Dashboard PDF
+              </>
+            )}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={openNoticesModal}
+            className="min-h-[44px] sm:min-h-0 py-2 px-4 flex items-center gap-2"
+          >
+            <CircleAlert className="w-4 h-4" />
+            Data Quality & Methodology Notices
+          </Button>
+          <Button
+            type="button"
+            variant="link"
+            onClick={() => navigate("/")}
+            className="text-primary hover:text-primary/90 min-h-[44px] sm:min-h-0 py-2"
+          >
+            Upload another
+          </Button>
+        </div>
+      </div>
 
-      {hasData && isNoticesModalMounted && (
+      {isNoticesModalMounted && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 no-print">
           <button
             type="button"

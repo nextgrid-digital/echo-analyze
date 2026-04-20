@@ -3,6 +3,7 @@ uvicorn
 httpx
 python-multipart
 pydantic
+PyJWT[crypto]
 casparser
 openpyxl
 xlrd>=2.0.1

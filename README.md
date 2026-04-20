@@ -11,15 +11,12 @@ A FastAPI-based application for analyzing mutual fund portfolios from CAS (Conso
 - Asset allocation and concentration metrics
 - Fixed income analysis
 - Performance tracking
+- Clerk-backed user authentication for protected analysis routes
+- Admin page with tracked users, run timings, and recent activity logs
 
-<<<<<<< Updated upstream
-=======
 ## Documentation
--
-- Full codebase guide: `docs/CODEBASE_DOCUMENTATION.md`
-- Latest audit + discrepancy report: `docs/CODE_REVIEW_REPORT_2026-03-08.md`
-
->>>>>>> Stashed changes
+- Repo operating guide: `AGENT.md`
+- Frontend notes: `frontend/Docs/README.md`
 ## Quick Start (Windows)
 
 ### Option 1: Using the Batch Script (Easiest)
@@ -65,11 +62,56 @@ This will:
 6. **Open your browser:**
    Navigate to http://localhost:8000
 
+## Clerk Setup
+
+### 1. Create a Clerk application
+
+1. Create or open your app in the Clerk dashboard.
+2. Enable the sign-in methods you want, such as email/password or Google.
+3. Copy the publishable key and secret key from Clerk.
+
+### 2. Configure environment variables
+
+- Backend: copy `.env.example` to `.env` and fill in:
+  - `CLERK_SECRET_KEY`
+  - `CLERK_JWT_KEY` (optional, recommended if you want networkless verification)
+  - `CLERK_ADMIN_USER_IDS`
+  - `CLERK_ALLOWED_PARTIES`
+- Frontend: copy `frontend/.env.example` to `frontend/.env.local` and fill in:
+  - `VITE_CLERK_PUBLISHABLE_KEY`
+
+`CLERK_ADMIN_USER_IDS` should contain one or more Clerk user IDs separated by commas. Those users can open `/admin`.
+
+### 3. Run the app
+
+1. Start the FastAPI app from the repo root.
+2. For local frontend development, run Vite from `frontend/`:
+   ```cmd
+   cd frontend
+   npm install
+   npm run dev
+   ```
+3. Or build the frontend into `static/` and serve everything from FastAPI:
+   ```cmd
+   cd frontend
+   npm run build
+   ```
+
+### 4. How the auth flow works
+
+- The React app signs users in with Clerk.
+- Protected API calls attach a Clerk session token from the frontend.
+- FastAPI verifies that token against Clerk JWKS before allowing `/api/analyze`, `/api/parse_pdf`, `/api/auth/me`, or `/api/admin/overview`.
+- If you set `CLERK_JWT_KEY`, FastAPI can verify tokens without fetching JWKS on each cache refresh.
+- Each analysis run is stored in a lightweight SQLite analytics database so `/admin` can show user counts, timings, and recent logs.
+
 ## API Endpoints
 
 - `GET /` - Portfolio Overview UI (home page)
-- `POST /api/analyze` - Analyze CAS file (PDF or JSON)
-- `POST /api/parse_pdf` - Parse CAS PDF to JSON/Excel
+- `POST /api/analyze` - Analyze CAS file (PDF or JSON), requires Clerk auth
+- `POST /api/parse_pdf` - Parse CAS PDF to JSON/Excel, requires Clerk auth
+- `GET /api/auth/me` - Return current authenticated user and admin access
+- `GET /api/admin/overview` - Admin analytics summary, requires admin access
 - `GET /api/health` - Health check endpoint
 - `GET /test` - Test API endpoint
 
@@ -100,7 +142,8 @@ echo-analyze/
   cd frontend
   npm run build
   ```
-- `vercel.json` routes `/api/*` to FastAPI and sends SPA paths (like `/dashboard`) to `static/index.html`.
+- `vercel.json` routes `/api/*` to FastAPI and sends SPA paths (like `/dashboard` and `/admin`) to `static/index.html`.
+- The default analytics store is file-based. On Vercel, that falls back to `/tmp`, which is ephemeral. For production-grade admin analytics, point `ANALYTICS_DB_PATH` to persistent storage or swap the SQLite helper for a hosted database.
 
 ## Dependencies
 
@@ -109,6 +152,7 @@ echo-analyze/
 - **httpx** - HTTP client for API calls
 - **python-multipart** - File upload support
 - **pydantic** - Data validation
+- **PyJWT[crypto]** - Clerk session token verification
 - **casparser** - CAS PDF parser
 - **openpyxl** - Excel file support
 - **xlrd** - Excel file reading
@@ -118,6 +162,7 @@ echo-analyze/
 The server runs in reload mode by default, so any changes to Python files will automatically restart the server.
 
 Debug logs are written to `data/backend_debug.log`.
+Analysis analytics are stored in `data/app_analytics.db` by default.
 
 ## Troubleshooting
 

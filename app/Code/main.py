@@ -4,18 +4,26 @@ import json
 import os
 import re
 import uuid
-from dataclasses import dataclass
 from bisect import bisect_right
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app.Code.analytics import get_admin_overview, record_analysis_run, record_audit_log
+from app.Code.auth import (
+    AuthContext,
+    fetch_clerk_user_count,
+    require_admin_user,
+    require_authenticated_user,
+)
 from app.cas_parser import convert_to_excel, parse_with_casparser
 from app.holdings import get_holdings_for_schemes, save_amfi_cache_async
 from app.overlap import compute_overlap_matrix
@@ -25,6 +33,7 @@ app = FastAPI()
 
 LOG_FILE = "data/backend_debug.log"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
 ALLOWED_EXTENSIONS = {".pdf", ".json"}
 ALLOWED_CONTENT_TYPES = {
     ".pdf": {"application/pdf", "application/octet-stream"},
@@ -163,6 +172,69 @@ def _parse_amount(value) -> Optional[float]:
         return float(value)
     except Exception:
         return None
+
+
+async def _read_upload_limited(file: UploadFile) -> Tuple[Optional[bytes], Optional[str]]:
+    total_read = 0
+    chunks: List[bytes] = []
+
+    while True:
+        chunk = await file.read(UPLOAD_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        total_read += len(chunk)
+        if total_read > MAX_UPLOAD_BYTES:
+            return None, "File is too large. Maximum supported size is 25 MB."
+        chunks.append(chunk)
+
+    return b"".join(chunks), None
+
+
+def _validate_cas_json_shape(cas_data: dict) -> Optional[str]:
+    folios = cas_data.get("folios")
+    if not isinstance(folios, list):
+        return "Invalid CAS JSON format. 'folios' must be a list."
+
+    for folio_idx, folio in enumerate(folios, start=1):
+        if not isinstance(folio, dict):
+            return f"Invalid CAS JSON format. Folio #{folio_idx} must be an object."
+
+        schemes = folio.get("schemes", [])
+        if schemes is None:
+            continue
+        if not isinstance(schemes, list):
+            return f"Invalid CAS JSON format. Folio #{folio_idx} 'schemes' must be a list."
+
+        for scheme_idx, scheme in enumerate(schemes, start=1):
+            if not isinstance(scheme, dict):
+                return (
+                    "Invalid CAS JSON format. "
+                    f"Scheme #{scheme_idx} in folio #{folio_idx} must be an object."
+                )
+
+            valuation = scheme.get("valuation")
+            if valuation is not None and not isinstance(valuation, dict):
+                return (
+                    "Invalid CAS JSON format. "
+                    f"'valuation' for scheme #{scheme_idx} in folio #{folio_idx} must be an object."
+                )
+
+            transactions = scheme.get("transactions", [])
+            if transactions is None:
+                continue
+            if not isinstance(transactions, list):
+                return (
+                    "Invalid CAS JSON format. "
+                    f"'transactions' for scheme #{scheme_idx} in folio #{folio_idx} must be a list."
+                )
+            for txn_idx, txn in enumerate(transactions, start=1):
+                if not isinstance(txn, dict):
+                    return (
+                        "Invalid CAS JSON format. "
+                        f"Transaction #{txn_idx} for scheme #{scheme_idx} in folio #{folio_idx} must be an object."
+                    )
+
+    return None
 
 
 def _prepare_benchmark_history(raw_history: Dict[str, float]) -> Tuple[Dict[str, float], List[str], List[date], float]:
@@ -410,6 +482,56 @@ def _current_holding_entry_date(
         if lot_units > 1e-9:
             return lot_dt
     return fallback_dt
+
+
+def _rebuild_remaining_tax_lots(
+    units_now: float,
+    lot_events: List[Tuple[datetime, float, float]],
+    statement_cost: Optional[float] = None,
+    fallback_dt: Optional[datetime] = None,
+) -> List[TaxLot]:
+    if units_now <= 0:
+        return []
+
+    lots: List[TaxLot] = []
+    for lot_dt, units_delta, amt_val in sorted(lot_events, key=lambda x: x[0]):
+        if units_delta > 0:
+            cpu = amt_val / units_delta if units_delta else 0.0
+            if cpu > 0:
+                lots.append(TaxLot(acquired_on=lot_dt, units=units_delta, cost_per_unit=cpu))
+            continue
+
+        if units_delta >= 0:
+            continue
+
+        units_to_sell = abs(units_delta)
+        while units_to_sell > 1e-9 and lots:
+            lot = lots[0]
+            consumed = min(lot.units, units_to_sell)
+            lot.units -= consumed
+            units_to_sell -= consumed
+            if lot.units <= 1e-9:
+                lots.pop(0)
+
+    remaining_units = sum(lot.units for lot in lots)
+    if remaining_units <= 1e-9:
+        if statement_cost and statement_cost > 0 and fallback_dt:
+            return [TaxLot(acquired_on=fallback_dt, units=units_now, cost_per_unit=statement_cost / units_now)]
+        return []
+
+    unit_scale = units_now / remaining_units
+    if abs(unit_scale - 1.0) > 0.02:
+        for lot in lots:
+            lot.units *= unit_scale
+
+    if statement_cost and statement_cost > 0:
+        lot_cost_total = sum(lot.units * lot.cost_per_unit for lot in lots)
+        if lot_cost_total > 0:
+            cost_scale = statement_cost / lot_cost_total
+            for lot in lots:
+                lot.cost_per_unit *= cost_scale
+
+    return [lot for lot in lots if lot.units > 1e-9]
 
 
 def _compute_period_xirr(
@@ -742,7 +864,60 @@ class AnalysisResponse(BaseModel):
     summary: Optional[AnalysisSummary] = None
     error: Optional[str] = None
 
+
+class AuthSessionResponse(BaseModel):
+    user_id: str
+    session_id: Optional[str] = None
+    is_admin: bool
+
+
+class AdminAnalyticsMetrics(BaseModel):
+    registered_users: Optional[int] = None
+    tracked_users: int
+    active_users_7d: int
+    total_analyses: int
+    successful_analyses: int
+    failed_analyses: int
+    success_rate: float
+    average_duration_ms: float
+    fastest_duration_ms: Optional[int] = None
+    slowest_duration_ms: Optional[int] = None
+    last_analysis_at: Optional[str] = None
+
+
+class AdminAnalysisRun(BaseModel):
+    request_id: str
+    user_id: str
+    session_id: Optional[str] = None
+    file_name: Optional[str] = None
+    file_type: Optional[str] = None
+    status: str
+    duration_ms: Optional[int] = None
+    holdings_count: Optional[int] = None
+    total_market_value: Optional[float] = None
+    error_message: Optional[str] = None
+    created_at: str
+
+
+class AdminLogEntry(BaseModel):
+    user_id: Optional[str] = None
+    route: str
+    action: str
+    status: str
+    message: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+
+
+class AdminOverviewResponse(BaseModel):
+    metrics: AdminAnalyticsMetrics
+    recent_analyses: List[AdminAnalysisRun] = Field(default_factory=list)
+    recent_logs: List[AdminLogEntry] = Field(default_factory=list)
+
 async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
+    if not isinstance(cas_data, dict):
+        return AnalysisResponse(success=False, error="Invalid CAS JSON format. Root object must be a JSON object.")
+
     warnings: List[AnalysisWarning] = []
     warning_codes = set()
 
@@ -776,6 +951,8 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
     holdings: List[Holding] = []
     folios = cas_data.get("folios", [])
+    if not isinstance(folios, list):
+        return AnalysisResponse(success=False, error="Invalid CAS JSON format. 'folios' must be a list.")
     analysis_now_dt = datetime.now()
     one_year_cutoff_dt = analysis_now_dt - timedelta(days=365)
     three_year_cutoff_dt = analysis_now_dt - timedelta(days=365 * 3)
@@ -825,12 +1002,19 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     all_amfis = set()
     benchmark_codes_needed = set()
     for folio_data in folios:
-        for scheme in folio_data.get("schemes", []):
-            amfi = (scheme.get("amfi") or "").strip()
+        if not isinstance(folio_data, dict):
+            continue
+        schemes = folio_data.get("schemes", [])
+        if not isinstance(schemes, list):
+            continue
+        for scheme in schemes:
+            if not isinstance(scheme, dict):
+                continue
+            amfi = str(scheme.get("amfi") or "").strip()
             if amfi:
                 all_amfis.add(amfi)
-            name = scheme.get("scheme", "Unknown Scheme")
-            scheme_type = (scheme.get("type") or "OTHERS").strip()
+            name = str(scheme.get("scheme") or "Unknown Scheme")
+            scheme_type = str(scheme.get("type") or "OTHERS").strip()
             sub_cat = get_sub_category(name, scheme_type)
             cat, _ = _infer_category(name, scheme_type, sub_cat)
             comps = _resolve_benchmark_components(name, scheme_type, sub_cat, cat)
@@ -886,18 +1070,28 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     benchmark_fallback_by_scheme: Dict[str, int] = {}
 
     for folio_data in folios:
-        folio_num = folio_data.get("folio", "N/A")
-        amc_name = folio_data.get("amc", "Unknown AMC")
+        if not isinstance(folio_data, dict):
+            continue
+
+        folio_num = str(folio_data.get("folio") or "N/A")
+        amc_name = str(folio_data.get("amc") or "Unknown AMC")
         amcs.add(amc_name)
 
-        for scheme in folio_data.get("schemes", []):
-            units = float(scheme.get("close", 0.0) or 0.0)
+        schemes = folio_data.get("schemes", [])
+        if not isinstance(schemes, list):
+            continue
+
+        for scheme in schemes:
+            if not isinstance(scheme, dict):
+                continue
+
+            units = _parse_amount(scheme.get("close")) or 0.0
             if units <= 0.01:
                 continue
 
-            name = scheme.get("scheme", "Unknown Scheme")
-            amfi = (scheme.get("amfi") or "").strip()
-            scheme_type = (scheme.get("type") or "OTHERS").strip()
+            name = str(scheme.get("scheme") or "Unknown Scheme")
+            amfi = str(scheme.get("amfi") or "").strip()
+            scheme_type = str(scheme.get("type") or "OTHERS").strip()
             sub_cat = get_sub_category(name, scheme_type)
             cat, ambiguous = _infer_category(name, scheme_type, sub_cat)
             benchmark_components_raw = _resolve_benchmark_components(name, scheme_type, sub_cat, cat)
@@ -909,6 +1103,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
 
             scheme_cost = 0.0
+            purchase_cost_total = 0.0
             scheme_cashflows: List[Tuple[datetime, float]] = []
             scheme_tx_dates: List[datetime] = []
             scheme_unit_events: List[Tuple[datetime, float]] = []
@@ -916,7 +1111,13 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             scheme_benchmark_units: Dict[str, float] = {comp.code: 0.0 for comp in benchmark_components}
             scheme_benchmark_unit_events: Dict[str, List[Tuple[datetime, float]]] = {comp.code: [] for comp in benchmark_components}
 
-            for txn in scheme.get("transactions", []):
+            transactions = scheme.get("transactions", [])
+            if not isinstance(transactions, list):
+                transactions = []
+
+            for txn in transactions:
+                if not isinstance(txn, dict):
+                    continue
                 desc = (txn.get("description") or "").upper()
                 txn_type = (txn.get("type") or "").upper()
                 date_str = txn.get("date")
@@ -977,9 +1178,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 if dt not in scheme_tx_dates:
                     scheme_tx_dates.append(dt)
                 if not is_withdrawal:
-                    scheme_cost += amt
-                else:
-                    scheme_cost -= amt
+                    purchase_cost_total += amt
 
                 portfolio_cashflows.append((dt, cashflow))
 
@@ -1004,20 +1203,32 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                             benchmark_fallback_by_scheme[name] = benchmark_fallback_by_scheme.get(name, 0) + 1
 
             val = scheme.get("valuation", {})
-            if "cost" in val:
-                parsed_cost = _parse_amount(val.get("cost"))
-                if parsed_cost is not None:
-                    scheme_cost = parsed_cost
+            if not isinstance(val, dict):
+                val = {}
 
-            statement_nav = float(val.get("nav", 0.0) or 0.0)
+            scheme_entry_dt = min(scheme_tx_dates) if scheme_tx_dates else None
+            parsed_cost = _parse_amount(val.get("cost")) if "cost" in val else None
+            remaining_lots = _rebuild_remaining_tax_lots(
+                units,
+                lot_events,
+                statement_cost=parsed_cost,
+                fallback_dt=scheme_entry_dt or analysis_now_dt,
+            )
+
+            if parsed_cost is not None:
+                scheme_cost = parsed_cost
+            elif remaining_lots:
+                scheme_cost = sum(lot.units * lot.cost_per_unit for lot in remaining_lots)
+            else:
+                scheme_cost = purchase_cost_total
+
+            statement_nav = _parse_amount(val.get("nav")) or 0.0
             statement_value_raw = val.get("value")
-            if statement_value_raw is None:
+            statement_value = _parse_amount(statement_value_raw)
+            if statement_value is None:
                 statement_mkt_val = round(units * statement_nav, 2)
             else:
-                try:
-                    statement_mkt_val = round(float(statement_value_raw), 2)
-                except Exception:
-                    statement_mkt_val = round(units * statement_nav, 2)
+                statement_mkt_val = round(statement_value, 2)
 
             live_nav = nav_map.get(amfi, 0.0) if amfi else 0.0
             effective_nav = live_nav if live_nav > 0 else statement_nav
@@ -1047,7 +1258,6 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             amc_values[amc_name] = amc_values.get(amc_name, 0.0) + mkt_val
             allocation_map[sub_cat] = allocation_map.get(sub_cat, 0.0) + mkt_val
 
-            scheme_entry_dt = min(scheme_tx_dates) if scheme_tx_dates else None
             current_holding_entry_dt = _current_holding_entry_date(units, lot_events, scheme_entry_dt)
             gain = mkt_val - scheme_cost
             ret_pct = round((gain / scheme_cost * 100), 2) if scheme_cost > 0 else 0.0
@@ -1079,39 +1289,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 savings_value_est += avg_value_for_cost * (ter_gap / 100.0) * holding_years
 
             if cat == "Equity" and units > 0 and effective_nav > 0:
-                lots: List[TaxLot] = []
-                for lot_dt, units_delta, amt_val in sorted(lot_events, key=lambda x: x[0]):
-                    if units_delta > 0:
-                        cpu = amt_val / units_delta if units_delta else 0.0
-                        if cpu > 0:
-                            lots.append(TaxLot(acquired_on=lot_dt, units=units_delta, cost_per_unit=cpu))
-                    elif units_delta < 0:
-                        units_to_sell = abs(units_delta)
-                        while units_to_sell > 1e-9 and lots:
-                            lot = lots[0]
-                            consumed = min(lot.units, units_to_sell)
-                            lot.units -= consumed
-                            units_to_sell -= consumed
-                            if lot.units <= 1e-9:
-                                lots.pop(0)
-
-                remaining_units = sum(lot.units for lot in lots)
-                fallback_dt = scheme_entry_dt or analysis_now_dt
-                if remaining_units <= 1e-9:
-                    if scheme_cost > 0:
-                        lots = [TaxLot(acquired_on=fallback_dt, units=units, cost_per_unit=scheme_cost / units)]
-                else:
-                    unit_scale = units / remaining_units
-                    if abs(unit_scale - 1.0) > 0.02:
-                        for lot in lots:
-                            lot.units *= unit_scale
-
-                lot_cost_total = sum(lot.units * lot.cost_per_unit for lot in lots)
-                if lots and lot_cost_total > 0 and scheme_cost > 0:
-                    cost_scale = scheme_cost / lot_cost_total
-                    for lot in lots:
-                        lot.cost_per_unit *= cost_scale
-
+                lots = list(remaining_lots)
                 for lot in lots:
                     if lot.units <= 0:
                         continue
@@ -1658,64 +1836,206 @@ def parse_cas_data(_data):
     return AnalysisResponse(success=False, error="Legacy list format not supported in new analyzer")
 
 
+@app.get("/api/auth/me", response_model=AuthSessionResponse)
+async def auth_me(auth: AuthContext = Depends(require_authenticated_user)):
+    return AuthSessionResponse(
+        user_id=auth.user_id,
+        session_id=auth.session_id,
+        is_admin=auth.is_admin,
+    )
+
+
+@app.get("/api/admin/overview", response_model=AdminOverviewResponse)
+async def admin_overview(auth: AuthContext = Depends(require_admin_user)):
+    record_audit_log(
+        user_id=auth.user_id,
+        route="/api/admin/overview",
+        action="admin_overview_viewed",
+        status="success",
+        message="Admin overview fetched.",
+    )
+    overview = get_admin_overview(registered_users=await fetch_clerk_user_count())
+    return AdminOverviewResponse(
+        metrics=AdminAnalyticsMetrics(**overview["metrics"]),
+        recent_analyses=[AdminAnalysisRun(**item) for item in overview["recent_analyses"]],
+        recent_logs=[AdminLogEntry(**item) for item in overview["recent_logs"]],
+    )
+
+
 @app.post("/api/analyze", response_model=AnalysisResponse)
-async def analyze(file: UploadFile = File(...), password: str = Form("")):
+async def analyze(
+    request: Request,
+    auth: AuthContext = Depends(require_authenticated_user),
+    file: UploadFile = File(...),
+    password: str = Form(""),
+):
     request_id = uuid.uuid4().hex[:10]
+    started_at = perf_counter()
+    raw_filename = (file.filename or "").strip()
+    filename_lower = raw_filename.lower()
+    file_type = Path(raw_filename).suffix.lower().lstrip(".") or None
+
+    def record_outcome(response: Optional[AnalysisResponse], status: str, error_message: Optional[str] = None) -> None:
+        holdings_count = response.summary.holdings_count if response and response.summary else None
+        total_market_value = response.summary.total_market_value if response and response.summary else None
+        record_analysis_run(
+            request_id=request_id,
+            user_id=auth.user_id,
+            session_id=auth.session_id,
+            file_name=raw_filename or None,
+            file_type=file_type,
+            status=status,
+            duration_ms=int((perf_counter() - started_at) * 1000),
+            holdings_count=holdings_count,
+            total_market_value=total_market_value,
+            error_message=error_message,
+        )
+
     try:
-        content = await file.read()
+        content, read_error = await _read_upload_limited(file)
+        if read_error:
+            response = AnalysisResponse(success=False, error=read_error)
+            record_outcome(response, "validation_error", read_error)
+            return response
+        assert content is not None
+
         validation_error = _validate_upload(file, content)
         if validation_error:
-            return AnalysisResponse(success=False, error=validation_error)
+            response = AnalysisResponse(success=False, error=validation_error)
+            record_outcome(response, "validation_error", validation_error)
+            return response
 
-        filename = (file.filename or "").lower()
-        if filename.endswith(".pdf"):
+        if filename_lower.endswith(".pdf"):
             parse_result = parse_with_casparser(io.BytesIO(content), password=password)
             if not parse_result["success"]:
-                return AnalysisResponse(success=False, error=parse_result["error"])
-            return await map_casparser_to_analysis(parse_result["data"])
+                response = AnalysisResponse(success=False, error=parse_result["error"])
+                record_outcome(response, "parse_error", parse_result["error"])
+                return response
+            response = await map_casparser_to_analysis(parse_result["data"])
+            record_outcome(response, "success" if response.success else "analysis_error", response.error)
+            return response
 
-        if filename.endswith(".json"):
+        if filename_lower.endswith(".json"):
             try:
                 json_data = json.loads(content)
             except Exception:
-                return AnalysisResponse(success=False, error="Invalid JSON file.")
+                response = AnalysisResponse(success=False, error="Invalid JSON file.")
+                record_outcome(response, "validation_error", response.error)
+                return response
             if isinstance(json_data, dict) and "folios" in json_data:
-                return await map_casparser_to_analysis(json_data)
+                shape_error = _validate_cas_json_shape(json_data)
+                if shape_error:
+                    response = AnalysisResponse(success=False, error=shape_error)
+                    record_outcome(response, "validation_error", shape_error)
+                    return response
+                response = await map_casparser_to_analysis(json_data)
+                record_outcome(response, "success" if response.success else "analysis_error", response.error)
+                return response
             if isinstance(json_data, list):
-                return parse_cas_data(json_data)
-            return AnalysisResponse(success=False, error="Unknown JSON format.")
+                response = parse_cas_data(json_data)
+                record_outcome(response, "validation_error", response.error)
+                return response
+            response = AnalysisResponse(success=False, error="Unknown JSON format.")
+            record_outcome(response, "validation_error", response.error)
+            return response
 
-        return AnalysisResponse(success=False, error="Unsupported file type. Please upload a PDF or JSON.")
+        response = AnalysisResponse(success=False, error="Unsupported file type. Please upload a PDF or JSON.")
+        record_outcome(response, "validation_error", response.error)
+        return response
     except Exception as e:
         log_debug(f"[{request_id}] analyze error: {type(e).__name__}: {e}")
-        return AnalysisResponse(success=False, error=f"Internal server error. Request ID: {request_id}")
+        error_message = f"Internal server error. Request ID: {request_id}"
+        response = AnalysisResponse(success=False, error=error_message)
+        record_outcome(response, "internal_error", error_message)
+        return response
 
 
 @app.post("/api/parse_pdf")
-async def parse_pdf(file: UploadFile = File(...), password: str = Form(""), output_format: str = Form("json")):
+async def parse_pdf(
+    request: Request,
+    auth: AuthContext = Depends(require_authenticated_user),
+    file: UploadFile = File(...),
+    password: str = Form(""),
+    output_format: str = Form("json"),
+):
     request_id = uuid.uuid4().hex[:10]
     try:
-        content = await file.read()
+        content, read_error = await _read_upload_limited(file)
+        if read_error:
+            record_audit_log(
+                user_id=auth.user_id,
+                route=request.url.path,
+                action="parse_pdf_failed",
+                status="validation_error",
+                message=read_error,
+            )
+            return JSONResponse(status_code=400, content={"error": read_error})
+        assert content is not None
+
         validation_error = _validate_upload(file, content)
         if validation_error:
+            record_audit_log(
+                user_id=auth.user_id,
+                route=request.url.path,
+                action="parse_pdf_failed",
+                status="validation_error",
+                message=validation_error,
+            )
             return JSONResponse(status_code=400, content={"error": validation_error})
         if not (file.filename or "").lower().endswith(".pdf"):
+            record_audit_log(
+                user_id=auth.user_id,
+                route=request.url.path,
+                action="parse_pdf_failed",
+                status="validation_error",
+                message="Only PDF files are supported for this endpoint.",
+            )
             return JSONResponse(status_code=400, content={"error": "Only PDF files are supported for this endpoint."})
 
         result = parse_with_casparser(io.BytesIO(content), password=password)
         if not result["success"]:
+            record_audit_log(
+                user_id=auth.user_id,
+                route=request.url.path,
+                action="parse_pdf_failed",
+                status="parse_error",
+                message=result["error"],
+            )
             return JSONResponse(status_code=400, content={"error": result["error"]})
 
         if output_format.lower() == "excel":
+            record_audit_log(
+                user_id=auth.user_id,
+                route=request.url.path,
+                action="parse_pdf_succeeded",
+                status="success",
+                message="Parsed CAS PDF to Excel.",
+                metadata={"output_format": "excel"},
+            )
             excel_buffer = convert_to_excel(result["data"])
             return StreamingResponse(
                 excel_buffer,
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 headers={"Content-Disposition": "attachment; filename=portfolio.xlsx"},
             )
+        record_audit_log(
+            user_id=auth.user_id,
+            route=request.url.path,
+            action="parse_pdf_succeeded",
+            status="success",
+            message="Parsed CAS PDF to JSON.",
+            metadata={"output_format": "json"},
+        )
         return JSONResponse(content=result["data"])
     except Exception as e:
         log_debug(f"[{request_id}] parse_pdf error: {type(e).__name__}: {e}")
+        record_audit_log(
+            user_id=auth.user_id,
+            route=request.url.path,
+            action="parse_pdf_failed",
+            status="internal_error",
+            message=f"Internal server error. Request ID: {request_id}",
+        )
         return JSONResponse(status_code=500, content={"error": f"Internal server error. Request ID: {request_id}"})
 
 
@@ -1732,6 +2052,30 @@ async def test_api():
 @app.get("/")
 async def home():
     return FileResponse("static/index.html")
+
+
+def _serve_spa() -> FileResponse:
+    return FileResponse("static/index.html")
+
+
+@app.get("/dashboard")
+async def dashboard_page():
+    return _serve_spa()
+
+
+@app.get("/dashboard/{path:path}")
+async def dashboard_page_nested(path: str):
+    return _serve_spa()
+
+
+@app.get("/admin")
+async def admin_page():
+    return _serve_spa()
+
+
+@app.get("/admin/{path:path}")
+async def admin_page_nested(path: str):
+    return _serve_spa()
 
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

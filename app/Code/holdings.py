@@ -7,7 +7,7 @@ Option C: Groww scheme page server-side payload (real constituent holdings).
 import os
 import re
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Any
 
 import httpx
@@ -23,6 +23,7 @@ _groww_holdings_cache: Dict[str, List[Tuple[str, float]]] = {}
 _groww_index_by_code: Dict[str, Dict[str, Any]] = {}
 _groww_index_entries: List[Dict[str, Any]] = []
 _groww_index_loaded = False
+_groww_index_lock = asyncio.Lock()
 AMFI_CACHE_FILE = "data/amfi_cache.json"
 DEBUG_LOG_ENABLED = os.environ.get("ENABLE_DEBUG_LOGS", "").strip().lower() in {"1", "true", "yes"}
 
@@ -146,42 +147,44 @@ async def _get_groww_index(client: httpx.AsyncClient) -> Tuple[Dict[str, Dict[st
     if _groww_index_loaded and _groww_index_entries:
         return _groww_index_by_code, _groww_index_entries
 
-    search_url = "https://groww.in/v1/api/search/v1/derived/scheme?query=mf&size=2000"
-    try:
-        response = await client.get(search_url)
-        if response.status_code != 200:
+    async with _groww_index_lock:
+        if _groww_index_loaded and _groww_index_entries:
+            return _groww_index_by_code, _groww_index_entries
+
+        search_url = "https://groww.in/v1/api/search/v1/derived/scheme?query=mf&size=2000"
+        try:
+            response = await client.get(search_url)
+            if response.status_code != 200:
+                return {}, []
+            payload = response.json()
+            content = payload.get("content") if isinstance(payload, dict) else []
+            entries: List[Dict[str, Any]] = []
+            by_code: Dict[str, Dict[str, Any]] = {}
+            if isinstance(content, list):
+                for item in content:
+                    if not isinstance(item, dict):
+                        continue
+                    slug = str(item.get("id") or "").strip()
+                    scheme_code = str(item.get("scheme_code") or "").strip()
+                    scheme_name = str(item.get("scheme_name") or item.get("fund_name") or "").strip()
+                    if not slug:
+                        continue
+                    normalized = _normalize_for_match(scheme_name)
+                    record = {
+                        "id": slug,
+                        "scheme_code": scheme_code,
+                        "scheme_name": scheme_name,
+                        "normalized_name": normalized,
+                    }
+                    entries.append(record)
+                    if scheme_code:
+                        by_code[scheme_code] = record
+            _groww_index_by_code = by_code
+            _groww_index_entries = entries
             _groww_index_loaded = True
+            return by_code, entries
+        except Exception:
             return {}, []
-        payload = response.json()
-        content = payload.get("content") if isinstance(payload, dict) else []
-        entries: List[Dict[str, Any]] = []
-        by_code: Dict[str, Dict[str, Any]] = {}
-        if isinstance(content, list):
-            for item in content:
-                if not isinstance(item, dict):
-                    continue
-                slug = str(item.get("id") or "").strip()
-                scheme_code = str(item.get("scheme_code") or "").strip()
-                scheme_name = str(item.get("scheme_name") or item.get("fund_name") or "").strip()
-                if not slug:
-                    continue
-                normalized = _normalize_for_match(scheme_name)
-                record = {
-                    "id": slug,
-                    "scheme_code": scheme_code,
-                    "scheme_name": scheme_name,
-                    "normalized_name": normalized,
-                }
-                entries.append(record)
-                if scheme_code:
-                    by_code[scheme_code] = record
-        _groww_index_by_code = by_code
-        _groww_index_entries = entries
-        _groww_index_loaded = True
-        return by_code, entries
-    except Exception:
-        _groww_index_loaded = True
-        return {}, []
 
 
 def _pick_best_groww_candidate(
@@ -355,7 +358,7 @@ async def _fetch_amfi_monthly_file() -> Dict[str, List[Tuple[str, float]]]:
     Tries current and previous months in parallel.
     Returns dict scheme_key -> [(instrument, weight_pct)]. Empty if no file found.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     month_names = "jan feb mar apr may jun jul aug sep oct nov dec".split()
     
     # Check cache first for any month
@@ -401,13 +404,14 @@ async def _fetch_amfi_monthly_file() -> Dict[str, List[Tuple[str, float]]]:
                         await save_amfi_cache_async()
                         return result
                     log_holdings(f"Parsed 0 rows from {url}; likely non-holdings workbook format")
+                    _amfi_cache[cache_key] = {}
+                    await save_amfi_cache_async()
                 elif r.status_code == 404:
                     _failed_urls.add(url)
+                    _amfi_cache[cache_key] = {}
                     await save_amfi_cache_async()
         except Exception:
-            _failed_urls.add(url)
-            await save_amfi_cache_async()
-        _amfi_cache[cache_key] = {}
+            log_holdings(f"Transient AMFI fetch failure for {url}; will retry later.")
         return None
 
     results = await asyncio.gather(*[_try_download(u, k) for u, k in zip(urls_to_try, keys_to_try)])

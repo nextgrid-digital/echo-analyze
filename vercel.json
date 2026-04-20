@@ -33,6 +33,20 @@
       "continue": true
     },
     {
+      "src": "^/admin$",
+      "headers": {
+        "Cache-Control": "no-store, max-age=0"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/admin/(.*)$",
+      "headers": {
+        "Cache-Control": "no-store, max-age=0"
+      },
+      "continue": true
+    },
+    {
       "src": "/api/(.*)",
       "dest": "app/Code/main.py"
     },
@@ -50,6 +64,14 @@
     },
     {
       "src": "/dashboard/(.*)",
+      "dest": "/static/index.html"
+    },
+    {
+      "src": "/admin",
+      "dest": "/static/index.html"
+    },
+    {
+      "src": "/admin/(.*)",
       "dest": "/static/index.html"
     },
     {

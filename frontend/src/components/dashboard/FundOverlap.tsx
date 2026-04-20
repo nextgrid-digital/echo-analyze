@@ -1,8 +1,6 @@
 
 
 import { memo, useRef } from "react"
-import html2canvas from "html2canvas"
-import { jsPDF } from "jspdf"
 import { WideCard } from "./cards/WideCard"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import { Button } from "@/components/ui/button"
@@ -73,6 +71,14 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
   const hasData = n >= 2 && matrix.length >= 2
   const matrixRef = useRef<HTMLDivElement>(null)
 
+  const loadCaptureLibraries = async () => {
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+      import("html2canvas"),
+      import("jspdf"),
+    ])
+    return { html2canvas, jsPDF }
+  }
+
   const handleDownloadCSV = () => {
     // Header row: "Fund" followed by each fund name
     const headers = ["Fund", ...fund_names]
@@ -109,6 +115,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
   const handleDownloadImage = async () => {
     if (!matrixRef.current) return
     try {
+      const { html2canvas } = await loadCaptureLibraries()
       const canvas = await html2canvas(matrixRef.current, {
         scale: 2,
         useCORS: true,
@@ -140,6 +147,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
   const handleDownloadPDF = async () => {
     if (!matrixRef.current) return
     try {
+      const { html2canvas, jsPDF } = await loadCaptureLibraries()
       const canvas = await html2canvas(matrixRef.current, {
         scale: 2,
         useCORS: true,
