@@ -112,7 +112,9 @@ export function RootLayout() {
     return <AuthSetupNotice />
   }
 
-  if (config?.clerk_frontend_api && config.clerk_frontend_api_resolves === false) {
+  const isLocalHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+
+  if (isLocalHost && config?.clerk_frontend_api && config.clerk_frontend_api_resolves === false) {
     return <AuthDomainNotice config={config} />
   }
 
