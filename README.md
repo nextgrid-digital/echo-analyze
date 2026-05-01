@@ -75,13 +75,14 @@ This will:
 
 - Backend: copy `.env.example` to `.env` and fill in:
   - `CLERK_SECRET_KEY`
+  - `VITE_CLERK_PUBLISHABLE_KEY` or `CLERK_PUBLISHABLE_KEY`
   - `CLERK_JWT_KEY` (optional, recommended if you want networkless verification)
   - `CLERK_ADMIN_USER_IDS`
   - `CLERK_ALLOWED_PARTIES`
   - `CLERK_ALLOWED_ISSUERS` (optional, recommended; comma-separated Clerk issuer URLs)
   - `CLERK_REQUIRE_AZP` (recommended `true` when your tokens include `azp`; set to `false` only for legacy tokens that omit it)
   - `ENABLE_DEBUG_LOGS` (keep `false` unless you are temporarily debugging locally)
-- Frontend: copy `frontend/.env.example` to `frontend/.env.local` and fill in:
+- Frontend-only Vite dev also supports `frontend/.env.local` with:
   - `VITE_CLERK_PUBLISHABLE_KEY`
 
 `CLERK_ADMIN_USER_IDS` should contain one or more Clerk user IDs separated by commas. Those users can open `/admin`.
@@ -104,6 +105,7 @@ This will:
 ### 4. How the auth flow works
 
 - The React app signs users in with Clerk.
+- The app reads the Clerk publishable key from `/api/config` at runtime, so local FastAPI and Vercel deployments use the currently configured environment instead of a stale value baked into `static/`.
 - Protected API calls attach a Clerk session token from the frontend.
 - FastAPI verifies that token against Clerk JWKS before allowing `/api/analyze`, `/api/parse_pdf`, `/api/auth/me`, or `/api/admin/overview`.
 - If you set `CLERK_JWT_KEY`, FastAPI can verify tokens without fetching JWKS on each cache refresh.

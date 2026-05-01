@@ -1,9 +1,11 @@
 import asyncio
+import base64
 import io
 import json
 import math
 import os
 import re
+import socket
 import uuid
 from bisect import bisect_right
 from dataclasses import dataclass
@@ -53,24 +55,20 @@ AMFI_CODE_PATTERN = re.compile(r"^\d{1,12}$")
 DEFAULT_PDF_PARSE_TIMEOUT_SECONDS = 30.0
 DEBUG_LOG_ENABLED = os.environ.get("ENABLE_DEBUG_LOGS", "").strip().lower() in {"1", "true", "yes"}
 SENSITIVE_API_PATHS = {
+    "/api/config",
     "/api/analyze",
     "/api/parse_pdf",
     "/api/auth/me",
     "/api/admin/overview",
 }
-CONTENT_SECURITY_POLICY = (
-    "default-src 'self'; "
-    "script-src 'self' https://*.clerk.accounts.dev https://*.clerk.com; "
-    "style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data: blob: https:; "
-    "font-src 'self' data:; "
-    "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://api.clerk.com; "
-    "frame-src https://*.clerk.accounts.dev https://*.clerk.com; "
-    "form-action 'self' https://*.clerk.accounts.dev https://*.clerk.com; "
-    "worker-src 'self' blob:; "
-    "object-src 'none'; "
-    "base-uri 'self'; "
-    "frame-ancestors 'none'"
+CLERK_PUBLISHABLE_KEY_ENV_NAMES = (
+    "VITE_CLERK_PUBLISHABLE_KEY",
+    "CLERK_PUBLISHABLE_KEY",
+    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+)
+BASE_CLERK_CSP_SOURCES = (
+    "https://*.clerk.accounts.dev",
+    "https://*.clerk.com",
 )
 
 
@@ -136,7 +134,7 @@ async def add_response_security_headers(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+    response.headers.setdefault("Content-Security-Policy", _build_content_security_policy())
 
     if _should_disable_cache(request.url.path):
         response.headers["Cache-Control"] = "no-store, max-age=0"
@@ -316,6 +314,92 @@ def _get_pdf_parse_timeout_seconds() -> float:
     except ValueError:
         return DEFAULT_PDF_PARSE_TIMEOUT_SECONDS
     return min(max(parsed, 1.0), 120.0)
+
+
+def _get_runtime_clerk_publishable_key() -> Optional[str]:
+    for env_name in CLERK_PUBLISHABLE_KEY_ENV_NAMES:
+        value = os.environ.get(env_name, "").strip()
+        if value.startswith("pk_"):
+            return value
+        if value:
+            log_debug(f"Ignoring invalid Clerk publishable key in {env_name}.")
+    return None
+
+
+def _get_runtime_clerk_key_type() -> Optional[str]:
+    publishable_key = _get_runtime_clerk_publishable_key()
+    if not publishable_key:
+        return None
+    if publishable_key.startswith("pk_test_"):
+        return "test"
+    if publishable_key.startswith("pk_live_"):
+        return "live"
+    return "unknown"
+
+
+def _get_clerk_frontend_api_from_publishable_key() -> Optional[str]:
+    publishable_key = _get_runtime_clerk_publishable_key()
+    if not publishable_key:
+        return None
+
+    parts = publishable_key.split("_", 2)
+    if len(parts) != 3:
+        return None
+
+    encoded_frontend_api = parts[2].strip()
+    if not encoded_frontend_api:
+        return None
+
+    try:
+        padded = encoded_frontend_api + ("=" * (-len(encoded_frontend_api) % 4))
+        decoded = base64.b64decode(padded, validate=True).decode("ascii").strip()
+    except Exception:
+        return None
+
+    frontend_api = decoded[:-1] if decoded.endswith("$") else decoded
+    if not frontend_api or not re.fullmatch(r"[A-Za-z0-9.-]+", frontend_api):
+        return None
+    return frontend_api
+
+
+def _does_clerk_frontend_api_resolve() -> Optional[bool]:
+    frontend_api = _get_clerk_frontend_api_from_publishable_key()
+    if not frontend_api:
+        return None
+
+    try:
+        socket.getaddrinfo(frontend_api, 443)
+    except socket.gaierror:
+        return False
+    except OSError:
+        return None
+    return True
+
+
+def _get_clerk_csp_sources() -> str:
+    sources = list(BASE_CLERK_CSP_SOURCES)
+    frontend_api = _get_clerk_frontend_api_from_publishable_key()
+    if frontend_api:
+        sources.append(f"https://{frontend_api}")
+    return " ".join(dict.fromkeys(sources))
+
+
+def _build_content_security_policy() -> str:
+    clerk_sources = _get_clerk_csp_sources()
+    return (
+        "default-src 'self'; "
+        f"script-src 'self' {clerk_sources}; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob: https:; "
+        "font-src 'self' data:; "
+        f"connect-src 'self' {clerk_sources} https://api.clerk.com; "
+        f"frame-src {clerk_sources}; "
+        f"form-action 'self' {clerk_sources}; "
+        "worker-src 'self' blob:; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'"
+    )
 
 
 async def _parse_pdf_upload(content: bytes, password: str = "") -> Dict[str, Any]:
@@ -1115,6 +1199,13 @@ class AuthSessionResponse(BaseModel):
     user_id: str
     session_id: Optional[str] = None
     is_admin: bool
+
+
+class PublicConfigResponse(BaseModel):
+    clerk_publishable_key: Optional[str] = None
+    clerk_key_type: Optional[str] = None
+    clerk_frontend_api: Optional[str] = None
+    clerk_frontend_api_resolves: Optional[bool] = None
 
 
 class AdminAnalyticsMetrics(BaseModel):
@@ -2107,6 +2198,16 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
 def parse_cas_data(_data):
     return AnalysisResponse(success=False, error="Legacy list format not supported in new analyzer")
+
+
+@app.get("/api/config", response_model=PublicConfigResponse)
+async def public_config():
+    return PublicConfigResponse(
+        clerk_publishable_key=_get_runtime_clerk_publishable_key(),
+        clerk_key_type=_get_runtime_clerk_key_type(),
+        clerk_frontend_api=_get_clerk_frontend_api_from_publishable_key(),
+        clerk_frontend_api_resolves=_does_clerk_frontend_api_resolve(),
+    )
 
 
 @app.get("/api/auth/me", response_model=AuthSessionResponse)

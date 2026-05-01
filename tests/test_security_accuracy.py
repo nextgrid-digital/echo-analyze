@@ -1,8 +1,10 @@
 import asyncio
+import base64
 import csv
 import io
 import json
 import os
+import socket
 import tempfile
 import time
 import unittest
@@ -46,6 +48,9 @@ from app.Code.pdfminer_hardening import (
 from app.Code.main import (
     _benchmark_nav_for_date,
     _current_holding_entry_date,
+    _does_clerk_frontend_api_resolve,
+    _get_clerk_frontend_api_from_publishable_key,
+    _get_runtime_clerk_publishable_key,
     _normalize_amfi_code,
     _parse_amount,
     _parse_iso_date,
@@ -976,6 +981,74 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertIn("default-src 'self'", csp)
         self.assertIn("object-src 'none'", csp)
         self.assertIn("frame-ancestors 'none'", csp)
+
+    def test_public_config_returns_runtime_clerk_publishable_key_without_cache(self):
+        client = TestClient(app)
+        encoded = base64.b64encode(b"runtime.example$").decode("ascii")
+        with patch.dict(
+            os.environ,
+            {
+                "VITE_CLERK_PUBLISHABLE_KEY": f"pk_test_{encoded}",
+                "CLERK_PUBLISHABLE_KEY": "pk_test_fallback",
+                "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "",
+            },
+            clear=False,
+        ), patch("app.Code.main.socket.getaddrinfo", return_value=[]):
+            response = client.get("/api/config")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["clerk_publishable_key"], f"pk_test_{encoded}")
+        self.assertEqual(body["clerk_key_type"], "test")
+        self.assertEqual(body["clerk_frontend_api"], "runtime.example")
+        self.assertTrue(body["clerk_frontend_api_resolves"])
+        self.assertEqual(response.headers.get("cache-control"), "no-store, max-age=0")
+
+    def test_runtime_clerk_publishable_key_ignores_non_publishable_values(self):
+        with patch.dict(
+            os.environ,
+            {
+                "VITE_CLERK_PUBLISHABLE_KEY": "sk_test_not_public",
+                "CLERK_PUBLISHABLE_KEY": "",
+                "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_next_public",
+            },
+            clear=False,
+        ):
+            self.assertEqual(_get_runtime_clerk_publishable_key(), "pk_test_next_public")
+
+    def test_runtime_clerk_frontend_api_reports_dns_failure(self):
+        frontend_api = "missing.example"
+        encoded = base64.b64encode(f"{frontend_api}$".encode("ascii")).decode("ascii")
+        with patch.dict(
+            os.environ,
+            {
+                "VITE_CLERK_PUBLISHABLE_KEY": f"pk_test_{encoded}",
+                "CLERK_PUBLISHABLE_KEY": "",
+                "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "",
+            },
+            clear=False,
+        ), patch("app.Code.main.socket.getaddrinfo", side_effect=socket.gaierror()):
+            self.assertFalse(_does_clerk_frontend_api_resolve())
+
+    def test_runtime_clerk_frontend_api_is_allowed_in_csp(self):
+        frontend_api = "clerk.example.com"
+        encoded = base64.b64encode(f"{frontend_api}$".encode("ascii")).decode("ascii")
+        client = TestClient(app)
+
+        with patch.dict(
+            os.environ,
+            {
+                "VITE_CLERK_PUBLISHABLE_KEY": f"pk_live_{encoded}",
+                "CLERK_PUBLISHABLE_KEY": "",
+                "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "",
+            },
+            clear=False,
+        ):
+            self.assertEqual(_get_clerk_frontend_api_from_publishable_key(), frontend_api)
+            response = client.get("/api/auth/me")
+
+        csp = response.headers.get("content-security-policy", "")
+        self.assertIn(f"https://{frontend_api}", csp)
 
 
 class TestAuthHardening(unittest.IsolatedAsyncioTestCase):

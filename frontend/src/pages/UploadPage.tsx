@@ -7,16 +7,21 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { clearLatestAnalysis, storeLatestAnalysis } from "@/lib/analysisSession"
+import { useAuthConfig } from "@/lib/authConfig"
 import type { AnalysisResponse } from "@/types/api"
 import { ArrowRight, LockKeyhole, Upload } from "lucide-react"
+
+const CLERK_LOAD_TIMEOUT_MS = 8000
 
 export function UploadPage() {
   const navigate = useNavigate()
   const { isLoaded, isSignedIn, getToken, userId } = useAuth()
+  const authConfig = useAuthConfig()
   const [password, setPassword] = useState("")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [authLoadTimedOut, setAuthLoadTimedOut] = useState(false)
   const [progress, setProgress] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
   const [analysisComplete, setAnalysisComplete] = useState(false)
@@ -39,6 +44,15 @@ export function UploadPage() {
 
     clearLatestAnalysis()
   }, [isLoaded, isSignedIn])
+
+  useEffect(() => {
+    if (isLoaded) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => setAuthLoadTimedOut(true), CLERK_LOAD_TIMEOUT_MS)
+    return () => window.clearTimeout(timeoutId)
+  }, [isLoaded])
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
@@ -163,8 +177,26 @@ export function UploadPage() {
         </header>
 
         {!isLoaded ? (
-          <div className="border border-border bg-card p-10 text-center text-muted-foreground">
-            Loading authentication...
+          <div className="border border-border bg-card p-10 text-center space-y-3">
+            <p className="text-muted-foreground">
+              Loading Clerk authentication...
+            </p>
+            {authLoadTimedOut ? (
+              <p className="text-sm text-destructive max-w-xl mx-auto leading-6">
+                Clerk did not finish loading. Current key type:{" "}
+                <code>{authConfig?.clerk_key_type ?? "unknown"}</code>
+                {authConfig?.clerk_frontend_api ? (
+                  <>
+                    {" "}
+                    for <code>{authConfig.clerk_frontend_api}</code>.
+                  </>
+                ) : (
+                  "."
+                )}{" "}
+                For local development, use a Clerk test publishable key or make sure the Clerk
+                frontend domain resolves from this machine.
+              </p>
+            ) : null}
           </div>
         ) : !isSignedIn ? (
           <div className="border border-border bg-card p-8 sm:p-12 text-center space-y-6">
