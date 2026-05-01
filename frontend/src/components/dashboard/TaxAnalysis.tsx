@@ -88,19 +88,19 @@ function TaxAnalysisInner({ summary }: TaxAnalysisProps) {
             <div className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-green-600" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Tax-Free Gains
+                LTCG Exempt Gains
               </p>
             </div>
             <SectionInfoTooltip
-              title="Tax-Free Gains"
+              title="LTCG Exempt Gains"
               formula={
                 <>
-                  Tax-Free Gains = Gains from ELSS/tax-free instruments
+                  Exempt LTCG = min(Net long-term gains after set-off, Annual LTCG exemption)
                 </>
               }
               content={
                 <>
-                  Gains from tax-exempt instruments that are not subject to capital gains tax.
+                  Portion of net long-term equity gains covered by the annual LTCG exemption. This is not a separate ELSS or tax-free instrument bucket.
                 </>
               }
             />
@@ -109,7 +109,7 @@ function TaxAnalysisInner({ summary }: TaxAnalysisProps) {
             {toLakhs(taxData.tax_free_gains)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            Exempt gains
+            Covered by LTCG exemption
           </p>
         </CompactCard>
 
@@ -122,7 +122,7 @@ function TaxAnalysisInner({ summary }: TaxAnalysisProps) {
               title="Taxable Gains"
               formula={
                 <>
-                  Taxable Gains = Short-Term + max(Long-Term - Exemption, 0) - Tax-Free
+                  Taxable Gains = max(Net STCG, 0) + max(Net LTCG after set-off - Exemption, 0)
                 </>
               }
               content={

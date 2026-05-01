@@ -1,11 +1,18 @@
+node_modules/
 venv/
 tests/
 data/
+.env
+.env.*
+**/.env
+**/.env.*
+*.log
 *.md
 .git
 .gitignore
 __pycache__/
 *.pyc
+vendor/
 run_local.bat
 # Frontend source is excluded from upload; Vercel serves prebuilt files in /static.
 frontend/

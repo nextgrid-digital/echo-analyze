@@ -1,6 +1,7 @@
 import asyncio
 import io
 import json
+import math
 import os
 import re
 import uuid
@@ -34,13 +35,43 @@ app = FastAPI()
 LOG_FILE = "data/backend_debug.log"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
+MAX_CAS_FOLIOS = 100
+MAX_CAS_SCHEMES = 500
+MAX_CAS_TRANSACTIONS = 20_000
+MAX_UNIQUE_AMFI_CODES = 250
+MAX_OVERLAP_FUNDS = 100
+MAX_TEXT_FIELD_CHARS = 500
+MAX_NUMERIC_ABS = 1_000_000_000_000_000.0
 ALLOWED_EXTENSIONS = {".pdf", ".json"}
 ALLOWED_CONTENT_TYPES = {
     ".pdf": {"application/pdf", "application/octet-stream"},
     ".json": {"application/json", "text/json", "application/octet-stream", "text/plain"},
 }
+ALLOWED_PARSE_OUTPUT_FORMATS = {"json", "excel"}
 PDF_MAGIC_PREFIX = b"%PDF-"
+AMFI_CODE_PATTERN = re.compile(r"^\d{1,12}$")
+DEFAULT_PDF_PARSE_TIMEOUT_SECONDS = 30.0
 DEBUG_LOG_ENABLED = os.environ.get("ENABLE_DEBUG_LOGS", "").strip().lower() in {"1", "true", "yes"}
+SENSITIVE_API_PATHS = {
+    "/api/analyze",
+    "/api/parse_pdf",
+    "/api/auth/me",
+    "/api/admin/overview",
+}
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self' https://*.clerk.accounts.dev https://*.clerk.com; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob: https:; "
+    "font-src 'self' data:; "
+    "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://api.clerk.com; "
+    "frame-src https://*.clerk.accounts.dev https://*.clerk.com; "
+    "form-action 'self' https://*.clerk.accounts.dev https://*.clerk.com; "
+    "worker-src 'self' blob:; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "frame-ancestors 'none'"
+)
 
 
 def _redact_pii(text: str) -> str:
@@ -62,7 +93,7 @@ def log_debug(msg: str) -> None:
             with open(LOG_FILE, "a") as f:
                 f.write(f"[{datetime.now()}] {safe_msg}\n")
     except Exception:
-        pass
+        return
 
 
 def _get_allowed_origins() -> List[str]:
@@ -84,9 +115,35 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_get_allowed_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
+
+
+def _should_disable_cache(path: str) -> bool:
+    if path in SENSITIVE_API_PATHS:
+        return True
+    if path == "/" or path == "/dashboard" or path.startswith("/dashboard/"):
+        return True
+    if path == "/admin" or path.startswith("/admin/"):
+        return True
+    return False
+
+
+@app.middleware("http")
+async def add_response_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+
+    if _should_disable_cache(request.url.path):
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+
+    return response
 
 
 def get_sub_category(scheme_name: str, scheme_type: str) -> str:
@@ -156,22 +213,122 @@ def _infer_category(scheme_name: str, scheme_type: str, sub_category: str) -> Tu
     return "Others", True
 
 
-def _parse_iso_date(value: str) -> Optional[datetime]:
-    try:
-        return datetime.strptime(value, "%Y-%m-%d")
-    except Exception:
+def _parse_iso_date(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None)
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    if not isinstance(value, str):
         return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            return parsed.replace(tzinfo=None)
+        except ValueError:
+            return None
 
 
 def _parse_amount(value) -> Optional[float]:
     if value is None:
         return None
+    if isinstance(value, bool):
+        return None
     try:
         if isinstance(value, str):
-            return float(value.replace(",", ""))
-        return float(value)
+            cleaned = value.strip()
+            if not cleaned:
+                return None
+            cleaned = cleaned.replace(",", "")
+            cleaned = re.sub(r"(?i)\b(?:rs|inr)\b|[₹]", "", cleaned).strip()
+            if not re.fullmatch(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", cleaned):
+                return None
+            parsed = float(cleaned)
+        else:
+            parsed = float(value)
     except Exception:
         return None
+    if not math.isfinite(parsed) or abs(parsed) > MAX_NUMERIC_ABS:
+        return None
+    return parsed
+
+
+def _validate_optional_number(value: Any, field_path: str) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    if _parse_amount(value) is None:
+        return f"Invalid CAS JSON format. '{field_path}' must be a finite number."
+    return None
+
+
+def _safe_text(value: Any, default: str = "", max_length: int = MAX_TEXT_FIELD_CHARS) -> str:
+    if value is None:
+        return default
+    if isinstance(value, (dict, list, tuple, set)):
+        return default
+    text = str(value).strip()
+    if not text:
+        return default
+    return text[:max_length]
+
+
+def _safe_optional_text(value: Any, max_length: int = MAX_TEXT_FIELD_CHARS) -> Optional[str]:
+    text = _safe_text(value, "", max_length=max_length)
+    return text or None
+
+
+def _first_text(*values: Any, max_length: int = MAX_TEXT_FIELD_CHARS) -> Optional[str]:
+    for value in values:
+        text = _safe_optional_text(value, max_length=max_length)
+        if text:
+            return text
+    return None
+
+
+def _normalize_amfi_code(value: Any) -> str:
+    if value is None or isinstance(value, bool):
+        return ""
+    if isinstance(value, int):
+        code = str(value)
+    elif isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            return ""
+        code = str(int(value))
+    else:
+        code = str(value).strip()
+        if re.fullmatch(r"\d+\.0+", code):
+            code = code.split(".", 1)[0]
+    return code if AMFI_CODE_PATTERN.fullmatch(code) else ""
+
+
+def _get_pdf_parse_timeout_seconds() -> float:
+    raw_timeout = os.environ.get("PDF_PARSE_TIMEOUT_SECONDS", "").strip()
+    if not raw_timeout:
+        return DEFAULT_PDF_PARSE_TIMEOUT_SECONDS
+    try:
+        parsed = float(raw_timeout)
+    except ValueError:
+        return DEFAULT_PDF_PARSE_TIMEOUT_SECONDS
+    return min(max(parsed, 1.0), 120.0)
+
+
+async def _parse_pdf_upload(content: bytes, password: str = "") -> Dict[str, Any]:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(parse_with_casparser, io.BytesIO(content), password=password),
+            timeout=_get_pdf_parse_timeout_seconds(),
+        )
+    except asyncio.TimeoutError:
+        return {
+            "success": False,
+            "error": "PDF parsing timed out. Please try again with a smaller file.",
+        }
 
 
 async def _read_upload_limited(file: UploadFile) -> Tuple[Optional[bytes], Optional[str]]:
@@ -191,10 +348,27 @@ async def _read_upload_limited(file: UploadFile) -> Tuple[Optional[bytes], Optio
 
 
 def _validate_cas_json_shape(cas_data: dict) -> Optional[str]:
+    if not isinstance(cas_data, dict):
+        return "Invalid CAS JSON format. Root object must be a JSON object."
+
+    statement_period = cas_data.get("statement_period")
+    if statement_period is not None and not isinstance(statement_period, dict):
+        return "Invalid CAS JSON format. 'statement_period' must be an object."
+
+    for investor_key in ("investor_info", "investor"):
+        investor_obj = cas_data.get(investor_key)
+        if investor_obj is not None and not isinstance(investor_obj, dict):
+            return f"Invalid CAS JSON format. '{investor_key}' must be an object."
+
     folios = cas_data.get("folios")
     if not isinstance(folios, list):
         return "Invalid CAS JSON format. 'folios' must be a list."
+    if len(folios) > MAX_CAS_FOLIOS:
+        return f"Invalid CAS JSON format. Too many folios; maximum supported is {MAX_CAS_FOLIOS}."
 
+    total_schemes = 0
+    total_transactions = 0
+    unique_amfi_codes = set()
     for folio_idx, folio in enumerate(folios, start=1):
         if not isinstance(folio, dict):
             return f"Invalid CAS JSON format. Folio #{folio_idx} must be an object."
@@ -206,11 +380,33 @@ def _validate_cas_json_shape(cas_data: dict) -> Optional[str]:
             return f"Invalid CAS JSON format. Folio #{folio_idx} 'schemes' must be a list."
 
         for scheme_idx, scheme in enumerate(schemes, start=1):
+            total_schemes += 1
+            if total_schemes > MAX_CAS_SCHEMES:
+                return (
+                    "Invalid CAS JSON format. "
+                    f"Too many schemes; maximum supported is {MAX_CAS_SCHEMES}."
+                )
             if not isinstance(scheme, dict):
                 return (
                     "Invalid CAS JSON format. "
                     f"Scheme #{scheme_idx} in folio #{folio_idx} must be an object."
                 )
+
+            amfi_code = _normalize_amfi_code(scheme.get("amfi"))
+            if amfi_code:
+                unique_amfi_codes.add(amfi_code)
+                if len(unique_amfi_codes) > MAX_UNIQUE_AMFI_CODES:
+                    return (
+                        "Invalid CAS JSON format. "
+                        f"Too many unique AMFI scheme codes; maximum supported is {MAX_UNIQUE_AMFI_CODES}."
+                    )
+
+            number_error = _validate_optional_number(
+                scheme.get("close"),
+                f"folios[{folio_idx}].schemes[{scheme_idx}].close",
+            )
+            if number_error:
+                return number_error
 
             valuation = scheme.get("valuation")
             if valuation is not None and not isinstance(valuation, dict):
@@ -218,6 +414,23 @@ def _validate_cas_json_shape(cas_data: dict) -> Optional[str]:
                     "Invalid CAS JSON format. "
                     f"'valuation' for scheme #{scheme_idx} in folio #{folio_idx} must be an object."
                 )
+            if isinstance(valuation, dict):
+                for field_name in (
+                    "nav",
+                    "value",
+                    "cost",
+                    "ter",
+                    "expense_ratio",
+                    "expenseRatio",
+                    "total_expense_ratio",
+                    "totalExpenseRatio",
+                ):
+                    number_error = _validate_optional_number(
+                        valuation.get(field_name),
+                        f"folios[{folio_idx}].schemes[{scheme_idx}].valuation.{field_name}",
+                    )
+                    if number_error:
+                        return number_error
 
             transactions = scheme.get("transactions", [])
             if transactions is None:
@@ -227,24 +440,51 @@ def _validate_cas_json_shape(cas_data: dict) -> Optional[str]:
                     "Invalid CAS JSON format. "
                     f"'transactions' for scheme #{scheme_idx} in folio #{folio_idx} must be a list."
                 )
+            total_transactions += len(transactions)
+            if total_transactions > MAX_CAS_TRANSACTIONS:
+                return (
+                    "Invalid CAS JSON format. "
+                    f"Too many transactions; maximum supported is {MAX_CAS_TRANSACTIONS}."
+                )
             for txn_idx, txn in enumerate(transactions, start=1):
                 if not isinstance(txn, dict):
                     return (
                         "Invalid CAS JSON format. "
                         f"Transaction #{txn_idx} for scheme #{scheme_idx} in folio #{folio_idx} must be an object."
                     )
+                for field_name in ("amount", "units", "nav", "balance"):
+                    number_error = _validate_optional_number(
+                        txn.get(field_name),
+                        (
+                            f"folios[{folio_idx}].schemes[{scheme_idx}]"
+                            f".transactions[{txn_idx}].{field_name}"
+                        ),
+                    )
+                    if number_error:
+                        return number_error
 
     return None
+
+
+def _benchmark_history_entry_to_iso(d_str: Any, val: Any) -> Optional[Tuple[str, float]]:
+    try:
+        dt_obj = datetime.strptime(str(d_str), "%d-%m-%Y")
+        nav = float(val)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(nav) or nav <= 0:
+        return None
+    return dt_obj.strftime("%Y-%m-%d"), nav
 
 
 def _prepare_benchmark_history(raw_history: Dict[str, float]) -> Tuple[Dict[str, float], List[str], List[date], float]:
     iso_history: Dict[str, float] = {}
     for d_str, val in raw_history.items():
-        try:
-            dt_obj = datetime.strptime(d_str, "%d-%m-%Y")
-            iso_history[dt_obj.strftime("%Y-%m-%d")] = float(val)
-        except Exception:
+        parsed_entry = _benchmark_history_entry_to_iso(d_str, val)
+        if parsed_entry is None:
             continue
+        iso_key, nav = parsed_entry
+        iso_history[iso_key] = nav
     sorted_keys = sorted(iso_history.keys())
     sorted_dates = [datetime.strptime(d, "%Y-%m-%d").date() for d in sorted_keys]
     bench_nav_now = iso_history[sorted_keys[-1]] if sorted_keys else 0.0
@@ -552,15 +792,21 @@ def _compute_period_xirr(
 def _parse_percentage(value: Any) -> Optional[float]:
     if value is None:
         return None
+    if isinstance(value, bool):
+        return None
     try:
         if isinstance(value, str):
             cleaned = value.replace("%", "").replace(",", "").strip()
             if not cleaned:
                 return None
-            return float(cleaned)
-        return float(value)
+            parsed = float(cleaned)
+        else:
+            parsed = float(value)
     except Exception:
         return None
+    if not math.isfinite(parsed) or abs(parsed) > 1000:
+        return None
+    return parsed
 
 
 def _extract_scheme_ter_pct(scheme: Dict[str, Any]) -> Optional[float]:
@@ -649,7 +895,7 @@ def _validate_upload(file: UploadFile, content: bytes) -> Optional[str]:
         return "Uploaded file is empty."
     if len(content) > MAX_UPLOAD_BYTES:
         return "File is too large. Maximum supported size is 25 MB."
-    content_type = (file.content_type or "").lower()
+    content_type = (file.content_type or "").split(";", 1)[0].strip().lower()
     if content_type and content_type not in ALLOWED_CONTENT_TYPES[suffix]:
         return "Unsupported content type for uploaded file."
     stripped = content.lstrip()
@@ -917,6 +1163,9 @@ class AdminOverviewResponse(BaseModel):
 async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     if not isinstance(cas_data, dict):
         return AnalysisResponse(success=False, error="Invalid CAS JSON format. Root object must be a JSON object.")
+    shape_error = _validate_cas_json_shape(cas_data)
+    if shape_error:
+        return AnalysisResponse(success=False, error=shape_error)
 
     warnings: List[AnalysisWarning] = []
     warning_codes = set()
@@ -962,6 +1211,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     total_mkt_statement = 0.0
     amcs = set()
     schemes_seen = set()
+    scheme_values: Dict[str, float] = {}
     amc_values: Dict[str, float] = {}
     direct_value = 0.0
     regular_value = 0.0
@@ -982,7 +1232,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     fi_mkt = 0.0
     fi_cost = 0.0
     fi_amc_values: Dict[str, float] = {}
-    fi_holdings_objs: List[Holding] = []
+    fi_scheme_values: Dict[str, float] = {}
     fi_alloc_map: Dict[str, float] = {}
     credit_values = {"AAA": 0.0, "AA": 0.0, "Below AA": 0.0}
     perf_diffs_weighted_1y: List[Tuple[float, float]] = []
@@ -1010,11 +1260,11 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         for scheme in schemes:
             if not isinstance(scheme, dict):
                 continue
-            amfi = str(scheme.get("amfi") or "").strip()
+            amfi = _normalize_amfi_code(scheme.get("amfi"))
             if amfi:
                 all_amfis.add(amfi)
-            name = str(scheme.get("scheme") or "Unknown Scheme")
-            scheme_type = str(scheme.get("type") or "OTHERS").strip()
+            name = _safe_text(scheme.get("scheme"), "Unknown Scheme")
+            scheme_type = _safe_text(scheme.get("type"), "OTHERS")
             sub_cat = get_sub_category(name, scheme_type)
             cat, _ = _infer_category(name, scheme_type, sub_cat)
             comps = _resolve_benchmark_components(name, scheme_type, sub_cat, cat)
@@ -1073,8 +1323,8 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         if not isinstance(folio_data, dict):
             continue
 
-        folio_num = str(folio_data.get("folio") or "N/A")
-        amc_name = str(folio_data.get("amc") or "Unknown AMC")
+        folio_num = _safe_text(folio_data.get("folio"), "N/A", max_length=120)
+        amc_name = _safe_text(folio_data.get("amc"), "Unknown AMC")
         amcs.add(amc_name)
 
         schemes = folio_data.get("schemes", [])
@@ -1089,9 +1339,9 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             if units <= 0.01:
                 continue
 
-            name = str(scheme.get("scheme") or "Unknown Scheme")
-            amfi = str(scheme.get("amfi") or "").strip()
-            scheme_type = str(scheme.get("type") or "OTHERS").strip()
+            name = _safe_text(scheme.get("scheme"), "Unknown Scheme")
+            amfi = _normalize_amfi_code(scheme.get("amfi"))
+            scheme_type = _safe_text(scheme.get("type"), "OTHERS")
             sub_cat = get_sub_category(name, scheme_type)
             cat, ambiguous = _infer_category(name, scheme_type, sub_cat)
             benchmark_components_raw = _resolve_benchmark_components(name, scheme_type, sub_cat, cat)
@@ -1118,9 +1368,9 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             for txn in transactions:
                 if not isinstance(txn, dict):
                     continue
-                desc = (txn.get("description") or "").upper()
-                txn_type = (txn.get("type") or "").upper()
-                date_str = txn.get("date")
+                desc = _safe_text(txn.get("description"), "").upper()
+                txn_type = _safe_text(txn.get("type"), "").upper()
+                date_str = _safe_optional_text(txn.get("date"), max_length=40)
                 if date_str is None:
                     continue
                 dt = _parse_iso_date(date_str)
@@ -1256,6 +1506,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 regular_value += mkt_val
 
             amc_values[amc_name] = amc_values.get(amc_name, 0.0) + mkt_val
+            scheme_values[name] = scheme_values.get(name, 0.0) + mkt_val
             allocation_map[sub_cat] = allocation_map.get(sub_cat, 0.0) + mkt_val
 
             current_holding_entry_dt = _current_holding_entry_date(units, lot_events, scheme_entry_dt)
@@ -1270,6 +1521,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 fi_mkt += mkt_val
                 fi_cost += scheme_cost
                 fi_amc_values[amc_name] = fi_amc_values.get(amc_name, 0.0) + mkt_val
+                fi_scheme_values[name] = fi_scheme_values.get(name, 0.0) + mkt_val
                 fi_alloc_map[sub_cat] = fi_alloc_map.get(sub_cat, 0.0) + mkt_val
                 fi_cashflows.extend(scheme_cashflows)
                 credit_bucket = _credit_quality_bucket(name, sub_cat)
@@ -1444,8 +1696,6 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 style_category="Direct" if is_direct else "Regular",
             )
             holdings.append(h_obj)
-            if cat == "Fixed Income":
-                fi_holdings_objs.append(h_obj)
 
             total_cost += scheme_cost
             total_mkt_live += mkt_val
@@ -1528,10 +1778,10 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     ]
     alloc_list.sort(key=lambda x: x.value, reverse=True)
 
-    top_5_schemes = sorted(holdings, key=lambda x: x.market_value, reverse=True)[:5]
+    top_5_schemes = sorted(scheme_values.items(), key=lambda x: x[1], reverse=True)[:5]
     top_funds = [
-        TopItem(name=s.scheme_name, value=round(s.market_value, 2), allocation_pct=round(s.market_value / total_mkt_live * 100, 1))
-        for s in top_5_schemes
+        TopItem(name=name, value=round(value, 2), allocation_pct=round(value / total_mkt_live * 100, 1))
+        for name, value in top_5_schemes
     ] if total_mkt_live > 0 else []
     sorted_amcs = sorted(amc_values.items(), key=lambda x: x[1], reverse=True)[:5]
     top_amcs = [
@@ -1554,7 +1804,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     else:
         mc_alloc = MarketCapAllocation(large_cap=0.0, mid_cap=0.0, small_cap=0.0)
 
-    fi_top_funds = sorted(fi_holdings_objs, key=lambda x: x.market_value, reverse=True)[:5]
+    fi_top_funds = sorted(fi_scheme_values.items(), key=lambda x: x[1], reverse=True)[:5]
     fi_top_amcs_sorted = sorted(fi_amc_values.items(), key=lambda x: x[1], reverse=True)[:5]
     fi_alloc_list = [
         AssetAllocation(category=k, value=round(v, 2), allocation_pct=round((v / fi_mkt) * 100, 1))
@@ -1582,7 +1832,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 aa_pct=round(credit_values["AA"] / fi_mkt * 100, 1),
                 below_aa_pct=round(credit_values["Below AA"] / fi_mkt * 100, 1),
             ),
-            top_funds=[TopItem(name=s.scheme_name, value=round(s.market_value, 2), allocation_pct=round(s.market_value / fi_mkt * 100, 1)) for s in fi_top_funds],
+            top_funds=[TopItem(name=name, value=round(value, 2), allocation_pct=round(value / fi_mkt * 100, 1)) for name, value in fi_top_funds],
             top_amcs=[TopItem(name=k, value=round(v, 2), allocation_pct=round(v / fi_mkt * 100, 1)) for k, v in fi_top_amcs_sorted],
             category_allocation=fi_alloc_list,
         )
@@ -1715,7 +1965,14 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     overlap_source: Literal["real", "none"] = "none"
     overlap_available_funds = 0
     equity_holdings = [h for h in holdings if h.category == "Equity"]
-    if len(equity_holdings) >= 2:
+    if len(equity_holdings) > MAX_OVERLAP_FUNDS:
+        add_warning(
+            "OVERLAP_TOO_MANY_FUNDS",
+            "overlap",
+            "warn",
+            f"Overlap matrix skipped because {len(equity_holdings)} equity schemes exceeds the supported limit of {MAX_OVERLAP_FUNDS}.",
+        )
+    elif len(equity_holdings) >= 2:
         seen = set()
         scheme_order = []
         scheme_names_map = {}
@@ -1754,17 +2011,29 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     investor_data: Dict[str, str] = {}
     if isinstance(investor_obj, dict):
         investor_data = {
-            "name": investor_obj.get("name") or investor_obj.get("investor_name") or investor_obj.get("full_name"),
-            "email": investor_obj.get("email") or investor_obj.get("email_id") or investor_obj.get("email_address"),
-            "address": investor_obj.get("address") or investor_obj.get("investor_address") or investor_obj.get("full_address"),
-            "phone": investor_obj.get("mobile") or investor_obj.get("phone") or investor_obj.get("phone_number") or investor_obj.get("mobile_number"),
+            "name": _first_text(investor_obj.get("name"), investor_obj.get("investor_name"), investor_obj.get("full_name")),
+            "email": _first_text(investor_obj.get("email"), investor_obj.get("email_id"), investor_obj.get("email_address")),
+            "address": _first_text(investor_obj.get("address"), investor_obj.get("investor_address"), investor_obj.get("full_address")),
+            "phone": _first_text(investor_obj.get("mobile"), investor_obj.get("phone"), investor_obj.get("phone_number"), investor_obj.get("mobile_number"), max_length=80),
         }
-    investor_data["pan"] = cas_data.get("pan") or cas_data.get("pan_number") or cas_data.get("pan_no") or cas_data.get("PAN")
+    investor_data["pan"] = _first_text(
+        cas_data.get("pan"),
+        cas_data.get("pan_number"),
+        cas_data.get("pan_no"),
+        cas_data.get("PAN"),
+        max_length=20,
+    )
     if not investor_data.get("pan"):
         for folio in cas_data.get("folios") or []:
             if not isinstance(folio, dict):
                 continue
-            pan = folio.get("PAN") or folio.get("pan") or folio.get("pan_number") or folio.get("pan_no")
+            pan = _first_text(
+                folio.get("PAN"),
+                folio.get("pan"),
+                folio.get("pan_number"),
+                folio.get("pan_no"),
+                max_length=20,
+            )
             if pan:
                 investor_data["pan"] = pan
                 break
@@ -1773,7 +2042,11 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         log_debug(f"Investor metadata extracted; fields={[k for k, v in investor_data.items() if v]}")
 
     stmt_period = cas_data.get("statement_period", {})
-    statement_date = stmt_period.get("to") or datetime.now().strftime("%d-%b-%Y")
+    statement_date = (
+        _safe_text(stmt_period.get("to"), "", max_length=80)
+        if isinstance(stmt_period, dict)
+        else ""
+    ) or datetime.now().strftime("%d-%b-%Y")
 
     summary = AnalysisSummary(
         total_market_value=round(total_mkt_live, 2),
@@ -1897,7 +2170,11 @@ async def analyze(
             response = AnalysisResponse(success=False, error=read_error)
             record_outcome(response, "validation_error", read_error)
             return response
-        assert content is not None
+        if content is None:
+            error_message = "Unable to read uploaded file."
+            response = AnalysisResponse(success=False, error=error_message)
+            record_outcome(response, "validation_error", error_message)
+            return response
 
         validation_error = _validate_upload(file, content)
         if validation_error:
@@ -1906,7 +2183,7 @@ async def analyze(
             return response
 
         if filename_lower.endswith(".pdf"):
-            parse_result = parse_with_casparser(io.BytesIO(content), password=password)
+            parse_result = await _parse_pdf_upload(content, password=password)
             if not parse_result["success"]:
                 response = AnalysisResponse(success=False, error=parse_result["error"])
                 record_outcome(response, "parse_error", parse_result["error"])
@@ -1959,7 +2236,19 @@ async def parse_pdf(
     output_format: str = Form("json"),
 ):
     request_id = uuid.uuid4().hex[:10]
+    normalized_output_format = output_format.strip().lower()
     try:
+        if normalized_output_format not in ALLOWED_PARSE_OUTPUT_FORMATS:
+            message = "Unsupported output format. Use 'json' or 'excel'."
+            record_audit_log(
+                user_id=auth.user_id,
+                route=request.url.path,
+                action="parse_pdf_failed",
+                status="validation_error",
+                message=message,
+            )
+            return JSONResponse(status_code=400, content={"error": message})
+
         content, read_error = await _read_upload_limited(file)
         if read_error:
             record_audit_log(
@@ -1970,7 +2259,16 @@ async def parse_pdf(
                 message=read_error,
             )
             return JSONResponse(status_code=400, content={"error": read_error})
-        assert content is not None
+        if content is None:
+            message = "Unable to read uploaded file."
+            record_audit_log(
+                user_id=auth.user_id,
+                route=request.url.path,
+                action="parse_pdf_failed",
+                status="validation_error",
+                message=message,
+            )
+            return JSONResponse(status_code=400, content={"error": message})
 
         validation_error = _validate_upload(file, content)
         if validation_error:
@@ -1992,7 +2290,7 @@ async def parse_pdf(
             )
             return JSONResponse(status_code=400, content={"error": "Only PDF files are supported for this endpoint."})
 
-        result = parse_with_casparser(io.BytesIO(content), password=password)
+        result = await _parse_pdf_upload(content, password=password)
         if not result["success"]:
             record_audit_log(
                 user_id=auth.user_id,
@@ -2003,7 +2301,7 @@ async def parse_pdf(
             )
             return JSONResponse(status_code=400, content={"error": result["error"]})
 
-        if output_format.lower() == "excel":
+        if normalized_output_format == "excel":
             record_audit_log(
                 user_id=auth.user_id,
                 route=request.url.path,

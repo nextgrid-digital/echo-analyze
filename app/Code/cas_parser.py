@@ -1,14 +1,24 @@
-from casparser import read_cas_pdf
-from typing import Dict, Any, Union
+from typing import Dict, Any, Optional, Union
 import io
 import datetime
+import re
+from contextlib import suppress
 from openpyxl import Workbook
+
+from app.Code.pdfminer_hardening import harden_pdfminer_cmap_loading
+
+
+harden_pdfminer_cmap_loading()
+
+from casparser import read_cas_pdf
+
+DANGEROUS_SPREADSHEET_PREFIX = re.compile(r"^[\t\r]|^\s*[=+\-@]")
 
 
 def _excel_safe_cell(value):
     if not isinstance(value, str):
         return value
-    if value.startswith(("=", "+", "-", "@")):
+    if DANGEROUS_SPREADSHEET_PREFIX.search(value):
         return f"'{value}"
     return value
 
@@ -44,23 +54,26 @@ def _safe_parse_error(message: str) -> str:
         return "PDF parsing timed out. Please try again with a smaller file."
     return "Unable to parse the provided PDF file."
 
-def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: str = "") -> Dict[str, Any]:
+def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: Optional[str] = None) -> Dict[str, Any]:
     """
     Parses a CAS PDF file using casparser library.
     Handles password-protected PDFs gracefully.
     """
+    harden_pdfminer_cmap_loading()
+
     import tempfile
     import os
 
+    pdf_password = password or ""
     tmp_path = None
     try:
         if not hasattr(pdf_path_or_buffer, "read"):
             try:
-                data = read_cas_pdf(pdf_path_or_buffer, password=password)
+                data = read_cas_pdf(pdf_path_or_buffer, password=pdf_password)
                 return {"success": True, "data": recursive_to_dict(data)}
             except Exception as e:
                 if _is_password_error(str(e)):
-                    if not password:
+                    if not pdf_password:
                         return {"success": False, "error": "This PDF is password-protected. Please enter the password (usually your PAN, e.g. ABCDE1234F)."}
                     return {"success": False, "error": "Incorrect password. CAS PDFs are usually protected with your PAN (e.g. ABCDE1234F). Please try again."}
                 return {"success": False, "error": _safe_parse_error(str(e))}
@@ -72,16 +85,16 @@ def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: s
 
         # Parse the temp file
         try:
-            data = read_cas_pdf(tmp_path, password=password)
+            data = read_cas_pdf(tmp_path, password=pdf_password)
             data = recursive_to_dict(data)
             return {"success": True, "data": data}
         except Exception as e:
             err_msg = str(e)
             if _is_password_error(err_msg):
-                if not password:
+                if not pdf_password:
                     return {"success": False, "error": "This PDF is password-protected. Please enter the password (usually your PAN, e.g. ABCDE1234F)."}
                 return {"success": False, "error": "Incorrect password. CAS PDFs are usually protected with your PAN (e.g. ABCDE1234F). Please try again."}
-            if password:
+            if pdf_password:
                 return {"success": False, "error": "Failed to parse PDF. Please verify your password and file integrity."}
             return {"success": False, "error": _safe_parse_error(err_msg)}
 
@@ -89,10 +102,8 @@ def parse_with_casparser(pdf_path_or_buffer: Union[str, io.BytesIO], password: s
         return {"success": False, "error": _safe_parse_error(str(e))}
     finally:
         if tmp_path and os.path.exists(tmp_path):
-            try:
+            with suppress(OSError):
                 os.remove(tmp_path)
-            except:
-                pass
 
 def convert_to_excel(json_data: Dict[str, Any]) -> io.BytesIO:
     """

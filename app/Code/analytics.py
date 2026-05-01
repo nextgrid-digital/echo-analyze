@@ -1,6 +1,10 @@
 import json
+import hashlib
+import hmac
 import os
+import re
 import sqlite3
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -8,11 +12,89 @@ from typing import Any, Dict, Optional
 
 def _default_db_path() -> str:
     if os.environ.get("VERCEL"):
-        return "/tmp/app_analytics.db"
+        return str(Path(tempfile.gettempdir()) / "echo_analyze" / "app_analytics.db")
     return "data/app_analytics.db"
 
 
 DB_PATH = Path(os.environ.get("ANALYTICS_DB_PATH", _default_db_path()))
+PSEUDONYMIZED_ID_PATTERN = re.compile(r"^(usr|ses)_[0-9a-f]{16}$")
+
+
+def _sanitize_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    text = re.sub(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", "[REDACTED_PAN]", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"(?<![A-Za-z0-9_])[A-Za-z0-9][\w.+-]*@[\w.-]+\.[A-Za-z]{2,}(?![A-Za-z0-9_])",
+        "[REDACTED_EMAIL]",
+        text,
+    )
+    text = re.sub(r"(?<![\d.])(?:\+?\d[\d\-\s]{8,}\d)(?![\d.])", "[REDACTED_PHONE]", text)
+    text = re.sub(r"[\r\n\t]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    return text[:160]
+
+
+def _sanitize_file_name(file_name: Optional[str]) -> Optional[str]:
+    if file_name is None:
+        return None
+
+    normalized = Path(str(file_name)).name.strip()
+    if not normalized:
+        return None
+
+    path_obj = Path(normalized)
+    suffix = "".join(path_obj.suffixes[-1:])[:16]
+    stem = normalized[: -len(suffix)] if suffix and normalized.endswith(suffix) else normalized
+
+    sanitized_stem = _sanitize_text(stem)
+    sanitized = f"{sanitized_stem or 'file'}{suffix}" if suffix else sanitized_stem
+    if sanitized is None:
+        return None
+
+    if len(sanitized) <= 120:
+        return sanitized
+
+    stem, suffix = os.path.splitext(sanitized)
+    suffix = suffix[:16]
+    max_stem_len = max(0, 120 - len(suffix) - 1)
+    if not suffix or max_stem_len <= 0:
+        return sanitized[:120]
+    return f"{stem[:max_stem_len]}~{suffix}"
+
+
+def _sanitize_metadata(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(k): _sanitize_metadata(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_metadata(item) for item in value]
+    if isinstance(value, tuple):
+        return [_sanitize_metadata(item) for item in value]
+    if isinstance(value, str):
+        return _sanitize_text(value)
+    return value
+
+
+def _analytics_hash_salt() -> bytes:
+    salt = os.environ.get("ANALYTICS_ID_HASH_SALT") or os.environ.get("CLERK_SECRET_KEY")
+    return (salt or "echo-analyze-local-analytics").encode("utf-8")
+
+
+def _pseudonymize_identifier(value: Optional[str], prefix: str) -> Optional[str]:
+    safe_value = _sanitize_text(value)
+    if safe_value is None:
+        return None
+    if PSEUDONYMIZED_ID_PATTERN.fullmatch(safe_value):
+        return safe_value
+
+    digest = hmac.new(_analytics_hash_salt(), safe_value.encode("utf-8"), hashlib.sha256)
+    return f"{prefix}_{digest.hexdigest()[:16]}"
 
 
 def _utc_now_iso() -> str:
@@ -24,6 +106,27 @@ def _connect() -> sqlite3.Connection:
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     return connection
+
+
+def _pseudonymize_existing_identifiers(conn: sqlite3.Connection) -> None:
+    try:
+        rows = conn.execute("SELECT id, user_id, session_id FROM analysis_runs").fetchall()
+        for row in rows:
+            user_id = _pseudonymize_identifier(row["user_id"], "usr")
+            session_id = _pseudonymize_identifier(row["session_id"], "ses")
+            if user_id != row["user_id"] or session_id != row["session_id"]:
+                conn.execute(
+                    "UPDATE analysis_runs SET user_id = ?, session_id = ? WHERE id = ?",
+                    (user_id, session_id, row["id"]),
+                )
+
+        rows = conn.execute("SELECT id, user_id FROM audit_logs").fetchall()
+        for row in rows:
+            user_id = _pseudonymize_identifier(row["user_id"], "usr")
+            if user_id != row["user_id"]:
+                conn.execute("UPDATE audit_logs SET user_id = ? WHERE id = ?", (user_id, row["id"]))
+    except Exception:
+        return
 
 
 def init_analytics_db() -> None:
@@ -71,9 +174,10 @@ def init_analytics_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC)"
         )
+        _pseudonymize_existing_identifiers(conn)
         conn.commit()
     except Exception:
-        pass
+        return
     finally:
         if conn is not None:
             conn.close()
@@ -88,6 +192,10 @@ def record_audit_log(
     message: str,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
+    safe_user_id = _pseudonymize_identifier(user_id, "usr")
+    safe_message = _sanitize_text(message) or "Event recorded."
+    safe_metadata = _sanitize_metadata(metadata or {})
+
     conn: Optional[sqlite3.Connection] = None
     try:
         conn = _connect()
@@ -104,18 +212,18 @@ def record_audit_log(
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                user_id,
+                safe_user_id,
                 route,
                 action,
                 status,
-                message,
-                json.dumps(metadata or {}, default=str),
+                safe_message,
+                json.dumps(safe_metadata, default=str),
                 _utc_now_iso(),
             ),
         )
         conn.commit()
     except Exception:
-        pass
+        return
     finally:
         if conn is not None:
             conn.close()
@@ -135,6 +243,10 @@ def record_analysis_run(
     error_message: Optional[str] = None,
 ) -> None:
     created_at = _utc_now_iso()
+    safe_user_id = _pseudonymize_identifier(user_id, "usr") or "usr_unknown"
+    safe_session_id = _pseudonymize_identifier(session_id, "ses")
+    safe_file_name = _sanitize_file_name(file_name)
+    safe_error_message = _sanitize_text(error_message)
     conn: Optional[sqlite3.Connection] = None
     try:
         conn = _connect()
@@ -156,15 +268,15 @@ def record_analysis_run(
             """,
             (
                 request_id,
-                user_id,
-                session_id,
-                file_name,
+                safe_user_id,
+                safe_session_id,
+                safe_file_name,
                 file_type,
                 status,
                 duration_ms,
                 holdings_count,
                 total_market_value,
-                error_message,
+                safe_error_message,
                 created_at,
             ),
         )
@@ -176,14 +288,14 @@ def record_analysis_run(
             conn.close()
 
     record_audit_log(
-        user_id=user_id,
+        user_id=safe_user_id,
         route="/api/analyze",
         action="analysis_completed" if status == "success" else "analysis_failed",
         status=status,
-        message=error_message or f"Analysis {status}.",
+        message=safe_error_message or f"Analysis {status}.",
         metadata={
             "request_id": request_id,
-            "file_name": file_name,
+            "file_name": safe_file_name,
             "file_type": file_type,
             "duration_ms": duration_ms,
             "holdings_count": holdings_count,

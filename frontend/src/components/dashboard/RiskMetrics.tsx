@@ -34,9 +34,12 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
     // Higher equity allocation typically means higher beta
     const beta = (equityPct / 100) * 1.2 // Rough estimate
 
-    // Risk score (0-100) based on multiple factors
+    const fundCount = summary.concentration?.fund_count ?? 0
+    const concentrationRisk = fundCount > 0 && fundCount < 5 ? 15 : fundCount > 20 ? 10 : 0
+
+    // Risk score (0-100) based on multiple heuristic factors.
     const riskScore = Math.min(
-      equityPct * 0.6 + estimatedVolatility * 1.5,
+      equityPct * 0.55 + estimatedVolatility * 1.3 + concentrationRisk,
       100
     )
 
@@ -183,14 +186,14 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
                 title="Risk Score"
                 formula={
                   <>
-                    Risk Score = f(Equity Allocation, Volatility, Concentration)<br />
+                    Risk Score = f(Equity Allocation, Estimated Volatility, Fund Count)<br />
                     Score Range: 0-100<br />
                     Lower = Lower Risk, Higher = Higher Risk
                   </>
                 }
                 content={
                   <>
-                    Composite risk score combining equity allocation, estimated volatility, and portfolio concentration. Lower scores indicate lower risk.
+                    Composite risk score combining equity allocation, estimated volatility, and a fund-count concentration adjustment. Lower scores indicate lower risk.
                   </>
                 }
               />

@@ -1,13 +1,14 @@
 import { useAuth } from "@clerk/react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { CircleAlert, X } from "lucide-react"
-import { useNavigate, useLocation } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import { AuthToolbar } from "@/components/auth/AuthToolbar"
 import { Dashboard } from "@/components/dashboard/Dashboard"
 import { Footer } from "@/components/dashboard/Footer"
 import { WarningRail } from "@/components/dashboard/WarningRail"
 import { Button } from "@/components/ui/button"
 import { useSessionAccess } from "@/hooks/useSessionAccess"
+import { clearLatestAnalysis, loadLatestAnalysis } from "@/lib/analysisSession"
 import { createEmptySummary, createEmptyHoldings } from "@/lib/emptyData"
 import { getDashboardMethodologyWarnings } from "@/lib/portfolioAnalysis"
 import type { AnalysisResponse } from "@/types/api"
@@ -16,17 +17,16 @@ const MODAL_ANIMATION_MS = 220
 
 export function DashboardPage() {
   const navigate = useNavigate()
-  const location = useLocation()
-  const { isLoaded, isSignedIn } = useAuth()
+  const { isLoaded, isSignedIn, userId } = useAuth()
   const { session, loading: sessionLoading } = useSessionAccess()
   const [isNoticesModalMounted, setIsNoticesModalMounted] = useState(false)
   const [isNoticesModalVisible, setIsNoticesModalVisible] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [analysisHydrated, setAnalysisHydrated] = useState(false)
   const dashboardRef = useRef<HTMLDivElement>(null)
 
-  // Get analysis result from route state
-  const routeState = location.state as { result?: AnalysisResponse } | null
-  const result = routeState?.result
+  const [storedResult, setStoredResult] = useState<AnalysisResponse | null>(null)
+  const result = storedResult
 
   // Use real data if available, otherwise use empty data
   const displaySummary = useMemo(
@@ -113,7 +113,7 @@ export function DashboardPage() {
           useCORS: true,
           logging: false,
           backgroundColor: bgColor,
-          allowTaint: true,
+          allowTaint: false,
           windowWidth: captureWidth,
           width: captureWidth,
           ignoreElements: (el: Element) => el.classList.contains("no-print"),
@@ -161,14 +161,33 @@ export function DashboardPage() {
   }
 
   useEffect(() => {
-    if (!isLoaded || sessionLoading) {
+    if (!isLoaded) {
+      return
+    }
+
+    if (!isSignedIn || !userId) {
+      clearLatestAnalysis()
+      setStoredResult(null)
+      setAnalysisHydrated(true)
+      return
+    }
+
+    setStoredResult(loadLatestAnalysis(userId))
+    setAnalysisHydrated(true)
+  }, [isLoaded, isSignedIn, userId])
+
+  useEffect(() => {
+    if (!isLoaded || sessionLoading || !analysisHydrated) {
       return
     }
 
     if (!isSignedIn || !result?.summary) {
+      if (!isSignedIn) {
+        clearLatestAnalysis()
+      }
       navigate("/", { replace: true })
     }
-  }, [isLoaded, isSignedIn, navigate, result?.summary, sessionLoading])
+  }, [analysisHydrated, isLoaded, isSignedIn, navigate, result?.summary, sessionLoading])
 
   useEffect(() => {
     if (!isNoticesModalMounted) return
@@ -199,7 +218,7 @@ export function DashboardPage() {
     }
   }, [isNoticesModalMounted, isNoticesModalVisible])
 
-  if (!isLoaded || sessionLoading) {
+  if (!isLoaded || sessionLoading || !analysisHydrated) {
     return (
       <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
         Loading dashboard...
@@ -269,7 +288,10 @@ export function DashboardPage() {
           <Button
             type="button"
             variant="link"
-            onClick={() => navigate("/")}
+            onClick={() => {
+              clearLatestAnalysis()
+              navigate("/")
+            }}
             className="text-primary hover:text-primary/90 min-h-[44px] sm:min-h-0 py-2"
           >
             Upload another

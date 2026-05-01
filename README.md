@@ -57,7 +57,7 @@ This will:
 
 5. **Run the server:**
    ```cmd
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+   uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
    ```
 
 6. **Open your browser:**
@@ -78,6 +78,9 @@ This will:
   - `CLERK_JWT_KEY` (optional, recommended if you want networkless verification)
   - `CLERK_ADMIN_USER_IDS`
   - `CLERK_ALLOWED_PARTIES`
+  - `CLERK_ALLOWED_ISSUERS` (optional, recommended; comma-separated Clerk issuer URLs)
+  - `CLERK_REQUIRE_AZP` (recommended `true` when your tokens include `azp`; set to `false` only for legacy tokens that omit it)
+  - `ENABLE_DEBUG_LOGS` (keep `false` unless you are temporarily debugging locally)
 - Frontend: copy `frontend/.env.example` to `frontend/.env.local` and fill in:
   - `VITE_CLERK_PUBLISHABLE_KEY`
 
@@ -154,7 +157,8 @@ echo-analyze/
 - **python-multipart** - File upload support
 - **pydantic** - Data validation
 - **PyJWT[crypto]** - Clerk session token verification
-- **casparser** - CAS PDF parser
+- **casparser** - Repo-local vendored CAS PDF parser package
+- **pdfminer-six** - PDF text extraction for CAS parsing
 - **openpyxl** - Excel file support
 - **xlrd** - Excel file reading
 
@@ -162,7 +166,7 @@ echo-analyze/
 
 The server runs in reload mode by default, so any changes to Python files will automatically restart the server.
 
-Debug logs are written to `data/backend_debug.log`.
+Debug logs are written to `data/backend_debug.log` only when `ENABLE_DEBUG_LOGS=true`.
 Analysis analytics are stored in `data/app_analytics.db` by default.
 
 ## Troubleshooting
@@ -170,7 +174,7 @@ Analysis analytics are stored in `data/app_analytics.db` by default.
 ### Port Already in Use
 If port 8000 is already in use, you can change it in the startup command:
 ```cmd
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8080
 ```
 
 ### Python Not Found

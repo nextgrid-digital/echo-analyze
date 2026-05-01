@@ -7,7 +7,7 @@ import "./index.css"
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 
-function AuthSetupNotice() {
+export function AuthSetupNotice() {
   return (
     <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4">
       <div className="w-full max-w-2xl border border-border bg-card p-8 sm:p-10">
@@ -24,7 +24,7 @@ function AuthSetupNotice() {
   )
 }
 
-function RootLayout() {
+export function RootLayout() {
   const navigate = useNavigate()
 
   if (!PUBLISHABLE_KEY) {
@@ -34,6 +34,7 @@ function RootLayout() {
   return (
     <ClerkProvider
       publishableKey={PUBLISHABLE_KEY}
+      afterSignOutUrl="/"
       routerPush={(to) => navigate(to)}
       routerReplace={(to) => navigate(to, { replace: true })}
     >

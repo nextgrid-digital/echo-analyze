@@ -2,6 +2,7 @@
 Compute pairwise fund overlap matrix from scheme-level holdings.
 Overlap(A, B) = sum over common instruments of min(weight_A[s], weight_B[s]).
 """
+import math
 from typing import Dict, List, Tuple
 
 
@@ -57,8 +58,12 @@ def _to_weight_map(holdings: List[Tuple[str, float]]) -> Dict[str, float]:
     out: Dict[str, float] = {}
     for name, w in holdings:
         key = _normalize_instrument(name)
-        if key:
-            out[key] = out.get(key, 0.0) + float(w)
+        try:
+            weight = float(w)
+        except (TypeError, ValueError):
+            continue
+        if key and math.isfinite(weight) and weight > 0:
+            out[key] = out.get(key, 0.0) + weight
     total_weight = sum(v for v in out.values() if v > 0)
     if total_weight > 0:
         scale = 100.0 / total_weight

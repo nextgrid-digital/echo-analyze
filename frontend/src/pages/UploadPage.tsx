@@ -6,12 +6,13 @@ import { AuthToolbar } from "@/components/auth/AuthToolbar"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { clearLatestAnalysis, storeLatestAnalysis } from "@/lib/analysisSession"
 import type { AnalysisResponse } from "@/types/api"
 import { ArrowRight, LockKeyhole, Upload } from "lucide-react"
 
 export function UploadPage() {
   const navigate = useNavigate()
-  const { isLoaded, isSignedIn, getToken } = useAuth()
+  const { isLoaded, isSignedIn, getToken, userId } = useAuth()
   const [password, setPassword] = useState("")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
@@ -30,6 +31,14 @@ export function UploadPage() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (!isLoaded || isSignedIn) {
+      return
+    }
+
+    clearLatestAnalysis()
+  }, [isLoaded, isSignedIn])
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
@@ -119,6 +128,7 @@ export function UploadPage() {
       }
 
       setAnalysisResult(result)
+      storeLatestAnalysis(result, userId)
       setAnalysisComplete(true)
       setLoading(false)
     } catch (err) {
@@ -256,7 +266,7 @@ export function UploadPage() {
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               {analysisComplete && analysisResult ? (
                 <Button
-                  onClick={() => navigate("/dashboard", { state: { result: analysisResult } })}
+                  onClick={() => navigate("/dashboard")}
                   className="bg-primary text-primary-foreground hover:bg-primary/90 min-h-[48px] px-8 rounded-none flex items-center gap-2 transition-all duration-200 hover:shadow-md active:scale-[0.98]"
                 >
                   View Portfolio

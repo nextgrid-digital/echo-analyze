@@ -5,6 +5,7 @@ import { WideCard } from "./cards/WideCard"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import { Button } from "@/components/ui/button"
 import { Download } from "lucide-react"
+import { escapeCsvCell } from "@/lib/csv"
 import type { OverlapData } from "@/types/api"
 import {
   Table,
@@ -96,8 +97,8 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
 
     // Convert to CSV string: values are already numbers or simple strings, but quoting fund names is safer
     const csvContent = [
-      headers.map(h => `"${h.replace(/"/g, '""')}"`).join(","),
-      ...rows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(","))
+      headers.map(escapeCsvCell).join(","),
+      ...rows.map(row => row.map(escapeCsvCell).join(","))
     ].join("\n")
 
     // Create blob and download
@@ -110,6 +111,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+    URL.revokeObjectURL(url)
   }
 
   const handleDownloadImage = async () => {

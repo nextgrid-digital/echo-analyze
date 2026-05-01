@@ -38,7 +38,7 @@ export function AuthToolbar({ isAdmin = false }: AuthToolbarProps) {
           <Link to="/admin">Admin</Link>
         </Button>
       ) : null}
-      {isSignedIn ? <UserButton afterSignOutUrl="/" /> : null}
+      {isSignedIn ? <UserButton /> : null}
     </div>
   )
 }

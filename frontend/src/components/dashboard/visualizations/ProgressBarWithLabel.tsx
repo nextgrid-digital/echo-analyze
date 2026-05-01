@@ -21,7 +21,9 @@ export function ProgressBarWithLabel({
   showValue = true,
   className,
 }: ProgressBarWithLabelProps) {
-  const percentage = Math.min((value / max) * 100, 100)
+  const safeValue = Number.isFinite(value) ? value : 0
+  const safeMax = Number.isFinite(max) && max > 0 ? max : 100
+  const percentage = Math.min(Math.max((safeValue / safeMax) * 100, 0), 100)
   const heightClass = {
     sm: "h-2",
     md: "h-3",
@@ -34,7 +36,7 @@ export function ProgressBarWithLabel({
         <span className="text-sm text-muted-foreground">{label}</span>
         {showValue && (
           <span className="text-sm font-semibold text-foreground">
-            {valueLabel ?? `${value.toFixed(1)}%`}
+            {valueLabel ?? `${safeValue.toFixed(1)}%`}
           </span>
         )}
       </div>

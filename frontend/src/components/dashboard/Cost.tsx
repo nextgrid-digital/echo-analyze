@@ -61,12 +61,12 @@ function CostInner({ cost }: CostProps) {
               title="Total Cost Paid"
               formula={
                 <>
-                  Total Cost Paid = Sum(Exit Load + Advisory Fees + Other Charges)
+                  Total Cost Paid = Sum(average holding value x TER x holding years)
                 </>
               }
               content={
                 <>
-                  Cumulative charges paid so far including exit loads, advisory fees, and other charges.
+                  Estimated cumulative fund expense from Total Expense Ratio (TER) over each holding period. It does not include every possible brokerage, tax, or advisory charge.
                 </>
               }
             />

@@ -2,6 +2,7 @@ import re
 from datetime import datetime, date
 import httpx
 import math
+from pathlib import Path
 from typing import Dict, Optional
 
 import json
@@ -13,6 +14,7 @@ _nav_cache: Dict[str, float] = {}
 _history_cache: Dict[str, dict] = {}
 _nav_cache_date: Optional[str] = None  # ISO date string (YYYY-MM-DD) when NAVs were cached
 NAV_CACHE_FILE = "data/nav_cache.json"
+AMFI_CODE_PATTERN = re.compile(r"^\d{1,12}$")
 _fetch_locks: Dict[str, asyncio.Lock] = {}
 _http_client: Optional[httpx.AsyncClient] = None
 _navall_map: Dict[str, float] = {}
@@ -31,7 +33,7 @@ def _load_cache():
     global _nav_cache, _history_cache, _nav_cache_date
     if os.path.exists(NAV_CACHE_FILE):
         try:
-            with open(NAV_CACHE_FILE, "r") as f:
+            with open(NAV_CACHE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 cached_date = data.get("nav_date", "")
                 today = date.today().isoformat()
@@ -44,7 +46,8 @@ def _load_cache():
                     _nav_cache_date = today
                 # History cache doesn't expire (historical data doesn't change)
                 _history_cache = data.get("history", {})
-        except: pass
+        except Exception:
+            return
 
 def _ensure_fresh_cache():
     """Clear in-memory NAV cache if a new day has started."""
@@ -75,7 +78,7 @@ def _parse_navall_text(text: str) -> Dict[str, float]:
             nav_val = float(nav_str)
         except (TypeError, ValueError):
             continue
-        if nav_val > 0:
+        if math.isfinite(nav_val) and nav_val > 0:
             nav_map[code] = nav_val
     return nav_map
 
@@ -98,7 +101,7 @@ async def _get_navall_map() -> Dict[str, float]:
                     _navall_map = parsed
                     _navall_cache_date = today
         except Exception:
-            pass
+            return _navall_map
     return _navall_map
 
 
@@ -114,10 +117,12 @@ async def save_cache_async():
             "history": hist_snap,
             "nav_date": _nav_cache_date or date.today().isoformat()
         })
-        with open(NAV_CACHE_FILE, "w") as f:
+        cache_path = Path(NAV_CACHE_FILE)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as f:
             f.write(data_str)
-    except: 
-        pass
+    except Exception:
+        return
 
 
 _load_cache()
@@ -130,8 +135,20 @@ def clean_currency_to_float(text: str) -> float:
     sanitized = re.sub(r"[^0-9,.\-]", "", text)
     match = re.search(r"(-?[\d,]+\.?\d*)", sanitized)
     if match:
-        return float(match.group(1).replace(",", ""))
+        try:
+            parsed = float(match.group(1).replace(",", ""))
+        except ValueError:
+            return 0.0
+        return parsed if math.isfinite(parsed) else 0.0
     return 0.0
+
+
+def _parse_positive_float(value) -> Optional[float]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) and parsed > 0 else None
 
 async def fetch_live_nav(amfi_code: str) -> float:
     """
@@ -140,7 +157,8 @@ async def fetch_live_nav(amfi_code: str) -> float:
     Returns 0.0 if fetch fails or code is invalid.
     NAV cache expires daily so values are always fresh.
     """
-    if not amfi_code:
+    amfi_code = str(amfi_code or "").strip()
+    if not AMFI_CODE_PATTERN.fullmatch(amfi_code):
         return 0.0
     
     _ensure_fresh_cache()
@@ -159,7 +177,7 @@ async def fetch_live_nav(amfi_code: str) -> float:
         # Official AMFI NAVAll source first.
         navall_map = await _get_navall_map()
         nav_from_amfi = float(navall_map.get(amfi_code) or 0.0)
-        if nav_from_amfi > 0:
+        if math.isfinite(nav_from_amfi) and nav_from_amfi > 0:
             _nav_cache[amfi_code] = nav_from_amfi
             return nav_from_amfi
             
@@ -171,11 +189,11 @@ async def fetch_live_nav(amfi_code: str) -> float:
                 data = response.json()
                 if data.get("data") and len(data["data"]) > 0:
                     nav = float(data["data"][0].get("nav") or 0.0)
-                    _nav_cache[amfi_code] = nav
-                    return nav
-        except Exception as e:
-            # Silently fail for performance, but we should eventually log
-            pass
+                    if math.isfinite(nav) and nav > 0:
+                        _nav_cache[amfi_code] = nav
+                        return nav
+        except Exception:
+            return 0.0
             
     return 0.0
 
@@ -184,7 +202,8 @@ async def fetch_nav_history(amfi_code: str) -> dict:
     Fetches the full NAV history for a given AMFI code.
     Returns a dict mapping date_string ("DD-MM-YYYY") -> nav_float.
     """
-    if not amfi_code:
+    amfi_code = str(amfi_code or "").strip()
+    if not AMFI_CODE_PATTERN.fullmatch(amfi_code):
         return {}
     
     if amfi_code in _history_cache:
@@ -212,13 +231,12 @@ async def fetch_nav_history(amfi_code: str) -> dict:
                         d = entry.get("date")
                         n = entry.get("nav")
                         if d and n:
-                            try:
-                                history_map[d] = float(n)
-                            except ValueError:
-                                pass
+                            nav_value = _parse_positive_float(n)
+                            if nav_value is not None:
+                                history_map[d] = nav_value
                 _history_cache[amfi_code] = history_map
-        except Exception as e:
-            pass
+        except Exception:
+            return {}
             
     return history_map
 
@@ -230,7 +248,17 @@ def calculate_xirr(dates, amounts) -> Optional[float]:
     if len(dates) != len(amounts) or not dates:
         return None
 
-    transactions = sorted(zip(dates, amounts), key=lambda x: x[0])
+    finite_amounts = []
+    for amount in amounts:
+        try:
+            parsed_amount = float(amount)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(parsed_amount):
+            return None
+        finite_amounts.append(parsed_amount)
+
+    transactions = sorted(zip(dates, finite_amounts), key=lambda x: x[0])
     dates, amounts = zip(*transactions)
 
     # XIRR is only meaningful when both outflows and inflows exist.

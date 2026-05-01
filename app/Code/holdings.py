@@ -7,7 +7,9 @@ Option C: Groww scheme page server-side payload (real constituent holdings).
 import os
 import re
 import asyncio
+import math
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
 import httpx
@@ -31,7 +33,7 @@ def _load_amfi_cache():
     global _amfi_cache, _failed_urls, _groww_scheme_cache, _groww_holdings_cache
     if os.path.exists(AMFI_CACHE_FILE):
         try:
-            with open(AMFI_CACHE_FILE, "r") as f:
+            with open(AMFI_CACHE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 # JSON keys are "YYYY-MM"; parse safely (never use eval on file input).
                 parsed_cache: Dict[Tuple[int, int], Dict[str, List[Tuple[str, float]]]] = {}
@@ -58,14 +60,19 @@ def _load_amfi_cache():
                     }
                 # Always rebuild holdings from live source in each runtime.
                 _groww_holdings_cache = {}
-        except: pass
+        except Exception:
+            return
 
 async def save_amfi_cache_async():
     """Save AMFI cache to disk without blocking the event loop."""
     try:
+        if os.environ.get("VERCEL"):
+            return
         # Simple synchronous write - no threading needed
         cache_str_keys = {f"{k[0]:04d}-{k[1]:02d}": v for k, v in _amfi_cache.items()}
-        with open(AMFI_CACHE_FILE, "w") as f:
+        cache_path = Path(AMFI_CACHE_FILE)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(
                 {
                     "cache": cache_str_keys,
@@ -74,8 +81,8 @@ async def save_amfi_cache_async():
                 },
                 f,
             )
-    except: 
-        pass
+    except Exception:
+        return
 
 
 def log_holdings(msg):
@@ -84,7 +91,8 @@ def log_holdings(msg):
     try:
         with open("data/backend_debug.log", "a") as f:
             f.write(f"[{datetime.now()}] [Holdings] {msg}\n")
-    except: pass
+    except Exception:
+        return
 
 
 def _normalize_scheme_key(s: str) -> str:
@@ -96,13 +104,17 @@ def _normalize_scheme_key(s: str) -> str:
 def _parse_weight(val) -> float:
     if val is None:
         return 0.0
+    if isinstance(val, bool):
+        return 0.0
     if isinstance(val, (int, float)):
-        return float(val)
+        parsed = float(val)
+        return parsed if math.isfinite(parsed) and abs(parsed) <= 10_000 else 0.0
     s = str(val).strip().replace("%", "").replace(",", "")
     try:
-        return float(s)
+        parsed = float(s)
     except ValueError:
         return 0.0
+    return parsed if math.isfinite(parsed) and abs(parsed) <= 10_000 else 0.0
 
 
 _load_amfi_cache()

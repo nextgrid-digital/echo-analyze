@@ -37,6 +37,18 @@ def _get_secret_key() -> str:
     return secret_key
 
 
+def _has_secret_key() -> bool:
+    return bool(os.environ.get("CLERK_SECRET_KEY", "").strip())
+
+
+def _requires_authorized_party() -> bool:
+    return os.environ.get("CLERK_REQUIRE_AZP", "").strip().lower() in {"1", "true", "yes"}
+
+
+def _allows_cookie_auth() -> bool:
+    return os.environ.get("CLERK_ALLOW_COOKIE_AUTH", "").strip().lower() in {"1", "true", "yes"}
+
+
 def _get_jwt_key() -> Optional[str]:
     jwt_key = os.environ.get("CLERK_JWT_KEY", "").strip()
     if not jwt_key:
@@ -50,6 +62,11 @@ def _get_jwt_key() -> Optional[str]:
 def _get_allowed_parties() -> list[str]:
     raw = os.environ.get("CLERK_ALLOWED_PARTIES", "")
     return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _get_allowed_issuers() -> list[str]:
+    raw = os.environ.get("CLERK_ALLOWED_ISSUERS") or os.environ.get("CLERK_ISSUER", "")
+    return [item.strip().rstrip("/") for item in raw.split(",") if item.strip()]
 
 
 def get_admin_user_ids() -> set[str]:
@@ -67,6 +84,9 @@ def _extract_token(request: Request) -> Optional[str]:
         scheme, _, token = auth_header.partition(" ")
         if scheme.lower() == "bearer" and token.strip():
             return token.strip()
+
+    if not _allows_cookie_auth():
+        return None
 
     session_cookie = request.cookies.get("__session")
     if session_cookie:
@@ -128,8 +148,24 @@ def _verify_authorized_party(claims: Dict[str, Any]) -> None:
         return
 
     azp = str(claims.get("azp") or "").strip()
-    if azp and azp not in allowed_parties:
+    if not azp:
+        if _requires_authorized_party():
+            _raise_unauthorized(
+                "Session token is missing an authorized party required by backend configuration."
+            )
+        return
+    if azp not in allowed_parties:
         _raise_unauthorized("Session token was not issued for an allowed frontend origin.")
+
+
+def _verify_issuer(claims: Dict[str, Any]) -> None:
+    allowed_issuers = _get_allowed_issuers()
+    if not allowed_issuers:
+        return
+
+    issuer = str(claims.get("iss") or "").strip().rstrip("/")
+    if issuer not in allowed_issuers:
+        _raise_unauthorized("Session token issuer is not allowed by backend configuration.")
 
 
 async def authenticate_request(request: Request) -> AuthContext:
@@ -172,7 +208,7 @@ async def authenticate_request(request: Request) -> AuthContext:
             token,
             public_key,
             algorithms=["RS256"],
-            options={"verify_aud": False},
+            options={"verify_aud": False, "require": ["exp", "sub"]},
         )
     except ClerkConfigurationError as exc:
         _raise_service_unavailable(str(exc))
@@ -184,6 +220,7 @@ async def authenticate_request(request: Request) -> AuthContext:
         _raise_service_unavailable("Unable to reach Clerk to validate the session token.")
 
     _verify_authorized_party(claims)
+    _verify_issuer(claims)
 
     user_id = str(claims.get("sub") or "").strip()
     if not user_id:
@@ -213,7 +250,7 @@ async def require_admin_user(request: Request) -> AuthContext:
 
 
 async def fetch_clerk_user_count() -> Optional[int]:
-    if not is_clerk_configured():
+    if not is_clerk_configured() or not _has_secret_key():
         return None
 
     headers = {"Authorization": f"Bearer {_get_secret_key()}"}
