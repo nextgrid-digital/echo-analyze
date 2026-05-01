@@ -178,7 +178,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8080
 ```
 
 ### Python Not Found
-Ensure Python 3.7+ is installed and added to your system PATH.
+Ensure Python 3.10+ is installed and added to your system PATH.
 
 ### Dependencies Installation Failed
 Try upgrading pip first:

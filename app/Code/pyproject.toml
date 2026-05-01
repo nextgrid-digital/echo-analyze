@@ -2,7 +2,7 @@
 name = "echo-analyze"
 version = "0.1.0"
 description = "MF-CAS Portfolio Analyzer"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "fastapi",
     "uvicorn",
