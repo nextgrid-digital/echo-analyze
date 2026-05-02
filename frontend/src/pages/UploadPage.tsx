@@ -193,8 +193,9 @@ export function UploadPage() {
                 ) : (
                   "."
                 )}{" "}
-                For local development, use a Clerk test publishable key or make sure the Clerk
-                frontend domain resolves from this machine.
+                {authConfig?.clerk_frontend_api_resolves === false
+                  ? "The Clerk frontend domain is not resolving. For live deployments, fix the Clerk DNS/CNAME or update to the publishable key generated after changing the Clerk domain. For local development, use a Clerk test publishable key."
+                  : "For local development, use a Clerk test publishable key or make sure the Clerk frontend domain resolves from this machine."}
               </p>
             ) : null}
           </div>

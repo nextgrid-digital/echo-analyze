@@ -149,6 +149,9 @@ echo-analyze/
   npm run build
   ```
 - `vercel.json` routes `/api/*` to FastAPI and sends SPA paths (like `/dashboard` and `/admin`) to `static/index.html`.
+- After deploying, check `https://YOUR_DOMAIN/api/config`. It should return the Clerk key type,
+  frontend API domain, and `clerk_frontend_api_resolves: true`. A live Clerk key encodes the
+  production Frontend API host, so DNS for that host must resolve before Clerk can load.
 - The default analytics store is file-based. On Vercel, that falls back to `/tmp`, which is ephemeral. For production-grade admin analytics, point `ANALYTICS_DB_PATH` to persistent storage or swap the SQLite helper for a hosted database.
 
 ## Dependencies

@@ -66,13 +66,14 @@ function AuthDomainNotice({ config }: { config: AuthRuntimeConfig }) {
       <div className="w-full max-w-2xl border border-border bg-card p-8 sm:p-10">
         <p className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-3">Authentication</p>
         <h1 className="text-3xl font-semibold tracking-tight mb-4">
-          Clerk cannot load locally
+          Clerk cannot load
         </h1>
         <p className="text-muted-foreground leading-7">
           The configured Clerk {config.clerk_key_type ?? "publishable"} key points to{" "}
           <code>{config.clerk_frontend_api ?? "an unknown frontend domain"}</code>, but that
-          domain cannot be resolved from this machine. Use a Clerk test publishable key for
-          localhost, or fix the DNS/CNAME for the production Clerk custom domain.
+          domain cannot be resolved. For live deployments, fix the Clerk DNS/CNAME or update
+          the app to the publishable key generated after changing the Clerk domain. For
+          localhost, use a Clerk test publishable key.
         </p>
       </div>
     </div>
@@ -112,9 +113,7 @@ export function RootLayout() {
     return <AuthSetupNotice />
   }
 
-  const isLocalHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-
-  if (isLocalHost && config?.clerk_frontend_api && config.clerk_frontend_api_resolves === false) {
+  if (config?.clerk_frontend_api && config.clerk_frontend_api_resolves === false) {
     return <AuthDomainNotice config={config} />
   }
 
