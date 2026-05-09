@@ -28,6 +28,14 @@ export function UploadPage() {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResponse | null>(null)
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const clerkLoadHelpText =
+    authConfig?.clerk_frontend_api_resolves === false
+      ? "The Clerk frontend domain is not resolving. For live deployments, fix the Clerk DNS/CNAME or update to the publishable key generated after changing the Clerk domain. For local development, use a Clerk test publishable key."
+      : authConfig?.clerk_key_type === "live"
+        ? authConfig.clerk_secret_configured === false
+          ? "The live publishable key loaded, but the backend Clerk secret is not configured. Set CLERK_SECRET_KEY in the production environment and redeploy, especially if Clerk is using the /__clerk proxy path."
+          : "The live publishable key loaded, but Clerk did not finish initializing. Check that /__clerk/v1/environment returns Clerk JSON on this production domain and that the page CSP is not blocking Clerk or Turnstile."
+        : "For local development, use a Clerk test publishable key or make sure the Clerk frontend domain resolves from this machine."
 
   useEffect(() => {
     return () => {
@@ -193,9 +201,7 @@ export function UploadPage() {
                 ) : (
                   "."
                 )}{" "}
-                {authConfig?.clerk_frontend_api_resolves === false
-                  ? "The Clerk frontend domain is not resolving. For live deployments, fix the Clerk DNS/CNAME or update to the publishable key generated after changing the Clerk domain. For local development, use a Clerk test publishable key."
-                  : "For local development, use a Clerk test publishable key or make sure the Clerk frontend domain resolves from this machine."}
+                {clerkLoadHelpText}
               </p>
             ) : null}
           </div>

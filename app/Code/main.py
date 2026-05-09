@@ -27,6 +27,7 @@ from app.Code.auth import (
     ClerkConfigurationError,
     fetch_clerk_user_count,
     _get_secret_key,
+    _has_secret_key,
     require_admin_user,
     require_authenticated_user,
 )
@@ -1338,6 +1339,7 @@ class PublicConfigResponse(BaseModel):
     clerk_key_type: Optional[str] = None
     clerk_frontend_api: Optional[str] = None
     clerk_frontend_api_resolves: Optional[bool] = None
+    clerk_secret_configured: Optional[bool] = None
 
 
 class AdminAnalyticsMetrics(BaseModel):
@@ -2339,6 +2341,7 @@ async def public_config():
         clerk_key_type=_get_runtime_clerk_key_type(),
         clerk_frontend_api=_get_clerk_frontend_api_from_publishable_key(),
         clerk_frontend_api_resolves=_does_clerk_frontend_api_resolve(),
+        clerk_secret_configured=_has_secret_key(),
     )
 
 

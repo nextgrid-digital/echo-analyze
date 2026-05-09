@@ -1007,6 +1007,7 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertEqual(body["clerk_key_type"], "test")
         self.assertEqual(body["clerk_frontend_api"], "runtime.example")
         self.assertTrue(body["clerk_frontend_api_resolves"])
+        self.assertIn("clerk_secret_configured", body)
         self.assertEqual(response.headers.get("cache-control"), "no-store, max-age=0")
 
     def test_runtime_clerk_publishable_key_ignores_non_publishable_values(self):

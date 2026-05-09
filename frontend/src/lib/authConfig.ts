@@ -5,6 +5,7 @@ export type AuthRuntimeConfig = {
   clerk_key_type?: string | null
   clerk_frontend_api?: string | null
   clerk_frontend_api_resolves?: boolean | null
+  clerk_secret_configured?: boolean | null
 }
 
 export const AuthConfigContext = createContext<AuthRuntimeConfig | null>(null)
