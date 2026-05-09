@@ -14,16 +14,19 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
+import httpx
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.Code.analytics import get_admin_overview, record_analysis_run, record_audit_log
 from app.Code.auth import (
     AuthContext,
+    ClerkConfigurationError,
     fetch_clerk_user_count,
+    _get_secret_key,
     require_admin_user,
     require_authenticated_user,
 )
@@ -77,6 +80,21 @@ CLERK_TELEMETRY_CSP_SOURCES = (
 CLERK_CHALLENGE_CSP_SOURCES = (
     "https://challenges.cloudflare.com",
 )
+CLERK_PROXY_PATH = "/__clerk"
+CLERK_PROXY_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+HOP_BY_HOP_HEADERS = {
+    "connection",
+    "content-encoding",
+    "content-length",
+    "host",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+}
 
 
 def _redact_pii(text: str) -> str:
@@ -135,9 +153,16 @@ def _should_disable_cache(path: str) -> bool:
     return False
 
 
+def _is_clerk_proxy_path(path: str) -> bool:
+    return path == CLERK_PROXY_PATH or path.startswith(f"{CLERK_PROXY_PATH}/")
+
+
 @app.middleware("http")
 async def add_response_security_headers(request: Request, call_next):
     response = await call_next(request)
+    if _is_clerk_proxy_path(request.url.path):
+        return response
+
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
@@ -424,6 +449,89 @@ def _build_content_security_policy() -> str:
         "base-uri 'self'; "
         "frame-ancestors 'none'"
     )
+
+
+def _get_clerk_proxy_url(request: Request) -> str:
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+    forwarded_host = request.headers.get("x-forwarded-host", "").split(",", 1)[0].strip()
+    proto = forwarded_proto or request.url.scheme
+    host = forwarded_host or request.headers.get("host") or request.url.netloc
+    return f"{proto}://{host}{CLERK_PROXY_PATH}"
+
+
+def _get_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "").strip()
+    if forwarded_for:
+        return forwarded_for
+    if request.client and request.client.host:
+        return request.client.host
+    return ""
+
+
+def _get_clerk_proxy_headers(request: Request) -> Dict[str, str]:
+    headers = {
+        key: value
+        for key, value in request.headers.items()
+        if key.lower() not in HOP_BY_HOP_HEADERS
+    }
+    headers["Clerk-Proxy-Url"] = _get_clerk_proxy_url(request)
+    headers["Clerk-Secret-Key"] = _get_secret_key()
+    forwarded_for = _get_client_ip(request)
+    if forwarded_for:
+        headers["X-Forwarded-For"] = forwarded_for
+    return headers
+
+
+def _get_upstream_clerk_proxy_url(path: str, query: str) -> str:
+    frontend_api = _get_clerk_frontend_api_from_publishable_key()
+    if not frontend_api:
+        raise ClerkConfigurationError(
+            "Clerk publishable key is not configured. Set VITE_CLERK_PUBLISHABLE_KEY or CLERK_PUBLISHABLE_KEY."
+        )
+    upstream_url = f"https://{frontend_api}/{path.lstrip('/')}"
+    if query:
+        upstream_url = f"{upstream_url}?{query}"
+    return upstream_url
+
+
+def _get_proxy_response_headers(upstream_headers: httpx.Headers) -> Dict[str, str]:
+    return {
+        key: value
+        for key, value in upstream_headers.items()
+        if key.lower() not in HOP_BY_HOP_HEADERS and key.lower() != "set-cookie"
+    }
+
+
+async def _proxy_clerk_frontend_api(request: Request, path: str) -> Response:
+    try:
+        upstream_url = _get_upstream_clerk_proxy_url(path, request.url.query)
+        proxy_headers = _get_clerk_proxy_headers(request)
+    except ClerkConfigurationError as exc:
+        return JSONResponse(status_code=503, content={"error": str(exc)})
+
+    request_body = await request.body()
+    try:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=False) as client:
+            upstream_response = await client.request(
+                request.method,
+                upstream_url,
+                content=request_body,
+                headers=proxy_headers,
+            )
+    except httpx.HTTPError:
+        return JSONResponse(
+            status_code=502,
+            content={"error": "Unable to reach Clerk Frontend API through the proxy."},
+        )
+
+    response = Response(
+        content=upstream_response.content,
+        status_code=upstream_response.status_code,
+        headers=_get_proxy_response_headers(upstream_response.headers),
+    )
+    for cookie in upstream_response.headers.get_list("set-cookie"):
+        response.headers.append("set-cookie", cookie)
+    return response
 
 
 async def _parse_pdf_upload(content: bytes, password: str = "") -> Dict[str, Any]:
@@ -2232,6 +2340,16 @@ async def public_config():
         clerk_frontend_api=_get_clerk_frontend_api_from_publishable_key(),
         clerk_frontend_api_resolves=_does_clerk_frontend_api_resolve(),
     )
+
+
+@app.api_route(f"{CLERK_PROXY_PATH}/{{path:path}}", methods=CLERK_PROXY_METHODS)
+async def clerk_frontend_api_proxy(request: Request, path: str):
+    return await _proxy_clerk_frontend_api(request, path)
+
+
+@app.api_route(CLERK_PROXY_PATH, methods=CLERK_PROXY_METHODS)
+async def clerk_frontend_api_proxy_root(request: Request):
+    return await _proxy_clerk_frontend_api(request, "")
 
 
 @app.get("/api/auth/me", response_model=AuthSessionResponse)

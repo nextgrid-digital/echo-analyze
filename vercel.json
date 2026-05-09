@@ -51,6 +51,14 @@
       "dest": "app/Code/main.py"
     },
     {
+      "src": "/__clerk",
+      "dest": "app/Code/main.py"
+    },
+    {
+      "src": "/__clerk/(.*)",
+      "dest": "app/Code/main.py"
+    },
+    {
       "src": "/assets/(.*)",
       "dest": "/static/assets/$1"
     },

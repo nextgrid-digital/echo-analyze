@@ -13,6 +13,7 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import httpx
 from openpyxl import load_workbook
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -1060,6 +1061,75 @@ class TestErrorSanitization(unittest.TestCase):
 
         for route in ("/", "/dashboard", "/dashboard/(.*)", "/admin", "/admin/(.*)"):
             self.assertEqual(routes[route]["dest"], "app/Code/main.py")
+
+        for route in ("/__clerk", "/__clerk/(.*)"):
+            self.assertEqual(routes[route]["dest"], "app/Code/main.py")
+
+    def test_clerk_frontend_api_proxy_forwards_to_runtime_frontend_api(self):
+        frontend_api = "clerk.nextgrid.digital"
+        encoded = base64.b64encode(f"{frontend_api}$".encode("ascii")).decode("ascii")
+        captured = {}
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                captured["client_kwargs"] = kwargs
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def request(self, method, url, content, headers):
+                captured["method"] = method
+                captured["url"] = url
+                captured["content"] = content
+                captured["headers"] = headers
+                return httpx.Response(
+                    200,
+                    content=b'{"ok":true}',
+                    headers=[
+                        ("content-type", "application/json"),
+                        ("set-cookie", "__client=abc; Path=/; Secure; SameSite=None"),
+                    ],
+                )
+
+        client = TestClient(app)
+        with patch.dict(
+            os.environ,
+            {
+                "VITE_CLERK_PUBLISHABLE_KEY": f"pk_live_{encoded}",
+                "CLERK_PUBLISHABLE_KEY": "",
+                "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "",
+                "CLERK_SECRET_KEY": "sk_live_test",
+            },
+            clear=False,
+        ), patch("app.Code.main.httpx.AsyncClient", FakeAsyncClient):
+            response = client.post(
+                "/__clerk/v1/client/sign_ups?__clerk_api_version=2025-11-10",
+                content=b'{"email_address":"test@example.com"}',
+                headers={
+                    "content-type": "application/json",
+                    "host": "echo.nextgrid.digital",
+                    "x-forwarded-proto": "https",
+                    "x-forwarded-for": "203.0.113.5",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(captured["method"], "POST")
+        self.assertEqual(
+            captured["url"],
+            "https://clerk.nextgrid.digital/v1/client/sign_ups?__clerk_api_version=2025-11-10",
+        )
+        self.assertEqual(captured["content"], b'{"email_address":"test@example.com"}')
+        self.assertEqual(captured["headers"]["Clerk-Proxy-Url"], "https://echo.nextgrid.digital/__clerk")
+        self.assertEqual(captured["headers"]["Clerk-Secret-Key"], "sk_live_test")
+        self.assertEqual(captured["headers"]["X-Forwarded-For"], "203.0.113.5")
+        self.assertEqual(response.headers.get("content-type"), "application/json")
+        self.assertIn("__client=abc", response.headers.get("set-cookie", ""))
+        self.assertNotIn("content-security-policy", response.headers)
+        self.assertNotIn("x-frame-options", response.headers)
 
 
 class TestAuthHardening(unittest.IsolatedAsyncioTestCase):

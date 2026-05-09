@@ -155,6 +155,9 @@ echo-analyze/
 - In production, `clerk_key_type` should normally be `live`. If it reports `test`, the deployment is
   using the development Clerk instance, so production-only providers such as Google may be missing
   until the Vercel environment variables are updated to the live publishable/secret keys.
+- If the live Clerk instance uses a proxy URL, `/__clerk/*` is routed through FastAPI and forwarded
+  to the runtime Clerk Frontend API with Clerk's required proxy headers. A 404 from `/__clerk/v1/*`
+  means this route is not deployed yet or the deployment is serving an older `vercel.json`.
 - The default analytics store is file-based. On Vercel, that falls back to `/tmp`, which is ephemeral. For production-grade admin analytics, point `ANALYTICS_DB_PATH` to persistent storage or swap the SQLite helper for a hosted database.
 
 ## Dependencies
