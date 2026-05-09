@@ -982,6 +982,7 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertIn("https://clerk-telemetry.com", csp)
         self.assertIn("https://*.clerk-telemetry.com", csp)
         self.assertIn("https://challenges.cloudflare.com", csp)
+        self.assertRegex(csp, r"connect-src[^;]*https://challenges\.cloudflare\.com")
         self.assertIn("object-src 'none'", csp)
         self.assertIn("frame-ancestors 'none'", csp)
 
@@ -1052,6 +1053,13 @@ class TestErrorSanitization(unittest.TestCase):
 
         csp = response.headers.get("content-security-policy", "")
         self.assertIn(f"https://{frontend_api}", csp)
+
+    def test_vercel_spa_routes_are_served_by_fastapi_for_security_headers(self):
+        vercel_config = json.loads(Path("vercel.json").read_text(encoding="utf-8"))
+        routes = {route["src"]: route for route in vercel_config["routes"]}
+
+        for route in ("/", "/dashboard", "/dashboard/(.*)", "/admin", "/admin/(.*)"):
+            self.assertEqual(routes[route]["dest"], "app/Code/main.py")
 
 
 class TestAuthHardening(unittest.IsolatedAsyncioTestCase):

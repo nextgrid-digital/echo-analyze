@@ -407,6 +407,7 @@ def _build_content_security_policy() -> str:
         clerk_sources,
         "https://api.clerk.com",
         clerk_telemetry_sources,
+        clerk_challenge_sources,
     )
     frame_sources = _dedupe_csp_sources(clerk_sources, clerk_challenge_sources)
     return (

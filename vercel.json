@@ -60,23 +60,23 @@
     },
     {
       "src": "/dashboard",
-      "dest": "/static/index.html"
+      "dest": "app/Code/main.py"
     },
     {
       "src": "/dashboard/(.*)",
-      "dest": "/static/index.html"
+      "dest": "app/Code/main.py"
     },
     {
       "src": "/admin",
-      "dest": "/static/index.html"
+      "dest": "app/Code/main.py"
     },
     {
       "src": "/admin/(.*)",
-      "dest": "/static/index.html"
+      "dest": "app/Code/main.py"
     },
     {
       "src": "/",
-      "dest": "/static/index.html"
+      "dest": "app/Code/main.py"
     },
     {
       "src": "/(.*)",
