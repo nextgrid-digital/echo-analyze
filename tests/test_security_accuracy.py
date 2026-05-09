@@ -979,6 +979,9 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertEqual(response.headers.get("x-frame-options"), "DENY")
         csp = response.headers.get("content-security-policy", "")
         self.assertIn("default-src 'self'", csp)
+        self.assertIn("https://clerk-telemetry.com", csp)
+        self.assertIn("https://*.clerk-telemetry.com", csp)
+        self.assertIn("https://challenges.cloudflare.com", csp)
         self.assertIn("object-src 'none'", csp)
         self.assertIn("frame-ancestors 'none'", csp)
 

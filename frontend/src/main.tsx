@@ -124,6 +124,7 @@ export function RootLayout() {
         afterSignOutUrl="/"
         routerPush={(to) => navigate(to)}
         routerReplace={(to) => navigate(to, { replace: true })}
+        telemetry={false}
       >
         <App />
       </ClerkProvider>

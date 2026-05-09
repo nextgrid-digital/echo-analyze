@@ -70,6 +70,13 @@ BASE_CLERK_CSP_SOURCES = (
     "https://*.clerk.accounts.dev",
     "https://*.clerk.com",
 )
+CLERK_TELEMETRY_CSP_SOURCES = (
+    "https://clerk-telemetry.com",
+    "https://*.clerk-telemetry.com",
+)
+CLERK_CHALLENGE_CSP_SOURCES = (
+    "https://challenges.cloudflare.com",
+)
 
 
 def _redact_pii(text: str) -> str:
@@ -384,16 +391,32 @@ def _get_clerk_csp_sources() -> str:
     return " ".join(dict.fromkeys(sources))
 
 
+def _dedupe_csp_sources(*source_groups: str) -> str:
+    sources: List[str] = []
+    for source_group in source_groups:
+        sources.extend(source for source in source_group.split() if source)
+    return " ".join(dict.fromkeys(sources))
+
+
 def _build_content_security_policy() -> str:
     clerk_sources = _get_clerk_csp_sources()
+    clerk_telemetry_sources = " ".join(CLERK_TELEMETRY_CSP_SOURCES)
+    clerk_challenge_sources = " ".join(CLERK_CHALLENGE_CSP_SOURCES)
+    script_sources = _dedupe_csp_sources(clerk_sources, clerk_challenge_sources)
+    connect_sources = _dedupe_csp_sources(
+        clerk_sources,
+        "https://api.clerk.com",
+        clerk_telemetry_sources,
+    )
+    frame_sources = _dedupe_csp_sources(clerk_sources, clerk_challenge_sources)
     return (
         "default-src 'self'; "
-        f"script-src 'self' {clerk_sources}; "
+        f"script-src 'self' {script_sources}; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob: https:; "
         "font-src 'self' data:; "
-        f"connect-src 'self' {clerk_sources} https://api.clerk.com; "
-        f"frame-src {clerk_sources}; "
+        f"connect-src 'self' {connect_sources}; "
+        f"frame-src {frame_sources}; "
         f"form-action 'self' {clerk_sources}; "
         "worker-src 'self' blob:; "
         "object-src 'none'; "

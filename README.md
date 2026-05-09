@@ -152,6 +152,9 @@ echo-analyze/
 - After deploying, check `https://YOUR_DOMAIN/api/config`. It should return the Clerk key type,
   frontend API domain, and `clerk_frontend_api_resolves: true`. A live Clerk key encodes the
   production Frontend API host, so DNS for that host must resolve before Clerk can load.
+- In production, `clerk_key_type` should normally be `live`. If it reports `test`, the deployment is
+  using the development Clerk instance, so production-only providers such as Google may be missing
+  until the Vercel environment variables are updated to the live publishable/secret keys.
 - The default analytics store is file-based. On Vercel, that falls back to `/tmp`, which is ephemeral. For production-grade admin analytics, point `ANALYTICS_DB_PATH` to persistent storage or swap the SQLite helper for a hosted database.
 
 ## Dependencies
