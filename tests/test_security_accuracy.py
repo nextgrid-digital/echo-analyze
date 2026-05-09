@@ -1127,6 +1127,7 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertEqual(captured["headers"]["Clerk-Proxy-Url"], "https://echo.nextgrid.digital/__clerk")
         self.assertEqual(captured["headers"]["Clerk-Secret-Key"], "sk_live_test")
         self.assertEqual(captured["headers"]["X-Forwarded-For"], "203.0.113.5")
+        self.assertEqual(captured["headers"]["Host"], "echo.nextgrid.digital")
         self.assertEqual(response.headers.get("content-type"), "application/json")
         self.assertIn("__client=abc", response.headers.get("set-cookie", ""))
         self.assertNotIn("content-security-policy", response.headers)

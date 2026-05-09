@@ -452,11 +452,16 @@ def _build_content_security_policy() -> str:
     )
 
 
-def _get_clerk_proxy_url(request: Request) -> str:
+def _get_request_origin_parts(request: Request) -> Tuple[str, str]:
     forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
     forwarded_host = request.headers.get("x-forwarded-host", "").split(",", 1)[0].strip()
     proto = forwarded_proto or request.url.scheme
     host = forwarded_host or request.headers.get("host") or request.url.netloc
+    return proto, host
+
+
+def _get_clerk_proxy_url(request: Request) -> str:
+    proto, host = _get_request_origin_parts(request)
     return f"{proto}://{host}{CLERK_PROXY_PATH}"
 
 
@@ -475,6 +480,8 @@ def _get_clerk_proxy_headers(request: Request) -> Dict[str, str]:
         for key, value in request.headers.items()
         if key.lower() not in HOP_BY_HOP_HEADERS
     }
+    _, host = _get_request_origin_parts(request)
+    headers["Host"] = host
     headers["Clerk-Proxy-Url"] = _get_clerk_proxy_url(request)
     headers["Clerk-Secret-Key"] = _get_secret_key()
     forwarded_for = _get_client_ip(request)
