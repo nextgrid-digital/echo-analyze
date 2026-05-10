@@ -84,7 +84,7 @@ This will:
   - `ENABLE_DEBUG_LOGS` (keep `false` unless you are temporarily debugging locally)
   - `EXPOSE_AUTH_DIAGNOSTICS` (optional local diagnostic; keep unset/false in production)
   - `PDF_PARSE_EXECUTOR` (optional; defaults to `auto`; use `thread` only if the host blocks child processes)
-  - `PDF_PARSE_TIMEOUT_SECONDS` (optional; defaults to `60`, capped between `1` and `120`)
+  - `PDF_PARSE_TIMEOUT_SECONDS` (optional; defaults to `120`, capped between `1` and `240`)
 - Frontend-only Vite dev also supports `frontend/.env.local` with:
   - `VITE_CLERK_PUBLISHABLE_KEY`
 
@@ -183,7 +183,7 @@ Debug logs are written to `data/backend_debug.log` only when `ENABLE_DEBUG_LOGS=
 Public auth diagnostics such as backend secret presence are omitted from `/api/config` unless
 `EXPOSE_AUTH_DIAGNOSTICS=true`.
 CAS PDF parsing runs in an isolated worker when the host supports it and times out after
-`PDF_PARSE_TIMEOUT_SECONDS` seconds, defaulting to `60`. `PDF_PARSE_EXECUTOR=auto` falls back
+`PDF_PARSE_TIMEOUT_SECONDS` seconds, defaulting to `120`. `PDF_PARSE_EXECUTOR=auto` falls back
 to thread-based parsing on serverless hosts that block child process startup.
 Analysis analytics are stored in `data/app_analytics.db` by default.
 

@@ -51,6 +51,7 @@ from app.Code.main import (
     _current_holding_entry_date,
     _does_clerk_frontend_api_resolve,
     _get_clerk_frontend_api_from_publishable_key,
+    _get_pdf_parse_timeout_seconds,
     _get_runtime_clerk_publishable_key,
     _normalize_amfi_code,
     _parse_amount,
@@ -1325,6 +1326,16 @@ class TestAnalyticsPrivacyHelpers(unittest.TestCase):
 
 
 class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
+    def test_pdf_parse_timeout_default_and_cap(self):
+        with patch.dict(os.environ, {"PDF_PARSE_TIMEOUT_SECONDS": ""}, clear=False):
+            self.assertEqual(_get_pdf_parse_timeout_seconds(), 120.0)
+
+        with patch.dict(os.environ, {"PDF_PARSE_TIMEOUT_SECONDS": "999"}, clear=False):
+            self.assertEqual(_get_pdf_parse_timeout_seconds(), 240.0)
+
+        with patch.dict(os.environ, {"PDF_PARSE_TIMEOUT_SECONDS": "invalid"}, clear=False):
+            self.assertEqual(_get_pdf_parse_timeout_seconds(), 120.0)
+
     def test_pdf_parse_subprocess_timeout_terminates_worker(self):
         started_at = time.perf_counter()
 

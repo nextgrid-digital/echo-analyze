@@ -57,7 +57,8 @@ ALLOWED_CONTENT_TYPES = {
 ALLOWED_PARSE_OUTPUT_FORMATS = {"json", "excel"}
 PDF_MAGIC_PREFIX = b"%PDF-"
 AMFI_CODE_PATTERN = re.compile(r"^\d{1,12}$")
-DEFAULT_PDF_PARSE_TIMEOUT_SECONDS = 60.0
+DEFAULT_PDF_PARSE_TIMEOUT_SECONDS = 120.0
+MAX_PDF_PARSE_TIMEOUT_SECONDS = 240.0
 PDF_PARSE_WORKER_JOIN_GRACE_SECONDS = 2.0
 PDF_PARSE_STARTUP_ERROR = "PDF parsing could not start. Please try again later."
 PDF_PARSE_TIMEOUT_ERROR = "PDF parsing timed out. Please try again with a smaller file."
@@ -359,7 +360,7 @@ def _get_pdf_parse_timeout_seconds() -> float:
         parsed = float(raw_timeout)
     except ValueError:
         return DEFAULT_PDF_PARSE_TIMEOUT_SECONDS
-    return min(max(parsed, 1.0), 120.0)
+    return min(max(parsed, 1.0), MAX_PDF_PARSE_TIMEOUT_SECONDS)
 
 
 def _get_pdf_parse_executor() -> str:
