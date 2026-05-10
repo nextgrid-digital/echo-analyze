@@ -51,6 +51,7 @@ from app.Code.main import (
     _current_holding_entry_date,
     _does_clerk_frontend_api_resolve,
     _get_clerk_frontend_api_from_publishable_key,
+    _get_pdf_parse_executor,
     _get_pdf_parse_timeout_seconds,
     _get_runtime_clerk_publishable_key,
     _normalize_amfi_code,
@@ -1336,6 +1337,24 @@ class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, {"PDF_PARSE_TIMEOUT_SECONDS": "invalid"}, clear=False):
             self.assertEqual(_get_pdf_parse_timeout_seconds(), 120.0)
 
+    def test_pdf_parse_auto_uses_thread_on_vercel(self):
+        with patch.dict(os.environ, {"PDF_PARSE_EXECUTOR": "auto", "VERCEL": "1"}, clear=False):
+            self.assertEqual(_get_pdf_parse_executor(), "thread")
+
+        with patch.dict(os.environ, {"PDF_PARSE_EXECUTOR": "auto", "VERCEL_ENV": "production"}, clear=False):
+            os.environ.pop("VERCEL", None)
+            self.assertEqual(_get_pdf_parse_executor(), "thread")
+
+    def test_pdf_parse_auto_uses_process_locally(self):
+        with patch.dict(os.environ, {"PDF_PARSE_EXECUTOR": "auto"}, clear=False):
+            os.environ.pop("VERCEL", None)
+            os.environ.pop("VERCEL_ENV", None)
+            self.assertEqual(_get_pdf_parse_executor(), "auto")
+
+    def test_pdf_parse_explicit_process_overrides_vercel_default(self):
+        with patch.dict(os.environ, {"PDF_PARSE_EXECUTOR": "process", "VERCEL": "1"}, clear=False):
+            self.assertEqual(_get_pdf_parse_executor(), "process")
+
     def test_pdf_parse_subprocess_timeout_terminates_worker(self):
         started_at = time.perf_counter()
 
@@ -1388,6 +1407,8 @@ class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
             "app.Code.main.parse_with_casparser",
             return_value={"success": True, "data": {"folios": []}},
         ):
+            os.environ.pop("VERCEL", None)
+            os.environ.pop("VERCEL_ENV", None)
             result = await _parse_pdf_upload(b"%PDF-1.4\n", password="")
 
         self.assertTrue(result["success"])

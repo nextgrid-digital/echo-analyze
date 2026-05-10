@@ -365,9 +365,15 @@ def _get_pdf_parse_timeout_seconds() -> float:
 
 def _get_pdf_parse_executor() -> str:
     configured = os.environ.get("PDF_PARSE_EXECUTOR", "auto").strip().lower()
-    if configured in {"auto", "process", "subprocess", "thread"}:
+    if configured == "auto":
+        if os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"):
+            return "thread"
+        return "auto"
+    if configured in {"process", "subprocess", "thread"}:
         return configured
     log_debug(f"Ignoring invalid PDF_PARSE_EXECUTOR value: {configured!r}")
+    if os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"):
+        return "thread"
     return "auto"
 
 
@@ -740,9 +746,16 @@ async def _parse_pdf_upload(content: bytes, password: str = "") -> Dict[str, Any
     parse_timeout_seconds = _get_pdf_parse_timeout_seconds()
     wrapper_timeout_seconds = parse_timeout_seconds + (PDF_PARSE_WORKER_JOIN_GRACE_SECONDS * 2) + 5.0
     executor = _get_pdf_parse_executor()
+    started_at = perf_counter()
+    log_debug(f"PDF parse starting; executor={executor}; bytes={len(content)}; timeout={parse_timeout_seconds}")
 
     if executor == "thread":
-        return await _parse_pdf_upload_in_thread(content, password or "", parse_timeout_seconds)
+        result = await _parse_pdf_upload_in_thread(content, password or "", parse_timeout_seconds)
+        log_debug(
+            f"PDF parse finished; executor=thread; success={bool(result.get('success'))}; "
+            f"duration_ms={int((perf_counter() - started_at) * 1000)}"
+        )
+        return result
 
     try:
         result = await asyncio.wait_for(
@@ -756,11 +769,28 @@ async def _parse_pdf_upload(content: bytes, password: str = "") -> Dict[str, Any
         )
         if executor == "auto" and result.get("error") == PDF_PARSE_STARTUP_ERROR:
             log_debug("Falling back to thread-based PDF parsing after subprocess startup failure.")
-            return await _parse_pdf_upload_in_thread(content, password or "", parse_timeout_seconds)
+            result = await _parse_pdf_upload_in_thread(content, password or "", parse_timeout_seconds)
+            log_debug(
+                f"PDF parse finished; executor=thread-fallback; success={bool(result.get('success'))}; "
+                f"duration_ms={int((perf_counter() - started_at) * 1000)}"
+            )
+            return result
+        log_debug(
+            f"PDF parse finished; executor={executor}; success={bool(result.get('success'))}; "
+            f"duration_ms={int((perf_counter() - started_at) * 1000)}"
+        )
         return result
     except asyncio.TimeoutError:
+        log_debug(
+            f"PDF parse wrapper timed out; executor={executor}; "
+            f"duration_ms={int((perf_counter() - started_at) * 1000)}"
+        )
         return {"success": False, "error": PDF_PARSE_TIMEOUT_ERROR}
-    except Exception:
+    except Exception as exc:
+        log_debug(
+            f"PDF parse failed before starting; executor={executor}; error={type(exc).__name__}; "
+            f"duration_ms={int((perf_counter() - started_at) * 1000)}"
+        )
         return {"success": False, "error": PDF_PARSE_STARTUP_ERROR}
 
 
