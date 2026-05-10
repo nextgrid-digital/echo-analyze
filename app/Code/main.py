@@ -13,7 +13,7 @@ from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import httpx
@@ -58,7 +58,7 @@ ALLOWED_CONTENT_TYPES = {
 ALLOWED_PARSE_OUTPUT_FORMATS = {"json", "excel"}
 PDF_MAGIC_PREFIX = b"%PDF-"
 AMFI_CODE_PATTERN = re.compile(r"^\d{1,12}$")
-DEFAULT_PDF_PARSE_TIMEOUT_SECONDS = 30.0
+DEFAULT_PDF_PARSE_TIMEOUT_SECONDS = 60.0
 PDF_PARSE_WORKER_JOIN_GRACE_SECONDS = 2.0
 DEBUG_LOG_ENABLED = os.environ.get("ENABLE_DEBUG_LOGS", "").strip().lower() in {"1", "true", "yes"}
 SENSITIVE_API_PATHS = {
@@ -615,49 +615,59 @@ def _parse_pdf_upload_in_subprocess(
     timeout_seconds: float,
     worker_target: Any = _parse_pdf_upload_worker,
 ) -> Dict[str, Any]:
-    ctx = multiprocessing.get_context("spawn")
-    result_queue = ctx.Queue(maxsize=1)
-    process = ctx.Process(
-        target=worker_target,
-        args=(content, password or "", result_queue),
-        daemon=True,
-    )
-
+    result_queue = None
     try:
+        ctx = multiprocessing.get_context("spawn")
+        result_queue = ctx.Queue(maxsize=1)
+        process = ctx.Process(
+            target=worker_target,
+            args=(content, password or "", result_queue),
+            daemon=True,
+        )
         process.start()
-        process.join(timeout_seconds)
-        if process.is_alive():
-            process.terminate()
-            process.join(PDF_PARSE_WORKER_JOIN_GRACE_SECONDS)
-            if process.is_alive():
-                process.kill()
-                process.join(PDF_PARSE_WORKER_JOIN_GRACE_SECONDS)
-            return {
-                "success": False,
-                "error": "PDF parsing timed out. Please try again with a smaller file.",
-            }
+        deadline = monotonic() + timeout_seconds
+        while True:
+            remaining_seconds = deadline - monotonic()
+            if remaining_seconds <= 0:
+                break
 
-        try:
-            result = result_queue.get(timeout=1.0)
-        except queue.Empty:
-            return {
-                "success": False,
-                "error": "Unable to parse the provided PDF file.",
-            }
-        if isinstance(result, dict):
-            return result
-        return {"success": False, "error": "Unable to parse the provided PDF file."}
+            try:
+                result = result_queue.get(timeout=min(0.25, remaining_seconds))
+                process.join(PDF_PARSE_WORKER_JOIN_GRACE_SECONDS)
+                if process.is_alive():
+                    process.terminate()
+                    process.join(PDF_PARSE_WORKER_JOIN_GRACE_SECONDS)
+                if isinstance(result, dict):
+                    return result
+                return {"success": False, "error": "Unable to parse the provided PDF file."}
+            except queue.Empty:
+                if not process.is_alive():
+                    return {
+                        "success": False,
+                        "error": "Unable to parse the provided PDF file.",
+                    }
+
+        process.terminate()
+        process.join(PDF_PARSE_WORKER_JOIN_GRACE_SECONDS)
+        if process.is_alive():
+            process.kill()
+            process.join(PDF_PARSE_WORKER_JOIN_GRACE_SECONDS)
+        return {
+            "success": False,
+            "error": "PDF parsing timed out. Please try again with a smaller file.",
+        }
     except Exception:
         return {
             "success": False,
             "error": "PDF parsing could not start. Please try again later.",
         }
     finally:
-        try:
-            result_queue.close()
-            result_queue.join_thread()
-        except Exception as exc:
-            log_debug(f"PDF parse result queue cleanup failed: {type(exc).__name__}")
+        if result_queue is not None:
+            try:
+                result_queue.close()
+                result_queue.join_thread()
+            except Exception as exc:
+                log_debug(f"PDF parse result queue cleanup failed: {type(exc).__name__}")
 
 
 async def _parse_pdf_upload(content: bytes, password: str = "") -> Dict[str, Any]:
@@ -677,6 +687,11 @@ async def _parse_pdf_upload(content: bytes, password: str = "") -> Dict[str, Any
         return {
             "success": False,
             "error": "PDF parsing timed out. Please try again with a smaller file.",
+        }
+    except Exception:
+        return {
+            "success": False,
+            "error": "PDF parsing could not start. Please try again later.",
         }
 
 

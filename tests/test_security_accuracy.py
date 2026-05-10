@@ -1334,6 +1334,69 @@ class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
         self.assertIn("timed out", result["error"].lower())
         self.assertLess(time.perf_counter() - started_at, 4.0)
 
+    def test_pdf_parse_subprocess_setup_failure_is_controlled_error(self):
+        class BrokenContext:
+            def Queue(self, *args, **kwargs):
+                raise OSError("process queues unavailable")
+
+        with patch("app.Code.main.multiprocessing.get_context", return_value=BrokenContext()):
+            result = _parse_pdf_upload_in_subprocess(b"%PDF-1.4\n", "", 0.2)
+
+        self.assertFalse(result["success"])
+        self.assertIn("could not start", result["error"].lower())
+
+    def test_pdf_parse_subprocess_reads_large_result_before_joining_worker(self):
+        class FakeQueue:
+            def __init__(self):
+                self.drained = False
+
+            def get(self, timeout=None):
+                self.drained = True
+                return {"success": True, "data": {"folios": []}}
+
+            def close(self):
+                return None
+
+            def join_thread(self):
+                return None
+
+        class FakeProcess:
+            def __init__(self, target, args, daemon):
+                self.queue = args[2]
+                self.started = False
+                self.terminated = False
+
+            def start(self):
+                self.started = True
+
+            def join(self, timeout=None):
+                return None
+
+            def is_alive(self):
+                return not self.queue.drained and not self.terminated
+
+            def terminate(self):
+                self.terminated = True
+
+            def kill(self):
+                self.terminated = True
+
+        class FakeContext:
+            def __init__(self):
+                self.queue = FakeQueue()
+
+            def Queue(self, *args, **kwargs):
+                return self.queue
+
+            def Process(self, target, args, daemon):
+                return FakeProcess(target, args, daemon)
+
+        with patch("app.Code.main.multiprocessing.get_context", return_value=FakeContext()):
+            result = _parse_pdf_upload_in_subprocess(b"%PDF-1.4\n", "", 0.2)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["data"], {"folios": []})
+
     def test_pdfminer_cmap_loader_rejects_path_like_names(self):
         from pdfminer.cmapdb import CMapDB
 
