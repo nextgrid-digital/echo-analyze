@@ -114,6 +114,11 @@ def _sleeping_pdf_parse_worker(_content, _password, _result_queue):
     time.sleep(5)
 
 
+def _successful_pdf_parse_worker(_content, _password, result_sink):
+    result_sink.send({"success": True, "data": {"folios": []}})
+    result_sink.close()
+
+
 class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
     async def test_map_returns_new_summary_fields(self):
         fixture = Path("tests/fixtures/sample_cas.json")
@@ -1334,10 +1339,21 @@ class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
         self.assertIn("timed out", result["error"].lower())
         self.assertLess(time.perf_counter() - started_at, 4.0)
 
+    def test_pdf_parse_subprocess_reads_worker_pipe_result(self):
+        result = _parse_pdf_upload_in_subprocess(
+            b"%PDF-1.4\n",
+            "",
+            2.0,
+            worker_target=_successful_pdf_parse_worker,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["data"], {"folios": []})
+
     def test_pdf_parse_subprocess_setup_failure_is_controlled_error(self):
         class BrokenContext:
-            def Queue(self, *args, **kwargs):
-                raise OSError("process queues unavailable")
+            def Pipe(self, *args, **kwargs):
+                raise OSError("process pipes unavailable")
 
         with patch("app.Code.main.multiprocessing.get_context", return_value=BrokenContext()):
             result = _parse_pdf_upload_in_subprocess(b"%PDF-1.4\n", "", 0.2)
@@ -1345,24 +1361,62 @@ class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["success"])
         self.assertIn("could not start", result["error"].lower())
 
+    async def test_pdf_parse_auto_falls_back_to_thread_when_subprocess_cannot_start(self):
+        class BrokenContext:
+            def Pipe(self, *args, **kwargs):
+                raise OSError("process pipes unavailable")
+
+        with patch.dict(
+            os.environ,
+            {"PDF_PARSE_EXECUTOR": "auto", "PDF_PARSE_TIMEOUT_SECONDS": "1"},
+            clear=False,
+        ), patch(
+            "app.Code.main.multiprocessing.get_context",
+            return_value=BrokenContext(),
+        ), patch(
+            "app.Code.main.parse_with_casparser",
+            return_value={"success": True, "data": {"folios": []}},
+        ):
+            result = await _parse_pdf_upload(b"%PDF-1.4\n", password="")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["data"], {"folios": []})
+
+    async def test_pdf_parse_thread_executor_skips_subprocess(self):
+        with patch.dict(
+            os.environ,
+            {"PDF_PARSE_EXECUTOR": "thread", "PDF_PARSE_TIMEOUT_SECONDS": "1"},
+            clear=False,
+        ), patch(
+            "app.Code.main.multiprocessing.get_context",
+            side_effect=AssertionError("subprocess should not start"),
+        ), patch(
+            "app.Code.main.parse_with_casparser",
+            return_value={"success": True, "data": {"folios": []}},
+        ):
+            result = await _parse_pdf_upload(b"%PDF-1.4\n", password="")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["data"], {"folios": []})
+
     def test_pdf_parse_subprocess_reads_large_result_before_joining_worker(self):
-        class FakeQueue:
+        class FakeConnection:
             def __init__(self):
                 self.drained = False
 
-            def get(self, timeout=None):
+            def poll(self, timeout=None):
+                return True
+
+            def recv(self):
                 self.drained = True
                 return {"success": True, "data": {"folios": []}}
 
             def close(self):
                 return None
 
-            def join_thread(self):
-                return None
-
         class FakeProcess:
             def __init__(self, target, args, daemon):
-                self.queue = args[2]
+                self.connection = args[2]
                 self.started = False
                 self.terminated = False
 
@@ -1373,7 +1427,7 @@ class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
                 return None
 
             def is_alive(self):
-                return not self.queue.drained and not self.terminated
+                return not self.connection.drained and not self.terminated
 
             def terminate(self):
                 self.terminated = True
@@ -1383,10 +1437,11 @@ class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
 
         class FakeContext:
             def __init__(self):
-                self.queue = FakeQueue()
+                self.parent_connection = FakeConnection()
+                self.child_connection = self.parent_connection
 
-            def Queue(self, *args, **kwargs):
-                return self.queue
+            def Pipe(self, *args, **kwargs):
+                return self.parent_connection, self.child_connection
 
             def Process(self, target, args, daemon):
                 return FakeProcess(target, args, daemon)

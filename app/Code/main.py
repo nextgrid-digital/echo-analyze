@@ -5,7 +5,6 @@ import json
 import math
 import multiprocessing
 import os
-import queue
 import re
 import socket
 import uuid
@@ -60,6 +59,9 @@ PDF_MAGIC_PREFIX = b"%PDF-"
 AMFI_CODE_PATTERN = re.compile(r"^\d{1,12}$")
 DEFAULT_PDF_PARSE_TIMEOUT_SECONDS = 60.0
 PDF_PARSE_WORKER_JOIN_GRACE_SECONDS = 2.0
+PDF_PARSE_STARTUP_ERROR = "PDF parsing could not start. Please try again later."
+PDF_PARSE_TIMEOUT_ERROR = "PDF parsing timed out. Please try again with a smaller file."
+PDF_PARSE_GENERIC_ERROR = "Unable to parse the provided PDF file."
 DEBUG_LOG_ENABLED = os.environ.get("ENABLE_DEBUG_LOGS", "").strip().lower() in {"1", "true", "yes"}
 SENSITIVE_API_PATHS = {
     "/api/config",
@@ -360,6 +362,14 @@ def _get_pdf_parse_timeout_seconds() -> float:
     return min(max(parsed, 1.0), 120.0)
 
 
+def _get_pdf_parse_executor() -> str:
+    configured = os.environ.get("PDF_PARSE_EXECUTOR", "auto").strip().lower()
+    if configured in {"auto", "process", "subprocess", "thread"}:
+        return configured
+    log_debug(f"Ignoring invalid PDF_PARSE_EXECUTOR value: {configured!r}")
+    return "auto"
+
+
 def _get_runtime_clerk_publishable_key() -> Optional[str]:
     for env_name in CLERK_PUBLISHABLE_KEY_ENV_NAMES:
         value = os.environ.get(env_name, "").strip()
@@ -595,18 +605,34 @@ async def _proxy_clerk_frontend_api(request: Request, path: str) -> Response:
     return response
 
 
-def _parse_pdf_upload_worker(content: bytes, password: str, result_queue: Any) -> None:
+def _parse_pdf_upload_direct(content: bytes, password: str) -> Dict[str, Any]:
     try:
         result = parse_with_casparser(io.BytesIO(content), password=password)
         if not isinstance(result, dict):
-            result = {"success": False, "error": "Unable to parse the provided PDF file."}
+            result = {"success": False, "error": PDF_PARSE_GENERIC_ERROR}
     except BaseException:
-        result = {"success": False, "error": "Unable to parse the provided PDF file."}
+        result = {"success": False, "error": PDF_PARSE_GENERIC_ERROR}
+    return result
 
+
+def _send_pdf_parse_result(result_sink: Any, result: Dict[str, Any]) -> None:
     try:
-        result_queue.put(result)
+        if hasattr(result_sink, "send"):
+            result_sink.send(result)
+        else:
+            result_sink.put(result)
     except Exception:
         return
+
+
+def _parse_pdf_upload_worker(content: bytes, password: str, result_sink: Any) -> None:
+    result = _parse_pdf_upload_direct(content, password)
+    _send_pdf_parse_result(result_sink, result)
+
+    try:
+        result_sink.close()
+    except Exception as exc:
+        log_debug(f"PDF parse result sink cleanup failed: {type(exc).__name__}")
 
 
 def _parse_pdf_upload_in_subprocess(
@@ -615,16 +641,24 @@ def _parse_pdf_upload_in_subprocess(
     timeout_seconds: float,
     worker_target: Any = _parse_pdf_upload_worker,
 ) -> Dict[str, Any]:
-    result_queue = None
+    parent_conn = None
+    child_conn = None
+    process = None
     try:
         ctx = multiprocessing.get_context("spawn")
-        result_queue = ctx.Queue(maxsize=1)
+        parent_conn, child_conn = ctx.Pipe(duplex=False)
         process = ctx.Process(
             target=worker_target,
-            args=(content, password or "", result_queue),
+            args=(content, password or "", child_conn),
             daemon=True,
         )
         process.start()
+        try:
+            child_conn.close()
+            child_conn = None
+        except Exception as exc:
+            log_debug(f"PDF parse child pipe cleanup failed: {type(exc).__name__}")
+
         deadline = monotonic() + timeout_seconds
         while True:
             remaining_seconds = deadline - monotonic()
@@ -632,49 +666,85 @@ def _parse_pdf_upload_in_subprocess(
                 break
 
             try:
-                result = result_queue.get(timeout=min(0.25, remaining_seconds))
+                has_result = parent_conn.poll(min(0.25, remaining_seconds))
+            except (OSError, ValueError):
+                return {"success": False, "error": PDF_PARSE_GENERIC_ERROR}
+
+            if has_result:
+                try:
+                    result = parent_conn.recv()
+                except (EOFError, OSError, ValueError):
+                    return {"success": False, "error": PDF_PARSE_GENERIC_ERROR}
                 process.join(PDF_PARSE_WORKER_JOIN_GRACE_SECONDS)
                 if process.is_alive():
                     process.terminate()
                     process.join(PDF_PARSE_WORKER_JOIN_GRACE_SECONDS)
                 if isinstance(result, dict):
                     return result
-                return {"success": False, "error": "Unable to parse the provided PDF file."}
-            except queue.Empty:
-                if not process.is_alive():
-                    return {
-                        "success": False,
-                        "error": "Unable to parse the provided PDF file.",
-                    }
+                return {"success": False, "error": PDF_PARSE_GENERIC_ERROR}
+
+            if not process.is_alive():
+                try:
+                    if parent_conn.poll(0):
+                        result = parent_conn.recv()
+                        if isinstance(result, dict):
+                            return result
+                except (EOFError, OSError, ValueError):
+                    pass
+                return {"success": False, "error": PDF_PARSE_GENERIC_ERROR}
 
         process.terminate()
         process.join(PDF_PARSE_WORKER_JOIN_GRACE_SECONDS)
         if process.is_alive():
             process.kill()
             process.join(PDF_PARSE_WORKER_JOIN_GRACE_SECONDS)
-        return {
-            "success": False,
-            "error": "PDF parsing timed out. Please try again with a smaller file.",
-        }
-    except Exception:
-        return {
-            "success": False,
-            "error": "PDF parsing could not start. Please try again later.",
-        }
-    finally:
-        if result_queue is not None:
+        return {"success": False, "error": PDF_PARSE_TIMEOUT_ERROR}
+    except Exception as exc:
+        if process is not None:
             try:
-                result_queue.close()
-                result_queue.join_thread()
+                if process.is_alive():
+                    process.terminate()
+                    process.join(PDF_PARSE_WORKER_JOIN_GRACE_SECONDS)
+            except Exception as cleanup_exc:
+                log_debug(f"PDF parse subprocess cleanup failed: {type(cleanup_exc).__name__}")
+        log_debug(f"PDF parse subprocess startup failed: {type(exc).__name__}")
+        return {"success": False, "error": PDF_PARSE_STARTUP_ERROR}
+    finally:
+        if child_conn is not None:
+            try:
+                child_conn.close()
             except Exception as exc:
-                log_debug(f"PDF parse result queue cleanup failed: {type(exc).__name__}")
+                log_debug(f"PDF parse child pipe cleanup failed: {type(exc).__name__}")
+        if parent_conn is not None:
+            try:
+                parent_conn.close()
+            except Exception as exc:
+                log_debug(f"PDF parse result pipe cleanup failed: {type(exc).__name__}")
+
+
+async def _parse_pdf_upload_in_thread(content: bytes, password: str, timeout_seconds: float) -> Dict[str, Any]:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_parse_pdf_upload_direct, content, password or ""),
+            timeout=timeout_seconds,
+        )
+    except asyncio.TimeoutError:
+        return {"success": False, "error": PDF_PARSE_TIMEOUT_ERROR}
+    except Exception as exc:
+        log_debug(f"PDF parse thread startup failed: {type(exc).__name__}")
+        return {"success": False, "error": PDF_PARSE_STARTUP_ERROR}
 
 
 async def _parse_pdf_upload(content: bytes, password: str = "") -> Dict[str, Any]:
     parse_timeout_seconds = _get_pdf_parse_timeout_seconds()
     wrapper_timeout_seconds = parse_timeout_seconds + (PDF_PARSE_WORKER_JOIN_GRACE_SECONDS * 2) + 5.0
+    executor = _get_pdf_parse_executor()
+
+    if executor == "thread":
+        return await _parse_pdf_upload_in_thread(content, password or "", parse_timeout_seconds)
+
     try:
-        return await asyncio.wait_for(
+        result = await asyncio.wait_for(
             asyncio.to_thread(
                 _parse_pdf_upload_in_subprocess,
                 content,
@@ -683,16 +753,14 @@ async def _parse_pdf_upload(content: bytes, password: str = "") -> Dict[str, Any
             ),
             timeout=wrapper_timeout_seconds,
         )
+        if executor == "auto" and result.get("error") == PDF_PARSE_STARTUP_ERROR:
+            log_debug("Falling back to thread-based PDF parsing after subprocess startup failure.")
+            return await _parse_pdf_upload_in_thread(content, password or "", parse_timeout_seconds)
+        return result
     except asyncio.TimeoutError:
-        return {
-            "success": False,
-            "error": "PDF parsing timed out. Please try again with a smaller file.",
-        }
+        return {"success": False, "error": PDF_PARSE_TIMEOUT_ERROR}
     except Exception:
-        return {
-            "success": False,
-            "error": "PDF parsing could not start. Please try again later.",
-        }
+        return {"success": False, "error": PDF_PARSE_STARTUP_ERROR}
 
 
 async def _read_upload_limited(file: UploadFile) -> Tuple[Optional[bytes], Optional[str]]:
