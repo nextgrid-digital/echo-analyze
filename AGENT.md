@@ -85,12 +85,13 @@ run_local.bat
 - Clerk JWT validation requires signed RS256 tokens with `exp` and `sub` claims.
 - `/api/analyze`, `/api/parse_pdf`, `/api/auth/me`, `/api/admin/overview`, `/dashboard*`, `/admin*`, and `/` return no-store cache headers.
 - Uploads are limited to 25 MB, allowed extensions/content types are checked, PDF magic bytes are validated, and JSON shape is validated before analysis.
-- CAS PDF parsing runs in a worker thread with `PDF_PARSE_TIMEOUT_SECONDS` capped between 1 and 120 seconds, defaulting to 30.
+- CAS PDF parsing runs in a killable subprocess with `PDF_PARSE_TIMEOUT_SECONDS` capped between 1 and 120 seconds, defaulting to 30.
 - CAS parser imports resolve to the repo-local `casparser/` package. Keep `app/Code/pdfminer_hardening.py` as defense-in-depth around CMap loading.
 - Logs and analytics sanitize file names, PAN-like tokens, emails, phone numbers, and control characters.
 - CSV and Excel exports escape spreadsheet formula prefixes, including leading whitespace/tab variants.
 - Dashboard analysis handoff is in memory only; do not persist full CAS analysis data in Web Storage or browser history state.
 - Responses include a restrictive Content Security Policy in addition to `nosniff`, `DENY` framing, and referrer-policy headers.
+- Public auth diagnostics are hidden by default; only set `EXPOSE_AUTH_DIAGNOSTICS=true` during trusted local debugging.
 
 ## Known Residual Risks
 

@@ -3,7 +3,9 @@ import base64
 import io
 import json
 import math
+import multiprocessing
 import os
+import queue
 import re
 import socket
 import uuid
@@ -57,6 +59,7 @@ ALLOWED_PARSE_OUTPUT_FORMATS = {"json", "excel"}
 PDF_MAGIC_PREFIX = b"%PDF-"
 AMFI_CODE_PATTERN = re.compile(r"^\d{1,12}$")
 DEFAULT_PDF_PARSE_TIMEOUT_SECONDS = 30.0
+PDF_PARSE_WORKER_JOIN_GRACE_SECONDS = 2.0
 DEBUG_LOG_ENABLED = os.environ.get("ENABLE_DEBUG_LOGS", "").strip().lower() in {"1", "true", "yes"}
 SENSITIVE_API_PATHS = {
     "/api/config",
@@ -96,6 +99,14 @@ HOP_BY_HOP_HEADERS = {
     "transfer-encoding",
     "upgrade",
 }
+CLERK_PROXY_CONTROL_HEADERS = {
+    "clerk-proxy-url",
+    "clerk-secret-key",
+}
+FORWARDED_PROTO_VALUES = {"http", "https"}
+HOST_PATTERN = re.compile(
+    r"^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|\[[0-9A-Fa-f:.]{2,45}\])(?::\d{1,5})?$"
+)
 
 
 def _redact_pii(text: str) -> str:
@@ -409,6 +420,10 @@ def _does_clerk_frontend_api_resolve() -> Optional[bool]:
     return True
 
 
+def _should_expose_auth_diagnostics() -> bool:
+    return os.environ.get("EXPOSE_AUTH_DIAGNOSTICS", "").strip().lower() in {"1", "true", "yes"}
+
+
 def _get_clerk_csp_sources() -> str:
     sources = list(BASE_CLERK_CSP_SOURCES)
     frontend_api = _get_clerk_frontend_api_from_publishable_key()
@@ -452,11 +467,48 @@ def _build_content_security_policy() -> str:
     )
 
 
+def _normalize_forwarded_proto(value: Any) -> Optional[str]:
+    proto = str(value or "").split(",", 1)[0].strip().lower()
+    return proto if proto in FORWARDED_PROTO_VALUES else None
+
+
+def _normalize_forwarded_host(value: Any) -> Optional[str]:
+    host = str(value or "").split(",", 1)[0].strip()
+    if not host or len(host) > 253:
+        return None
+    if any(char in host for char in ("/", "\\", "@", "?", "#")):
+        return None
+    if not HOST_PATTERN.fullmatch(host):
+        return None
+    if ":" in host:
+        port_text = ""
+        if host.startswith("[") and "]:" in host:
+            _, _, port_text = host.rpartition(":")
+        elif not host.startswith("["):
+            _, _, port_text = host.rpartition(":")
+        if port_text:
+            try:
+                port = int(port_text)
+            except ValueError:
+                return None
+            if port < 1 or port > 65535:
+                return None
+    return host
+
+
 def _get_request_origin_parts(request: Request) -> Tuple[str, str]:
-    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
-    forwarded_host = request.headers.get("x-forwarded-host", "").split(",", 1)[0].strip()
-    proto = forwarded_proto or request.url.scheme
-    host = forwarded_host or request.headers.get("host") or request.url.netloc
+    proto = (
+        _normalize_forwarded_proto(request.headers.get("x-forwarded-proto"))
+        or _normalize_forwarded_proto(request.url.scheme)
+        or "https"
+    )
+    host = (
+        _normalize_forwarded_host(request.headers.get("x-forwarded-host"))
+        or _normalize_forwarded_host(request.headers.get("host"))
+        or _normalize_forwarded_host(request.url.netloc)
+    )
+    if not host:
+        raise ClerkConfigurationError("Unable to determine a valid request host for Clerk proxying.")
     return proto, host
 
 
@@ -479,6 +531,7 @@ def _get_clerk_proxy_headers(request: Request) -> Dict[str, str]:
         key: value
         for key, value in request.headers.items()
         if key.lower() not in HOP_BY_HOP_HEADERS
+        and key.lower() not in CLERK_PROXY_CONTROL_HEADERS
     }
     _, host = _get_request_origin_parts(request)
     headers["Host"] = host
@@ -542,11 +595,83 @@ async def _proxy_clerk_frontend_api(request: Request, path: str) -> Response:
     return response
 
 
+def _parse_pdf_upload_worker(content: bytes, password: str, result_queue: Any) -> None:
+    try:
+        result = parse_with_casparser(io.BytesIO(content), password=password)
+        if not isinstance(result, dict):
+            result = {"success": False, "error": "Unable to parse the provided PDF file."}
+    except BaseException:
+        result = {"success": False, "error": "Unable to parse the provided PDF file."}
+
+    try:
+        result_queue.put(result)
+    except Exception:
+        return
+
+
+def _parse_pdf_upload_in_subprocess(
+    content: bytes,
+    password: str,
+    timeout_seconds: float,
+    worker_target: Any = _parse_pdf_upload_worker,
+) -> Dict[str, Any]:
+    ctx = multiprocessing.get_context("spawn")
+    result_queue = ctx.Queue(maxsize=1)
+    process = ctx.Process(
+        target=worker_target,
+        args=(content, password or "", result_queue),
+        daemon=True,
+    )
+
+    try:
+        process.start()
+        process.join(timeout_seconds)
+        if process.is_alive():
+            process.terminate()
+            process.join(PDF_PARSE_WORKER_JOIN_GRACE_SECONDS)
+            if process.is_alive():
+                process.kill()
+                process.join(PDF_PARSE_WORKER_JOIN_GRACE_SECONDS)
+            return {
+                "success": False,
+                "error": "PDF parsing timed out. Please try again with a smaller file.",
+            }
+
+        try:
+            result = result_queue.get(timeout=1.0)
+        except queue.Empty:
+            return {
+                "success": False,
+                "error": "Unable to parse the provided PDF file.",
+            }
+        if isinstance(result, dict):
+            return result
+        return {"success": False, "error": "Unable to parse the provided PDF file."}
+    except Exception:
+        return {
+            "success": False,
+            "error": "PDF parsing could not start. Please try again later.",
+        }
+    finally:
+        try:
+            result_queue.close()
+            result_queue.join_thread()
+        except Exception as exc:
+            log_debug(f"PDF parse result queue cleanup failed: {type(exc).__name__}")
+
+
 async def _parse_pdf_upload(content: bytes, password: str = "") -> Dict[str, Any]:
+    parse_timeout_seconds = _get_pdf_parse_timeout_seconds()
+    wrapper_timeout_seconds = parse_timeout_seconds + (PDF_PARSE_WORKER_JOIN_GRACE_SECONDS * 2) + 5.0
     try:
         return await asyncio.wait_for(
-            asyncio.to_thread(parse_with_casparser, io.BytesIO(content), password=password),
-            timeout=_get_pdf_parse_timeout_seconds(),
+            asyncio.to_thread(
+                _parse_pdf_upload_in_subprocess,
+                content,
+                password or "",
+                parse_timeout_seconds,
+            ),
+            timeout=wrapper_timeout_seconds,
         )
     except asyncio.TimeoutError:
         return {
@@ -2341,14 +2466,14 @@ def parse_cas_data(_data):
     return AnalysisResponse(success=False, error="Legacy list format not supported in new analyzer")
 
 
-@app.get("/api/config", response_model=PublicConfigResponse)
+@app.get("/api/config", response_model=PublicConfigResponse, response_model_exclude_none=True)
 async def public_config():
     return PublicConfigResponse(
         clerk_publishable_key=_get_runtime_clerk_publishable_key(),
         clerk_key_type=_get_runtime_clerk_key_type(),
         clerk_frontend_api=_get_clerk_frontend_api_from_publishable_key(),
         clerk_frontend_api_resolves=_does_clerk_frontend_api_resolve(),
-        clerk_secret_configured=_has_secret_key(),
+        clerk_secret_configured=_has_secret_key() if _should_expose_auth_diagnostics() else None,
     )
 
 
@@ -2593,11 +2718,6 @@ async def parse_pdf(
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
-
-
-@app.get("/test")
-async def test_api():
-    return {"message": "API is alive"}
 
 
 @app.get("/")

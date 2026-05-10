@@ -42,7 +42,10 @@ def _has_secret_key() -> bool:
 
 
 def _requires_authorized_party() -> bool:
-    return os.environ.get("CLERK_REQUIRE_AZP", "").strip().lower() in {"1", "true", "yes"}
+    raw_value = os.environ.get("CLERK_REQUIRE_AZP")
+    if raw_value is None or not raw_value.strip():
+        return bool(_get_allowed_parties())
+    return raw_value.strip().lower() in {"1", "true", "yes"}
 
 
 def _allows_cookie_auth() -> bool:

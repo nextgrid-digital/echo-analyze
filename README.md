@@ -82,6 +82,7 @@ This will:
   - `CLERK_ALLOWED_ISSUERS` (optional, recommended; comma-separated Clerk issuer URLs)
   - `CLERK_REQUIRE_AZP` (recommended `true` when your tokens include `azp`; set to `false` only for legacy tokens that omit it)
   - `ENABLE_DEBUG_LOGS` (keep `false` unless you are temporarily debugging locally)
+  - `EXPOSE_AUTH_DIAGNOSTICS` (optional local diagnostic; keep unset/false in production)
 - Frontend-only Vite dev also supports `frontend/.env.local` with:
   - `VITE_CLERK_PUBLISHABLE_KEY`
 
@@ -119,7 +120,6 @@ This will:
 - `GET /api/auth/me` - Return current authenticated user and admin access
 - `GET /api/admin/overview` - Admin analytics summary, requires admin access
 - `GET /api/health` - Health check endpoint
-- `GET /test` - Test API endpoint
 
 ## Project Structure
 
@@ -178,6 +178,8 @@ echo-analyze/
 The server runs in reload mode by default, so any changes to Python files will automatically restart the server.
 
 Debug logs are written to `data/backend_debug.log` only when `ENABLE_DEBUG_LOGS=true`.
+Public auth diagnostics such as backend secret presence are omitted from `/api/config` unless
+`EXPOSE_AUTH_DIAGNOSTICS=true`.
 Analysis analytics are stored in `data/app_analytics.db` by default.
 
 ## Troubleshooting

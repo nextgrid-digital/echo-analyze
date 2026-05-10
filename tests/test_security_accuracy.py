@@ -55,6 +55,7 @@ from app.Code.main import (
     _normalize_amfi_code,
     _parse_amount,
     _parse_iso_date,
+    _parse_pdf_upload_in_subprocess,
     _parse_pdf_upload,
     _prepare_benchmark_history,
     _resolve_benchmark_components,
@@ -107,6 +108,10 @@ class _UploadStub:
     def __init__(self, filename: str, content_type: str):
         self.filename = filename
         self.content_type = content_type
+
+
+def _sleeping_pdf_parse_worker(_content, _password, _result_queue):
+    time.sleep(5)
 
 
 class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
@@ -1007,8 +1012,25 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertEqual(body["clerk_key_type"], "test")
         self.assertEqual(body["clerk_frontend_api"], "runtime.example")
         self.assertTrue(body["clerk_frontend_api_resolves"])
-        self.assertIn("clerk_secret_configured", body)
+        self.assertNotIn("clerk_secret_configured", body)
         self.assertEqual(response.headers.get("cache-control"), "no-store, max-age=0")
+
+    def test_public_config_exposes_secret_diagnostics_only_when_enabled(self):
+        client = TestClient(app)
+        encoded = base64.b64encode(b"runtime.example$").decode("ascii")
+        with patch.dict(
+            os.environ,
+            {
+                "VITE_CLERK_PUBLISHABLE_KEY": f"pk_test_{encoded}",
+                "EXPOSE_AUTH_DIAGNOSTICS": "true",
+                "CLERK_SECRET_KEY": "sk_test_diagnostic",
+            },
+            clear=False,
+        ), patch("app.Code.main.socket.getaddrinfo", return_value=[]):
+            response = client.get("/api/config")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["clerk_secret_configured"])
 
     def test_runtime_clerk_publishable_key_ignores_non_publishable_values(self):
         with patch.dict(
@@ -1065,6 +1087,13 @@ class TestErrorSanitization(unittest.TestCase):
 
         for route in ("/__clerk", "/__clerk/(.*)"):
             self.assertEqual(routes[route]["dest"], "app/Code/main.py")
+
+    def test_public_test_endpoint_is_not_exposed(self):
+        client = TestClient(app)
+
+        response = client.get("/test")
+
+        self.assertEqual(response.status_code, 404)
 
     def test_clerk_frontend_api_proxy_forwards_to_runtime_frontend_api(self):
         frontend_api = "clerk.nextgrid.digital"
@@ -1133,6 +1162,59 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertNotIn("content-security-policy", response.headers)
         self.assertNotIn("x-frame-options", response.headers)
 
+    def test_clerk_frontend_api_proxy_ignores_malformed_forwarded_host(self):
+        frontend_api = "clerk.nextgrid.digital"
+        encoded = base64.b64encode(f"{frontend_api}$".encode("ascii")).decode("ascii")
+        captured = {}
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def request(self, method, url, content, headers):
+                captured["headers"] = headers
+                return httpx.Response(200, content=b'{"ok":true}', headers={"content-type": "application/json"})
+
+        client = TestClient(app)
+        with patch.dict(
+            os.environ,
+            {
+                "VITE_CLERK_PUBLISHABLE_KEY": f"pk_live_{encoded}",
+                "CLERK_PUBLISHABLE_KEY": "",
+                "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "",
+                "CLERK_SECRET_KEY": "sk_live_test",
+            },
+            clear=False,
+        ), patch("app.Code.main.httpx.AsyncClient", FakeAsyncClient):
+            response = client.get(
+                "/__clerk/v1/environment",
+                headers={
+                    "host": "echo.nextgrid.digital",
+                    "x-forwarded-host": "attacker.example/path",
+                    "x-forwarded-proto": "https",
+                    "clerk-secret-key": "attacker-controlled",
+                    "clerk-proxy-url": "https://attacker.example/__clerk",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(captured["headers"]["Host"], "echo.nextgrid.digital")
+        self.assertEqual(captured["headers"]["Clerk-Proxy-Url"], "https://echo.nextgrid.digital/__clerk")
+        secret_header_values = [
+            value for key, value in captured["headers"].items() if key.lower() == "clerk-secret-key"
+        ]
+        proxy_url_header_values = [
+            value for key, value in captured["headers"].items() if key.lower() == "clerk-proxy-url"
+        ]
+        self.assertEqual(secret_header_values, ["sk_live_test"])
+        self.assertEqual(proxy_url_header_values, ["https://echo.nextgrid.digital/__clerk"])
+
 
 class TestAuthHardening(unittest.IsolatedAsyncioTestCase):
     def test_cookie_auth_is_disabled_by_default_for_protected_api_tokens(self):
@@ -1172,6 +1254,14 @@ class TestAuthHardening(unittest.IsolatedAsyncioTestCase):
             {"CLERK_ALLOWED_PARTIES": "https://app.example", "CLERK_REQUIRE_AZP": "true"},
             clear=False,
         ):
+            with self.assertRaises(HTTPException) as ctx:
+                _verify_authorized_party({})
+
+        self.assertEqual(ctx.exception.status_code, 401)
+        self.assertIn("authorized party", str(ctx.exception.detail).lower())
+
+    def test_allowed_parties_require_azp_by_default_when_configured(self):
+        with patch.dict(os.environ, {"CLERK_ALLOWED_PARTIES": "https://app.example"}, clear=True):
             with self.assertRaises(HTTPException) as ctx:
                 _verify_authorized_party({})
 
@@ -1230,6 +1320,20 @@ class TestAnalyticsPrivacyHelpers(unittest.TestCase):
 
 
 class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
+    def test_pdf_parse_subprocess_timeout_terminates_worker(self):
+        started_at = time.perf_counter()
+
+        result = _parse_pdf_upload_in_subprocess(
+            b"%PDF-1.4\n",
+            "",
+            0.2,
+            worker_target=_sleeping_pdf_parse_worker,
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("timed out", result["error"].lower())
+        self.assertLess(time.perf_counter() - started_at, 4.0)
+
     def test_pdfminer_cmap_loader_rejects_path_like_names(self):
         from pdfminer.cmapdb import CMapDB
 
