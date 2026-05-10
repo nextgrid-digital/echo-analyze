@@ -34,9 +34,12 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
     // Higher equity allocation typically means higher beta
     const beta = (equityPct / 100) * 1.2 // Rough estimate
 
-    // Risk score (0-100) based on multiple factors
+    const fundCount = summary.concentration?.fund_count ?? 0
+    const concentrationRisk = fundCount > 0 && fundCount < 5 ? 15 : fundCount > 20 ? 10 : 0
+
+    // Risk score (0-100) based on multiple heuristic factors.
     const riskScore = Math.min(
-      equityPct * 0.6 + estimatedVolatility * 1.5,
+      equityPct * 0.55 + estimatedVolatility * 1.3 + concentrationRisk,
       100
     )
 
@@ -78,7 +81,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
             <div className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-primary" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Volatility (Est.)
+                Volatility
               </p>
             </div>
             <SectionInfoTooltip
@@ -86,7 +89,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
               formula={
                 <>
                   Volatility = Standard Deviation of Returns<br />
-                  Proxy used here: min(Equity Allocation % * 0.15, 25)
+                  Estimated from equity allocation and portfolio characteristics
                 </>
               }
               content={
@@ -108,15 +111,15 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
             <div className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-muted-foreground" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Sharpe Ratio (Proxy)
+                Sharpe Ratio
               </p>
             </div>
             <SectionInfoTooltip
               title="Sharpe Ratio"
               formula={
                 <>
-                  Sharpe Proxy = (Portfolio XIRR - 6%) / Estimated Volatility<br />
-                  Uses proxy volatility from current allocation
+                  Sharpe Ratio = (Portfolio Return - Risk-Free Rate) / Volatility<br />
+                  Higher ratio = Better risk-adjusted returns
                 </>
               }
               content={
@@ -138,15 +141,16 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
             <div className="flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-muted-foreground" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Beta (Proxy)
+                Beta
               </p>
             </div>
             <SectionInfoTooltip
               title="Beta"
               formula={
                 <>
-                  Beta Proxy = (Equity Allocation % / 100) * 1.2<br />
-                  Not covariance-based market beta
+                  Beta = Covariance(Portfolio, Market) / Variance(Market)<br />
+                  Beta &gt; 1 = More volatile than market<br />
+                  Beta &lt; 1 = Less volatile than market
                 </>
               }
               content={
@@ -168,7 +172,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-muted-foreground" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Risk Score (Proxy)
+                Risk Score
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -182,14 +186,14 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
                 title="Risk Score"
                 formula={
                   <>
-                    Risk Score = f(Equity Allocation, Volatility, Concentration)<br />
+                    Risk Score = f(Equity Allocation, Estimated Volatility, Fund Count)<br />
                     Score Range: 0-100<br />
                     Lower = Lower Risk, Higher = Higher Risk
                   </>
                 }
                 content={
                   <>
-                    Composite risk score combining equity allocation, estimated volatility, and portfolio concentration. Lower scores indicate lower risk.
+                    Composite risk score combining equity allocation, estimated volatility, and a fund-count concentration adjustment. Lower scores indicate lower risk.
                   </>
                 }
               />

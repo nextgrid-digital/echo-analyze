@@ -2,9 +2,8 @@
 Compute pairwise fund overlap matrix from scheme-level holdings.
 Overlap(A, B) = sum over common instruments of min(weight_A[s], weight_B[s]).
 """
+import math
 from typing import Dict, List, Tuple
-
-MIN_CONSTITUENTS_FOR_COMPARABLE_OVERLAP = 8
 
 
 def compute_overlap_matrix(
@@ -27,12 +26,9 @@ def compute_overlap_matrix(
 
     # Pre-compute maps to avoid N^2 redundant work
     scheme_maps = {}
-    comparable = {}
     for code in scheme_order:
         h = holdings_by_scheme.get(code)
-        weight_map = _to_weight_map(h) if h else {}
-        scheme_maps[code] = weight_map
-        comparable[code] = len(weight_map) >= MIN_CONSTITUENTS_FOR_COMPARABLE_OVERLAP
+        scheme_maps[code] = _to_weight_map(h) if h else {}
 
     for i in range(n):
         scheme_i = scheme_order[i]
@@ -49,11 +45,6 @@ def compute_overlap_matrix(
             map_j = scheme_maps[scheme_j]
             if not map_j:
                 continue
-
-            if not comparable[scheme_i] or not comparable[scheme_j]:
-                matrix[i][j] = 0.0
-                matrix[j][i] = 0.0
-                continue
             
             overlap = round(_pairwise_overlap(map_i, map_j), 1)
             matrix[i][j] = overlap
@@ -67,8 +58,12 @@ def _to_weight_map(holdings: List[Tuple[str, float]]) -> Dict[str, float]:
     out: Dict[str, float] = {}
     for name, w in holdings:
         key = _normalize_instrument(name)
-        if key:
-            out[key] = out.get(key, 0.0) + float(w)
+        try:
+            weight = float(w)
+        except (TypeError, ValueError):
+            continue
+        if key and math.isfinite(weight) and weight > 0:
+            out[key] = out.get(key, 0.0) + weight
     total_weight = sum(v for v in out.values() if v > 0)
     if total_weight > 0:
         scale = 100.0 / total_weight

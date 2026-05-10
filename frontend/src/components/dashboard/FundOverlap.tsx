@@ -1,12 +1,11 @@
 
 
 import { memo, useRef } from "react"
-import html2canvas from "html2canvas"
-import { jsPDF } from "jspdf"
 import { WideCard } from "./cards/WideCard"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import { Button } from "@/components/ui/button"
 import { Download } from "lucide-react"
+import { escapeCsvCell } from "@/lib/csv"
 import type { OverlapData } from "@/types/api"
 import {
   Table,
@@ -73,6 +72,14 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
   const hasData = n >= 2 && matrix.length >= 2
   const matrixRef = useRef<HTMLDivElement>(null)
 
+  const loadCaptureLibraries = async () => {
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+      import("html2canvas"),
+      import("jspdf"),
+    ])
+    return { html2canvas, jsPDF }
+  }
+
   const handleDownloadCSV = () => {
     // Header row: "Fund" followed by each fund name
     const headers = ["Fund", ...fund_names]
@@ -82,6 +89,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
     matrix.forEach((row, i) => {
       const csvRow = [fund_names[i]]
       row.forEach((val, j) => {
+        // Use raw value, diagonal is 100% or "-" representation, but CSV should be simple
         csvRow.push(i === j ? "100" : String(val))
       })
       rows.push(csvRow)
@@ -89,8 +97,8 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
 
     // Convert to CSV string: values are already numbers or simple strings, but quoting fund names is safer
     const csvContent = [
-      headers.map(h => `"${h.replace(/"/g, '""')}"`).join(","),
-      ...rows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(","))
+      headers.map(escapeCsvCell).join(","),
+      ...rows.map(row => row.map(escapeCsvCell).join(","))
     ].join("\n")
 
     // Create blob and download
@@ -109,6 +117,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
   const handleDownloadImage = async () => {
     if (!matrixRef.current) return
     try {
+      const { html2canvas } = await loadCaptureLibraries()
       const canvas = await html2canvas(matrixRef.current, {
         scale: 2,
         useCORS: true,
@@ -140,6 +149,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
   const handleDownloadPDF = async () => {
     if (!matrixRef.current) return
     try {
+      const { html2canvas, jsPDF } = await loadCaptureLibraries()
       const canvas = await html2canvas(matrixRef.current, {
         scale: 2,
         useCORS: true,
@@ -185,7 +195,6 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
           <div className="flex flex-wrap items-center gap-2">
             <Button
               onClick={handleDownloadCSV}
-              disabled={!hasData}
               variant="outline"
               size="sm"
               className="flex items-center gap-2 h-9 px-3 text-xs bg-black text-white hover:bg-black/90 font-bold shadow-md border-0"
@@ -196,7 +205,6 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
             </Button>
             <Button
               onClick={handleDownloadImage}
-              disabled={!hasData}
               variant="outline"
               size="sm"
               className="flex items-center gap-2 h-9 px-3 text-xs bg-blue-600 text-white hover:bg-blue-700 font-bold shadow-md border-0"
@@ -207,7 +215,6 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
             </Button>
             <Button
               onClick={handleDownloadPDF}
-              disabled={!hasData}
               variant="outline"
               size="sm"
               className="flex items-center gap-2 h-9 px-3 text-xs bg-red-600 text-white hover:bg-red-700 font-bold shadow-md border-0"

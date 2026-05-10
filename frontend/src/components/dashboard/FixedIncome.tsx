@@ -11,7 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts"
+import { FixedIncomeCreditQualityDonutChart } from "./visualizations/FixedIncomeCreditQualityDonutChart"
 import { toLakhs } from "@/lib/format"
 import { CHART_COLORS_3 } from "@/lib/chartColors"
 import type { FixedIncomeData } from "@/types/api"
@@ -272,38 +272,7 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
                     </div>
                   </div>
 
-                  {/* Chart */}
-                  <div className="h-32 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={creditData}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={30}
-                          outerRadius={50}
-                          paddingAngle={2}
-                          dataKey="value"
-                          stroke="none"
-                        >
-                          {creditData.map((entry, i) => (
-                            <Cell key={i} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: "white",
-                            border: "1px solid rgba(0,0,0,0.1)",
-                            borderRadius: "8px",
-                            padding: "6px 10px",
-                            boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-                            fontSize: "11px",
-                          }}
-                          formatter={(v: number | undefined) => v != null ? `${v}%` : ""}
-                        />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
+                  <FixedIncomeCreditQualityDonutChart data={creditData} />
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">No data available</p>

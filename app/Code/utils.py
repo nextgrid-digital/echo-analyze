@@ -2,6 +2,7 @@ import re
 from datetime import datetime, date
 import httpx
 import math
+from pathlib import Path
 from typing import Dict, Optional
 
 import json
@@ -10,29 +11,16 @@ import asyncio
 
 # Global caches (In-memory + Disk)
 _nav_cache: Dict[str, float] = {}
-_history_cache: Dict[str, Dict[str, float]] = {}
-_history_cache_meta: Dict[str, str] = {}
+_history_cache: Dict[str, dict] = {}
 _nav_cache_date: Optional[str] = None  # ISO date string (YYYY-MM-DD) when NAVs were cached
 NAV_CACHE_FILE = "data/nav_cache.json"
+AMFI_CODE_PATTERN = re.compile(r"^\d{1,12}$")
 _fetch_locks: Dict[str, asyncio.Lock] = {}
 _http_client: Optional[httpx.AsyncClient] = None
 _navall_map: Dict[str, float] = {}
 _navall_cache_date: Optional[str] = None
 _navall_lock = asyncio.Lock()
 NAV_ALL_URL = "https://portal.amfiindia.com/spages/NAVAll.txt"
-NAV_ALL_MIN_COLUMNS = 6
-NAV_ALL_DATE_PATTERN = re.compile(r"^\d{2}-[A-Za-z]{3}-\d{4}$")
-
-
-def _history_cache_ttl_days() -> int:
-    raw = os.environ.get("HISTORY_CACHE_TTL_DAYS", "1").strip()
-    try:
-        return max(1, int(raw))
-    except ValueError:
-        return 1
-
-
-HISTORY_CACHE_TTL_DAYS = _history_cache_ttl_days()
 
 async def _get_client():
     global _http_client
@@ -40,38 +28,12 @@ async def _get_client():
         _http_client = httpx.AsyncClient(timeout=10.0, limits=httpx.Limits(max_connections=100, max_keepalive_connections=20))
     return _http_client
 
-
-async def close_http_client() -> None:
-    global _http_client
-    if _http_client is not None and not _http_client.is_closed:
-        await _http_client.aclose()
-    _http_client = None
-
-
-def _normalize_amfi_code(amfi_code: str) -> str:
-    code = str(amfi_code or "").strip()
-    if not code or not code.isdigit():
-        return ""
-    return code
-
-
-def _is_history_cache_fresh(amfi_code: str) -> bool:
-    stamp = _history_cache_meta.get(amfi_code)
-    if not stamp:
-        return False
-    try:
-        fetched_on = datetime.strptime(stamp, "%Y-%m-%d").date()
-    except ValueError:
-        return False
-    return (date.today() - fetched_on).days < HISTORY_CACHE_TTL_DAYS
-
-
 def _load_cache():
     """Load cache from disk; discard stale NAV cache (different day)."""
-    global _nav_cache, _history_cache, _history_cache_meta, _nav_cache_date
+    global _nav_cache, _history_cache, _nav_cache_date
     if os.path.exists(NAV_CACHE_FILE):
         try:
-            with open(NAV_CACHE_FILE, "r") as f:
+            with open(NAV_CACHE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 cached_date = data.get("nav_date", "")
                 today = date.today().isoformat()
@@ -82,25 +44,10 @@ def _load_cache():
                     # Stale NAV cache - discard so fresh NAVs are fetched
                     _nav_cache = {}
                     _nav_cache_date = today
-                raw_history = data.get("history", {})
-                if isinstance(raw_history, dict):
-                    _history_cache = {
-                        str(code): hist
-                        for code, hist in raw_history.items()
-                        if isinstance(code, str) and isinstance(hist, dict)
-                    }
-                raw_history_meta = data.get("history_meta", {})
-                if isinstance(raw_history_meta, dict):
-                    _history_cache_meta = {
-                        str(code): str(stamp)
-                        for code, stamp in raw_history_meta.items()
-                        if isinstance(code, str) and isinstance(stamp, str)
-                    }
-                if not _history_cache_meta and _history_cache:
-                    stamp = date.today().isoformat()
-                    _history_cache_meta = {code: stamp for code in _history_cache.keys()}
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
-            pass
+                # History cache doesn't expire (historical data doesn't change)
+                _history_cache = data.get("history", {})
+        except Exception:
+            return
 
 def _ensure_fresh_cache():
     """Clear in-memory NAV cache if a new day has started."""
@@ -121,20 +68,17 @@ def _parse_navall_text(text: str) -> Dict[str, float]:
             continue
         parts = line.split(";")
         # NAVAll rows: Scheme Code ; ISIN Div ; ISIN Growth ; Scheme Name ; NAV ; Date
-        if len(parts) < NAV_ALL_MIN_COLUMNS:
+        if len(parts) < 6:
             continue
         code = parts[0].strip()
         nav_str = parts[4].strip()
-        nav_date_str = parts[5].strip()
         if not code or not code.isdigit():
-            continue
-        if not NAV_ALL_DATE_PATTERN.match(nav_date_str):
             continue
         try:
             nav_val = float(nav_str)
         except (TypeError, ValueError):
             continue
-        if nav_val > 0:
+        if math.isfinite(nav_val) and nav_val > 0:
             nav_map[code] = nav_val
     return nav_map
 
@@ -157,7 +101,7 @@ async def _get_navall_map() -> Dict[str, float]:
                     _navall_map = parsed
                     _navall_cache_date = today
         except Exception:
-            pass
+            return _navall_map
     return _navall_map
 
 
@@ -168,17 +112,17 @@ async def save_cache_async():
             return  # Read-only filesystem on Vercel
         nav_snap = dict(_nav_cache)
         hist_snap = dict(_history_cache)
-        hist_meta_snap = dict(_history_cache_meta)
         data_str = json.dumps({
             "nav": nav_snap,
             "history": hist_snap,
-            "history_meta": hist_meta_snap,
             "nav_date": _nav_cache_date or date.today().isoformat()
         })
-        with open(NAV_CACHE_FILE, "w") as f:
+        cache_path = Path(NAV_CACHE_FILE)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as f:
             f.write(data_str)
-    except (OSError, TypeError, ValueError):
-        pass
+    except Exception:
+        return
 
 
 _load_cache()
@@ -191,8 +135,20 @@ def clean_currency_to_float(text: str) -> float:
     sanitized = re.sub(r"[^0-9,.\-]", "", text)
     match = re.search(r"(-?[\d,]+\.?\d*)", sanitized)
     if match:
-        return float(match.group(1).replace(",", ""))
+        try:
+            parsed = float(match.group(1).replace(",", ""))
+        except ValueError:
+            return 0.0
+        return parsed if math.isfinite(parsed) else 0.0
     return 0.0
+
+
+def _parse_positive_float(value) -> Optional[float]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) and parsed > 0 else None
 
 async def fetch_live_nav(amfi_code: str) -> float:
     """
@@ -201,31 +157,31 @@ async def fetch_live_nav(amfi_code: str) -> float:
     Returns 0.0 if fetch fails or code is invalid.
     NAV cache expires daily so values are always fresh.
     """
-    code = _normalize_amfi_code(amfi_code)
-    if not code:
+    amfi_code = str(amfi_code or "").strip()
+    if not AMFI_CODE_PATTERN.fullmatch(amfi_code):
         return 0.0
     
     _ensure_fresh_cache()
         
-    if code in _nav_cache:
-        return _nav_cache[code]
+    if amfi_code in _nav_cache:
+        return _nav_cache[amfi_code]
         
     # Deduplicate concurrent requests for the same code
-    if code not in _fetch_locks:
-        _fetch_locks[code] = asyncio.Lock()
+    if amfi_code not in _fetch_locks:
+        _fetch_locks[amfi_code] = asyncio.Lock()
         
-    async with _fetch_locks[code]:
-        if code in _nav_cache:
-            return _nav_cache[code]
+    async with _fetch_locks[amfi_code]:
+        if amfi_code in _nav_cache:
+            return _nav_cache[amfi_code]
 
         # Official AMFI NAVAll source first.
         navall_map = await _get_navall_map()
-        nav_from_amfi = float(navall_map.get(code) or 0.0)
-        if nav_from_amfi > 0:
-            _nav_cache[code] = nav_from_amfi
+        nav_from_amfi = float(navall_map.get(amfi_code) or 0.0)
+        if math.isfinite(nav_from_amfi) and nav_from_amfi > 0:
+            _nav_cache[amfi_code] = nav_from_amfi
             return nav_from_amfi
             
-        url = f"https://api.mfapi.in/mf/{code}"
+        url = f"https://api.mfapi.in/mf/{amfi_code}"
         try:
             client = await _get_client()
             response = await client.get(url, timeout=2.0)
@@ -233,11 +189,11 @@ async def fetch_live_nav(amfi_code: str) -> float:
                 data = response.json()
                 if data.get("data") and len(data["data"]) > 0:
                     nav = float(data["data"][0].get("nav") or 0.0)
-                    _nav_cache[code] = nav
-                    return nav
-        except Exception as e:
-            # Silently fail for performance, but we should eventually log
-            pass
+                    if math.isfinite(nav) and nav > 0:
+                        _nav_cache[amfi_code] = nav
+                        return nav
+        except Exception:
+            return 0.0
             
     return 0.0
 
@@ -246,25 +202,24 @@ async def fetch_nav_history(amfi_code: str) -> dict:
     Fetches the full NAV history for a given AMFI code.
     Returns a dict mapping date_string ("DD-MM-YYYY") -> nav_float.
     """
-    code = _normalize_amfi_code(amfi_code)
-    if not code:
+    amfi_code = str(amfi_code or "").strip()
+    if not AMFI_CODE_PATTERN.fullmatch(amfi_code):
         return {}
     
-    if code in _history_cache and _is_history_cache_fresh(code):
-        return _history_cache[code]
+    if amfi_code in _history_cache:
+        return _history_cache[amfi_code]
         
     # Deduplicate concurrent requests
-    if code not in _fetch_locks:
-        _fetch_locks[code] = asyncio.Lock()
+    if amfi_code not in _fetch_locks:
+        _fetch_locks[amfi_code] = asyncio.Lock()
         
-    async with _fetch_locks[code]:
-        if code in _history_cache and _is_history_cache_fresh(code):
-            return _history_cache[code]
-             
-        stale_history = _history_cache.get(code, {})
-        url = f"https://api.mfapi.in/mf/{code}"
+    async with _fetch_locks[amfi_code]:
+        if amfi_code in _history_cache:
+            return _history_cache[amfi_code]
+            
+        url = f"https://api.mfapi.in/mf/{amfi_code}"
         history_map = {}
-         
+        
         try:
             client = await _get_client()
             # Increased timeout to 6s for better reliability on Vercel
@@ -276,23 +231,13 @@ async def fetch_nav_history(amfi_code: str) -> dict:
                         d = entry.get("date")
                         n = entry.get("nav")
                         if d and n:
-                            try:
-                                history_map[d] = float(n)
-                            except ValueError:
-                                pass
-                if history_map:
-                    _history_cache[code] = history_map
-                    _history_cache_meta[code] = date.today().isoformat()
-        except Exception as e:
-            if stale_history:
-                return stale_history
-            pass
-
-        if history_map:
-            return history_map
-        if stale_history:
-            return stale_history
-             
+                            nav_value = _parse_positive_float(n)
+                            if nav_value is not None:
+                                history_map[d] = nav_value
+                _history_cache[amfi_code] = history_map
+        except Exception:
+            return {}
+            
     return history_map
 
 def calculate_xirr(dates, amounts) -> Optional[float]:
@@ -303,7 +248,17 @@ def calculate_xirr(dates, amounts) -> Optional[float]:
     if len(dates) != len(amounts) or not dates:
         return None
 
-    transactions = sorted(zip(dates, amounts), key=lambda x: x[0])
+    finite_amounts = []
+    for amount in amounts:
+        try:
+            parsed_amount = float(amount)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(parsed_amount):
+            return None
+        finite_amounts.append(parsed_amount)
+
+    transactions = sorted(zip(dates, finite_amounts), key=lambda x: x[0])
     dates, amounts = zip(*transactions)
 
     # XIRR is only meaningful when both outflows and inflows exist.

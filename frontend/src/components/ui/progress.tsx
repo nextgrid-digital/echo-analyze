@@ -28,7 +28,10 @@ function Progress({
   variant = "default",
   ...props
 }: ProgressProps) {
-  const progressValue = value || 0
+  const rawValue = typeof value === "number" ? value : 0
+  const progressValue = Number.isFinite(rawValue)
+    ? Math.min(Math.max(rawValue, 0), 100)
+    : 0
   
   return (
     <ProgressPrimitive.Root

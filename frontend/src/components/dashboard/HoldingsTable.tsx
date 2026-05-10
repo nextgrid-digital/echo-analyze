@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import { Search, Download, ArrowUp, ArrowDown, GripVertical, Eye, EyeOff } from "lucide-react"
+import { escapeCsvCell } from "@/lib/csv"
 import { formatCurrency } from "@/lib/format"
 import type { Holding } from "@/types/api"
 
@@ -485,8 +486,8 @@ export const HoldingsTable = memo(function HoldingsTable({
 
     // Convert to CSV string
     const csvContent = [
-      headers.join(","),
-      ...rows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(","))
+      headers.map(escapeCsvCell).join(","),
+      ...rows.map(row => row.map(escapeCsvCell).join(","))
     ].join("\n")
 
     // Create blob and download
