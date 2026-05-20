@@ -33,6 +33,11 @@ export function AuthToolbar({ isAdmin = false }: AuthToolbarProps) {
         </SignUpButton>
       ) : null}
 
+      {isSignedIn ? (
+        <Button asChild type="button" variant="outline">
+          <Link to="/billing">Billing</Link>
+        </Button>
+      ) : null}
       {isSignedIn && isAdmin ? (
         <Button asChild type="button" variant="outline">
           <Link to="/admin">Admin</Link>
