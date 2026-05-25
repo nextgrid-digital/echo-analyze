@@ -1,4 +1,5 @@
 import { ClerkProvider } from "@clerk/react"
+import { Analytics } from "@vercel/analytics/react"
 import { StrictMode, useEffect, useState } from "react"
 import { createRoot } from "react-dom/client"
 import { BrowserRouter, useNavigate } from "react-router-dom"
@@ -136,6 +137,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <RootLayout />
+      <Analytics />
     </BrowserRouter>
   </StrictMode>,
 )
