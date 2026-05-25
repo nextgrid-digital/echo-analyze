@@ -451,6 +451,24 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(sectoral, [])
 
+    def test_business_cycle_equity_funds_use_bse_500_tri_proxy_only(self):
+        business_cycle = _resolve_benchmark_components(
+            "Motilal Oswal Business Cycle Fund - Direct Plan - Growth",
+            "EQUITY",
+            "Equity - Other",
+            "Equity",
+        )
+        self.assertEqual([c.code for c in business_cycle], ["151728"])
+        self.assertEqual(business_cycle[0].label, "BSE 500 TRI proxy")
+
+        flexi = _resolve_benchmark_components(
+            "Test Flexi Cap Fund - Direct Plan - Growth",
+            "EQUITY",
+            "Flexi Cap",
+            "Equity",
+        )
+        self.assertEqual([c.code for c in flexi], ["152731"])
+
     async def test_analysis_uses_updated_benchmark_name_for_flexi_cap_funds(self):
         cas_data = {
             "folios": [
