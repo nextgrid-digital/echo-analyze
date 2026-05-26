@@ -1,11 +1,6 @@
 import type { AnalysisResponse } from "@/types/api"
 
-interface StoredAnalysisPayload {
-  userId: string
-  result: AnalysisResponse
-}
-
-let latestAnalysis: StoredAnalysisPayload | null = null
+let latestAnalysis: AnalysisResponse | null = null
 
 function isAnalysisResponse(value: unknown): value is AnalysisResponse {
   if (!value || typeof value !== "object") {
@@ -20,23 +15,19 @@ export function clearLatestAnalysis() {
   latestAnalysis = null
 }
 
-export function storeLatestAnalysis(result: AnalysisResponse, userId?: string | null) {
-  if (!userId || !isAnalysisResponse(result)) {
+export function storeLatestAnalysis(result: AnalysisResponse) {
+  if (!isAnalysisResponse(result)) {
     return
   }
 
-  latestAnalysis = { userId, result }
+  latestAnalysis = result
 }
 
-export function loadLatestAnalysis(userId?: string | null): AnalysisResponse | null {
-  if (!userId || !latestAnalysis) {
-    return null
-  }
-
-  if (latestAnalysis.userId !== userId || !isAnalysisResponse(latestAnalysis.result)) {
+export function loadLatestAnalysis(): AnalysisResponse | null {
+  if (!latestAnalysis || !isAnalysisResponse(latestAnalysis)) {
     clearLatestAnalysis()
     return null
   }
 
-  return latestAnalysis.result
+  return latestAnalysis
 }

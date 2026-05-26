@@ -1,4 +1,3 @@
-import { useAuth } from "@clerk/react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { CircleAlert, X } from "lucide-react"
 import { useNavigate } from "react-router-dom"
@@ -7,8 +6,7 @@ import { Dashboard } from "@/components/dashboard/Dashboard"
 import { Footer } from "@/components/dashboard/Footer"
 import { WarningRail } from "@/components/dashboard/WarningRail"
 import { Button } from "@/components/ui/button"
-import { useSessionAccess } from "@/hooks/useSessionAccess"
-import { clearLatestAnalysis, loadLatestAnalysis } from "@/lib/analysisSession"
+import { loadLatestAnalysis } from "@/lib/analysisSession"
 import { createEmptySummary, createEmptyHoldings } from "@/lib/emptyData"
 import { getDashboardMethodologyWarnings } from "@/lib/portfolioAnalysis"
 import type { AnalysisResponse } from "@/types/api"
@@ -17,8 +15,6 @@ const MODAL_ANIMATION_MS = 220
 
 export function DashboardPage() {
   const navigate = useNavigate()
-  const { isLoaded, isSignedIn, userId } = useAuth()
-  const { session, loading: sessionLoading } = useSessionAccess()
   const [isNoticesModalMounted, setIsNoticesModalMounted] = useState(false)
   const [isNoticesModalVisible, setIsNoticesModalVisible] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
@@ -161,33 +157,19 @@ export function DashboardPage() {
   }
 
   useEffect(() => {
-    if (!isLoaded) {
-      return
-    }
-
-    if (!isSignedIn || !userId) {
-      clearLatestAnalysis()
-      setStoredResult(null)
-      setAnalysisHydrated(true)
-      return
-    }
-
-    setStoredResult(loadLatestAnalysis(userId))
+    setStoredResult(loadLatestAnalysis())
     setAnalysisHydrated(true)
-  }, [isLoaded, isSignedIn, userId])
+  }, [])
 
   useEffect(() => {
-    if (!isLoaded || sessionLoading || !analysisHydrated) {
+    if (!analysisHydrated) {
       return
     }
 
-    if (!isSignedIn || !result?.summary) {
-      if (!isSignedIn) {
-        clearLatestAnalysis()
-      }
+    if (!result?.summary) {
       navigate("/", { replace: true })
     }
-  }, [analysisHydrated, isLoaded, isSignedIn, navigate, result?.summary, sessionLoading])
+  }, [analysisHydrated, navigate, result?.summary])
 
   useEffect(() => {
     if (!isNoticesModalMounted) return
@@ -218,7 +200,7 @@ export function DashboardPage() {
     }
   }, [isNoticesModalMounted, isNoticesModalVisible])
 
-  if (!isLoaded || sessionLoading || !analysisHydrated) {
+  if (!analysisHydrated) {
     return (
       <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
         Loading dashboard...
@@ -226,7 +208,7 @@ export function DashboardPage() {
     )
   }
 
-  if (!isSignedIn || !hasData) {
+  if (!hasData) {
     return null
   }
 
@@ -242,7 +224,7 @@ export function DashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:gap-4 no-print">
-          <AuthToolbar isAdmin={session?.is_admin ?? false} />
+          <AuthToolbar />
           <Button
             type="button"
             variant="default"

@@ -4,10 +4,6 @@ import { DashboardPage } from "../DashboardPage"
 import { clearLatestAnalysis, storeLatestAnalysis } from "@/lib/analysisSession"
 import type { AnalysisResponse } from "@/types/api"
 
-vi.mock("@/hooks/useSessionAccess", () => ({
-  useSessionAccess: vi.fn(),
-}))
-
 vi.mock("@/components/auth/AuthToolbar", () => ({
   AuthToolbar: () => <div data-testid="auth-toolbar">Auth</div>,
 }))
@@ -25,8 +21,6 @@ vi.mock("@/components/dashboard/Footer", () => ({
 vi.mock("@/components/dashboard/WarningRail", () => ({
   WarningRail: () => <div data-testid="mock-warning-rail">Warnings</div>,
 }))
-
-import { useSessionAccess } from "@/hooks/useSessionAccess"
 
 const sampleResult: AnalysisResponse = {
   success: true,
@@ -94,19 +88,10 @@ const sampleResult: AnalysisResponse = {
 describe("DashboardPage", () => {
   beforeEach(() => {
     clearLatestAnalysis()
-    vi.mocked(useSessionAccess).mockReturnValue({
-      session: {
-        user_id: "user_test",
-        session_id: "sess_test",
-        is_admin: false,
-      },
-      loading: false,
-      error: null,
-    })
   })
 
   it("restores the latest stored analysis when the dashboard is refreshed", async () => {
-    storeLatestAnalysis(sampleResult, "user_test")
+    storeLatestAnalysis(sampleResult)
 
     render(
       <MemoryRouter initialEntries={["/dashboard"]}>

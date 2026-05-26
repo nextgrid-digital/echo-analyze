@@ -31,15 +31,6 @@ from casparser.types import (
     TransactionData,
 )
 from app.Code.analytics import _pseudonymize_identifier, _sanitize_file_name, _sanitize_text
-from app.Code.auth import (
-    AuthContext,
-    _extract_token,
-    _verify_authorized_party,
-    _verify_issuer,
-    fetch_clerk_user_count,
-    require_admin_user,
-    require_authenticated_user,
-)
 from app.Code.cas_parser import convert_to_excel, parse_with_casparser
 from app.Code.env_loader import load_local_env
 from app.Code.pdfminer_hardening import (
@@ -49,11 +40,8 @@ from app.Code.pdfminer_hardening import (
 from app.Code.main import (
     _benchmark_nav_for_date,
     _current_holding_entry_date,
-    _does_clerk_frontend_api_resolve,
-    _get_clerk_frontend_api_from_publishable_key,
     _get_pdf_parse_executor,
     _get_pdf_parse_timeout_seconds,
-    _get_runtime_clerk_publishable_key,
     _normalize_amfi_code,
     _parse_amount,
     _parse_iso_date,
@@ -68,19 +56,6 @@ from app.Code.main import (
     MAX_CAS_TRANSACTIONS,
 )
 from app.Code.utils import calculate_xirr, fetch_live_nav, fetch_nav_history
-
-
-async def _fake_auth_context():
-    return AuthContext(
-        user_id="user_test",
-        session_id="sess_test",
-        is_admin=True,
-        claims={"sub": "user_test", "sid": "sess_test"},
-    )
-
-
-app.dependency_overrides[require_authenticated_user] = _fake_auth_context
-app.dependency_overrides[require_admin_user] = _fake_auth_context
 
 
 class _FakeResponse:
@@ -997,12 +972,15 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertEqual(admin_response.headers.get("cache-control"), "no-store, max-age=0")
         self.assertEqual(dashboard_response.headers.get("cache-control"), "no-store, max-age=0")
 
-    def test_auth_me_disables_client_and_proxy_caching(self):
+    def test_analyze_disables_client_and_proxy_caching(self):
         client = TestClient(app)
 
-        response = client.get("/api/auth/me")
+        response = client.post(
+            "/api/analyze",
+            files={"file": ("sample.json", b"{}", "application/json")},
+            data={"password": ""},
+        )
 
-        self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("cache-control"), "no-store, max-age=0")
         self.assertEqual(response.headers.get("pragma"), "no-cache")
         self.assertEqual(response.headers.get("expires"), "0")
@@ -1010,98 +988,8 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertEqual(response.headers.get("x-frame-options"), "DENY")
         csp = response.headers.get("content-security-policy", "")
         self.assertIn("default-src 'self'", csp)
-        self.assertIn("https://clerk-telemetry.com", csp)
-        self.assertIn("https://*.clerk-telemetry.com", csp)
-        self.assertIn("https://challenges.cloudflare.com", csp)
-        self.assertRegex(csp, r"connect-src[^;]*https://challenges\.cloudflare\.com")
         self.assertIn("object-src 'none'", csp)
         self.assertIn("frame-ancestors 'none'", csp)
-
-    def test_public_config_returns_runtime_clerk_publishable_key_without_cache(self):
-        client = TestClient(app)
-        encoded = base64.b64encode(b"runtime.example$").decode("ascii")
-        with patch.dict(
-            os.environ,
-            {
-                "VITE_CLERK_PUBLISHABLE_KEY": f"pk_test_{encoded}",
-                "CLERK_PUBLISHABLE_KEY": "pk_test_fallback",
-                "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "",
-            },
-            clear=False,
-        ), patch("app.Code.main.socket.getaddrinfo", return_value=[]):
-            response = client.get("/api/config")
-
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertEqual(body["clerk_publishable_key"], f"pk_test_{encoded}")
-        self.assertEqual(body["clerk_key_type"], "test")
-        self.assertEqual(body["clerk_frontend_api"], "runtime.example")
-        self.assertTrue(body["clerk_frontend_api_resolves"])
-        self.assertNotIn("clerk_secret_configured", body)
-        self.assertEqual(response.headers.get("cache-control"), "no-store, max-age=0")
-
-    def test_public_config_exposes_secret_diagnostics_only_when_enabled(self):
-        client = TestClient(app)
-        encoded = base64.b64encode(b"runtime.example$").decode("ascii")
-        with patch.dict(
-            os.environ,
-            {
-                "VITE_CLERK_PUBLISHABLE_KEY": f"pk_test_{encoded}",
-                "EXPOSE_AUTH_DIAGNOSTICS": "true",
-                "CLERK_SECRET_KEY": "sk_test_diagnostic",
-            },
-            clear=False,
-        ), patch("app.Code.main.socket.getaddrinfo", return_value=[]):
-            response = client.get("/api/config")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()["clerk_secret_configured"])
-
-    def test_runtime_clerk_publishable_key_ignores_non_publishable_values(self):
-        with patch.dict(
-            os.environ,
-            {
-                "VITE_CLERK_PUBLISHABLE_KEY": "sk_test_not_public",
-                "CLERK_PUBLISHABLE_KEY": "",
-                "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_next_public",
-            },
-            clear=False,
-        ):
-            self.assertEqual(_get_runtime_clerk_publishable_key(), "pk_test_next_public")
-
-    def test_runtime_clerk_frontend_api_reports_dns_failure(self):
-        frontend_api = "missing.example"
-        encoded = base64.b64encode(f"{frontend_api}$".encode("ascii")).decode("ascii")
-        with patch.dict(
-            os.environ,
-            {
-                "VITE_CLERK_PUBLISHABLE_KEY": f"pk_test_{encoded}",
-                "CLERK_PUBLISHABLE_KEY": "",
-                "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "",
-            },
-            clear=False,
-        ), patch("app.Code.main.socket.getaddrinfo", side_effect=socket.gaierror()):
-            self.assertFalse(_does_clerk_frontend_api_resolve())
-
-    def test_runtime_clerk_frontend_api_is_allowed_in_csp(self):
-        frontend_api = "clerk.example.com"
-        encoded = base64.b64encode(f"{frontend_api}$".encode("ascii")).decode("ascii")
-        client = TestClient(app)
-
-        with patch.dict(
-            os.environ,
-            {
-                "VITE_CLERK_PUBLISHABLE_KEY": f"pk_live_{encoded}",
-                "CLERK_PUBLISHABLE_KEY": "",
-                "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "",
-            },
-            clear=False,
-        ):
-            self.assertEqual(_get_clerk_frontend_api_from_publishable_key(), frontend_api)
-            response = client.get("/api/auth/me")
-
-        csp = response.headers.get("content-security-policy", "")
-        self.assertIn(f"https://{frontend_api}", csp)
 
     def test_vercel_spa_routes_are_served_by_fastapi_for_security_headers(self):
         vercel_config = json.loads(Path("vercel.json").read_text(encoding="utf-8"))
@@ -1110,219 +998,12 @@ class TestErrorSanitization(unittest.TestCase):
         for route in ("/", "/dashboard", "/dashboard/(.*)", "/admin", "/admin/(.*)"):
             self.assertEqual(routes[route]["dest"], "app/Code/main.py")
 
-        for route in ("/__clerk", "/__clerk/(.*)"):
-            self.assertEqual(routes[route]["dest"], "app/Code/main.py")
-
     def test_public_test_endpoint_is_not_exposed(self):
         client = TestClient(app)
 
         response = client.get("/test")
 
         self.assertEqual(response.status_code, 404)
-
-    def test_clerk_frontend_api_proxy_forwards_to_runtime_frontend_api(self):
-        frontend_api = "clerk.nextgrid.digital"
-        encoded = base64.b64encode(f"{frontend_api}$".encode("ascii")).decode("ascii")
-        captured = {}
-
-        class FakeAsyncClient:
-            def __init__(self, *args, **kwargs):
-                captured["client_kwargs"] = kwargs
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                return None
-
-            async def request(self, method, url, content, headers):
-                captured["method"] = method
-                captured["url"] = url
-                captured["content"] = content
-                captured["headers"] = headers
-                return httpx.Response(
-                    200,
-                    content=b'{"ok":true}',
-                    headers=[
-                        ("content-type", "application/json"),
-                        ("set-cookie", "__client=abc; Path=/; Secure; SameSite=None"),
-                    ],
-                )
-
-        client = TestClient(app)
-        with patch.dict(
-            os.environ,
-            {
-                "VITE_CLERK_PUBLISHABLE_KEY": f"pk_live_{encoded}",
-                "CLERK_PUBLISHABLE_KEY": "",
-                "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "",
-                "CLERK_SECRET_KEY": "sk_live_test",
-            },
-            clear=False,
-        ), patch("app.Code.main.httpx.AsyncClient", FakeAsyncClient):
-            response = client.post(
-                "/__clerk/v1/client/sign_ups?__clerk_api_version=2025-11-10",
-                content=b'{"email_address":"test@example.com"}',
-                headers={
-                    "content-type": "application/json",
-                    "host": "echo.nextgrid.digital",
-                    "x-forwarded-proto": "https",
-                    "x-forwarded-for": "203.0.113.5",
-                },
-            )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(captured["method"], "POST")
-        self.assertEqual(
-            captured["url"],
-            "https://clerk.nextgrid.digital/v1/client/sign_ups?__clerk_api_version=2025-11-10",
-        )
-        self.assertEqual(captured["content"], b'{"email_address":"test@example.com"}')
-        self.assertEqual(captured["headers"]["Clerk-Proxy-Url"], "https://echo.nextgrid.digital/__clerk")
-        self.assertEqual(captured["headers"]["Clerk-Secret-Key"], "sk_live_test")
-        self.assertEqual(captured["headers"]["X-Forwarded-For"], "203.0.113.5")
-        self.assertEqual(captured["headers"]["Host"], "echo.nextgrid.digital")
-        self.assertEqual(response.headers.get("content-type"), "application/json")
-        self.assertIn("__client=abc", response.headers.get("set-cookie", ""))
-        self.assertNotIn("content-security-policy", response.headers)
-        self.assertNotIn("x-frame-options", response.headers)
-
-    def test_clerk_frontend_api_proxy_ignores_malformed_forwarded_host(self):
-        frontend_api = "clerk.nextgrid.digital"
-        encoded = base64.b64encode(f"{frontend_api}$".encode("ascii")).decode("ascii")
-        captured = {}
-
-        class FakeAsyncClient:
-            def __init__(self, *args, **kwargs):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                return None
-
-            async def request(self, method, url, content, headers):
-                captured["headers"] = headers
-                return httpx.Response(200, content=b'{"ok":true}', headers={"content-type": "application/json"})
-
-        client = TestClient(app)
-        with patch.dict(
-            os.environ,
-            {
-                "VITE_CLERK_PUBLISHABLE_KEY": f"pk_live_{encoded}",
-                "CLERK_PUBLISHABLE_KEY": "",
-                "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "",
-                "CLERK_SECRET_KEY": "sk_live_test",
-            },
-            clear=False,
-        ), patch("app.Code.main.httpx.AsyncClient", FakeAsyncClient):
-            response = client.get(
-                "/__clerk/v1/environment",
-                headers={
-                    "host": "echo.nextgrid.digital",
-                    "x-forwarded-host": "attacker.example/path",
-                    "x-forwarded-proto": "https",
-                    "clerk-secret-key": "attacker-controlled",
-                    "clerk-proxy-url": "https://attacker.example/__clerk",
-                },
-            )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(captured["headers"]["Host"], "echo.nextgrid.digital")
-        self.assertEqual(captured["headers"]["Clerk-Proxy-Url"], "https://echo.nextgrid.digital/__clerk")
-        secret_header_values = [
-            value for key, value in captured["headers"].items() if key.lower() == "clerk-secret-key"
-        ]
-        proxy_url_header_values = [
-            value for key, value in captured["headers"].items() if key.lower() == "clerk-proxy-url"
-        ]
-        self.assertEqual(secret_header_values, ["sk_live_test"])
-        self.assertEqual(proxy_url_header_values, ["https://echo.nextgrid.digital/__clerk"])
-
-
-class TestAuthHardening(unittest.IsolatedAsyncioTestCase):
-    def test_cookie_auth_is_disabled_by_default_for_protected_api_tokens(self):
-        class RequestStub:
-            headers = {}
-            cookies = {"__session": "cookie-token"}
-
-        with patch.dict(os.environ, {"CLERK_ALLOW_COOKIE_AUTH": ""}, clear=False):
-            self.assertIsNone(_extract_token(RequestStub()))
-
-    def test_cookie_auth_can_be_enabled_explicitly_for_legacy_deployments(self):
-        class RequestStub:
-            headers = {}
-            cookies = {"__session": "cookie-token"}
-
-        with patch.dict(os.environ, {"CLERK_ALLOW_COOKIE_AUTH": "true"}, clear=False):
-            self.assertEqual(_extract_token(RequestStub()), "cookie-token")
-
-    def test_bearer_auth_still_takes_precedence_over_cookie_auth(self):
-        class RequestStub:
-            headers = {"authorization": "Bearer bearer-token"}
-            cookies = {"__session": "cookie-token"}
-
-        self.assertEqual(_extract_token(RequestStub()), "bearer-token")
-
-    def test_allowed_parties_skip_missing_azp_when_require_azp_is_disabled(self):
-        with patch.dict(
-            os.environ,
-            {"CLERK_ALLOWED_PARTIES": "https://app.example", "CLERK_REQUIRE_AZP": "false"},
-            clear=False,
-        ):
-            _verify_authorized_party({})
-
-    def test_allowed_parties_require_azp_when_explicitly_enabled(self):
-        with patch.dict(
-            os.environ,
-            {"CLERK_ALLOWED_PARTIES": "https://app.example", "CLERK_REQUIRE_AZP": "true"},
-            clear=False,
-        ):
-            with self.assertRaises(HTTPException) as ctx:
-                _verify_authorized_party({})
-
-        self.assertEqual(ctx.exception.status_code, 401)
-        self.assertIn("authorized party", str(ctx.exception.detail).lower())
-
-    def test_allowed_parties_require_azp_by_default_when_configured(self):
-        with patch.dict(os.environ, {"CLERK_ALLOWED_PARTIES": "https://app.example"}, clear=True):
-            with self.assertRaises(HTTPException) as ctx:
-                _verify_authorized_party({})
-
-        self.assertEqual(ctx.exception.status_code, 401)
-        self.assertIn("authorized party", str(ctx.exception.detail).lower())
-
-    def test_allowed_issuer_rejects_unexpected_session_issuer(self):
-        with patch.dict(
-            os.environ,
-            {"CLERK_ALLOWED_ISSUERS": "https://expected.clerk.accounts.dev"},
-            clear=False,
-        ):
-            with self.assertRaises(HTTPException) as ctx:
-                _verify_issuer({"iss": "https://other.clerk.accounts.dev"})
-
-        self.assertEqual(ctx.exception.status_code, 401)
-        self.assertIn("issuer", str(ctx.exception.detail).lower())
-
-    def test_allowed_issuer_accepts_trailing_slash_variants(self):
-        with patch.dict(
-            os.environ,
-            {"CLERK_ALLOWED_ISSUERS": "https://expected.clerk.accounts.dev/"},
-            clear=False,
-        ):
-            _verify_issuer({"iss": "https://expected.clerk.accounts.dev/"})
-
-    async def test_fetch_clerk_user_count_returns_none_without_secret_key(self):
-        with patch.dict(
-            os.environ,
-            {
-                "CLERK_JWT_KEY": "-----BEGIN PUBLIC KEY-----\nTEST\n-----END PUBLIC KEY-----",
-            },
-            clear=True,
-        ):
-            self.assertIsNone(await fetch_clerk_user_count())
-
 
 class TestAnalyticsPrivacyHelpers(unittest.TestCase):
     def test_pseudonymize_identifier_hashes_stably_without_raw_id(self):

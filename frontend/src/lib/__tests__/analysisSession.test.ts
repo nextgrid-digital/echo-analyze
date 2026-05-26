@@ -70,23 +70,23 @@ describe("analysisSession", () => {
     window.localStorage.clear()
   })
 
-  it("restores the last analysis for the same signed-in user", () => {
-    storeLatestAnalysis(sampleResult, "user_test")
+  it("restores the last stored analysis", () => {
+    storeLatestAnalysis(sampleResult)
 
-    expect(loadLatestAnalysis("user_test")).toEqual(sampleResult)
+    expect(loadLatestAnalysis()).toEqual(sampleResult)
   })
 
   it("keeps analysis data out of browser storage", () => {
-    storeLatestAnalysis(sampleResult, "user_test")
+    storeLatestAnalysis(sampleResult)
 
     expect(window.sessionStorage.length).toBe(0)
     expect(window.localStorage.length).toBe(0)
   })
 
-  it("does not restore another user's cached analysis", () => {
-    storeLatestAnalysis(sampleResult, "user_a")
+  it("clears cached analysis when requested", () => {
+    storeLatestAnalysis(sampleResult)
+    clearLatestAnalysis()
 
-    expect(loadLatestAnalysis("user_b")).toBeNull()
-    expect(loadLatestAnalysis("user_a")).toBeNull()
+    expect(loadLatestAnalysis()).toBeNull()
   })
 })

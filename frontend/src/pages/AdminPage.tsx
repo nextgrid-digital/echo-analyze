@@ -1,4 +1,3 @@
-import { useAuth } from "@clerk/react"
 import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import { getAdminOverview } from "@/api/admin"
@@ -20,7 +19,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { useSessionAccess } from "@/hooks/useSessionAccess"
 import type {
   AdminAnalysisRun,
   AdminAnalyticsMetrics,
@@ -202,8 +200,6 @@ function buildMetricCards(metrics: AdminAnalyticsMetrics) {
 }
 
 export function AdminPage() {
-  const { isLoaded, isSignedIn, getToken } = useAuth()
-  const { session, loading: sessionLoading, error: sessionError } = useSessionAccess()
   const [overview, setOverview] = useState<AdminOverviewResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -212,23 +208,9 @@ export function AdminPage() {
     let isCancelled = false
 
     async function loadOverview() {
-      if (!isLoaded || sessionLoading) {
-        return
-      }
-
-      if (sessionError || (isSignedIn && !session)) {
-        setLoading(false)
-        return
-      }
-
-      if (!isSignedIn || !session?.is_admin) {
-        setLoading(false)
-        return
-      }
-
       setLoading(true)
       try {
-        const nextOverview = await getAdminOverview(getToken)
+        const nextOverview = await getAdminOverview()
         if (!isCancelled) {
           setOverview(nextOverview)
           setError(null)
@@ -249,94 +231,12 @@ export function AdminPage() {
     return () => {
       isCancelled = true
     }
-  }, [getToken, isLoaded, isSignedIn, session?.is_admin, session, sessionError, sessionLoading])
+  }, [])
 
-  if (!isLoaded || sessionLoading || loading) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4">
         Loading admin overview...
-      </div>
-    )
-  }
-
-  if (!isSignedIn) {
-    return (
-      <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4">
-        <Card className="w-full max-w-xl">
-          <CardHeader>
-            <CardTitle>Admin access requires sign-in</CardTitle>
-            <CardDescription>
-              Sign in first, then return here if your account has admin access.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex gap-3">
-            <Button asChild>
-              <Link to="/">Back to analyzer</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
-  if (sessionError || !session) {
-    return (
-      <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 py-8">
-        <div className="max-w-5xl mx-auto space-y-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Admin</p>
-              <h1 className="text-3xl font-semibold tracking-tight">Session unavailable</h1>
-            </div>
-            <AuthToolbar />
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Could not verify this signed-in session</CardTitle>
-              <CardDescription>
-                {sessionError ?? "The backend did not return the current user session."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex gap-3">
-              <Button asChild variant="outline">
-                <Link to="/">Back to analyzer</Link>
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    )
-  }
-
-  if (!session?.is_admin) {
-    return (
-      <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 py-8">
-        <div className="max-w-5xl mx-auto space-y-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Admin</p>
-              <h1 className="text-3xl font-semibold tracking-tight">Access restricted</h1>
-            </div>
-            <AuthToolbar />
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>This account is not an admin</CardTitle>
-              <CardDescription>
-                Ask an administrator to grant admin access to this account to unlock the analytics
-                page.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex items-center gap-3">
-              <Badge variant="outline">{session.user_id}</Badge>
-              <Button asChild variant="outline">
-                <Link to="/">Back to analyzer</Link>
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
       </div>
     )
   }
@@ -350,7 +250,7 @@ export function AdminPage() {
               <p className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Admin</p>
               <h1 className="text-3xl font-semibold tracking-tight">Analytics overview</h1>
             </div>
-            <AuthToolbar isAdmin />
+            <AuthToolbar />
           </div>
 
           <Card>
@@ -390,7 +290,7 @@ export function AdminPage() {
             <Button asChild variant="outline">
               <Link to="/">Back to analyzer</Link>
             </Button>
-            <AuthToolbar isAdmin />
+            <AuthToolbar />
           </div>
         </div>
 

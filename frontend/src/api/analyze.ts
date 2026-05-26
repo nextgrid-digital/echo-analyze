@@ -1,10 +1,9 @@
-import { apiFetch, type TokenGetter } from "@/api/client"
+import { apiFetch } from "@/api/client"
 import type { AnalysisResponse } from "@/types/api"
 
 export async function analyzePortfolio(
   file: File,
   password: string,
-  getToken?: TokenGetter
 ): Promise<AnalysisResponse> {
   const formData = new FormData()
   formData.append("file", file)
@@ -13,7 +12,7 @@ export async function analyzePortfolio(
   const response = await apiFetch("/api/analyze", {
     method: "POST",
     body: formData,
-  }, getToken)
+  })
 
   const responseText = await response.text()
   let result: AnalysisResponse | null = null

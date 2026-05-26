@@ -1,12 +1,10 @@
 import asyncio
-import base64
 import io
 import json
 import math
 import multiprocessing
 import os
 import re
-import socket
 import uuid
 from bisect import bisect_right
 from dataclasses import dataclass
@@ -16,28 +14,21 @@ from time import monotonic, perf_counter
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import httpx
-from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.Code.analytics import get_admin_overview, record_analysis_run, record_audit_log
-from app.Code.auth import (
-    AuthContext,
-    ClerkConfigurationError,
-    fetch_clerk_user_count,
-    _get_secret_key,
-    _has_secret_key,
-    require_admin_user,
-    require_authenticated_user,
-)
 from app.cas_parser import convert_to_excel, parse_with_casparser
 from app.holdings import get_holdings_for_schemes, save_amfi_cache_async
 from app.overlap import compute_overlap_matrix
 from app.utils import calculate_xirr, fetch_live_nav, fetch_nav_history, save_cache_async
 
 app = FastAPI()
+
+ANALYTICS_USER_ID = "anonymous"
 
 LOG_FILE = "data/backend_debug.log"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -65,51 +56,10 @@ PDF_PARSE_TIMEOUT_ERROR = "PDF parsing timed out. Please try again with a smalle
 PDF_PARSE_GENERIC_ERROR = "Unable to parse the provided PDF file."
 DEBUG_LOG_ENABLED = os.environ.get("ENABLE_DEBUG_LOGS", "").strip().lower() in {"1", "true", "yes"}
 SENSITIVE_API_PATHS = {
-    "/api/config",
     "/api/analyze",
     "/api/parse_pdf",
-    "/api/auth/me",
     "/api/admin/overview",
 }
-CLERK_PUBLISHABLE_KEY_ENV_NAMES = (
-    "VITE_CLERK_PUBLISHABLE_KEY",
-    "CLERK_PUBLISHABLE_KEY",
-    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
-)
-BASE_CLERK_CSP_SOURCES = (
-    "https://*.clerk.accounts.dev",
-    "https://*.clerk.com",
-)
-CLERK_TELEMETRY_CSP_SOURCES = (
-    "https://clerk-telemetry.com",
-    "https://*.clerk-telemetry.com",
-)
-CLERK_CHALLENGE_CSP_SOURCES = (
-    "https://challenges.cloudflare.com",
-)
-CLERK_PROXY_PATH = "/__clerk"
-CLERK_PROXY_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-HOP_BY_HOP_HEADERS = {
-    "connection",
-    "content-encoding",
-    "content-length",
-    "host",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailer",
-    "transfer-encoding",
-    "upgrade",
-}
-CLERK_PROXY_CONTROL_HEADERS = {
-    "clerk-proxy-url",
-    "clerk-secret-key",
-}
-FORWARDED_PROTO_VALUES = {"http", "https"}
-HOST_PATTERN = re.compile(
-    r"^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|\[[0-9A-Fa-f:.]{2,45}\])(?::\d{1,5})?$"
-)
 
 
 def _redact_pii(text: str) -> str:
@@ -168,15 +118,9 @@ def _should_disable_cache(path: str) -> bool:
     return False
 
 
-def _is_clerk_proxy_path(path: str) -> bool:
-    return path == CLERK_PROXY_PATH or path.startswith(f"{CLERK_PROXY_PATH}/")
-
-
 @app.middleware("http")
 async def add_response_security_headers(request: Request, call_next):
     response = await call_next(request)
-    if _is_clerk_proxy_path(request.url.path):
-        return response
 
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
@@ -377,239 +321,21 @@ def _get_pdf_parse_executor() -> str:
     return "auto"
 
 
-def _get_runtime_clerk_publishable_key() -> Optional[str]:
-    for env_name in CLERK_PUBLISHABLE_KEY_ENV_NAMES:
-        value = os.environ.get(env_name, "").strip()
-        if value.startswith("pk_"):
-            return value
-        if value:
-            log_debug(f"Ignoring invalid Clerk publishable key in {env_name}.")
-    return None
-
-
-def _get_runtime_clerk_key_type() -> Optional[str]:
-    publishable_key = _get_runtime_clerk_publishable_key()
-    if not publishable_key:
-        return None
-    if publishable_key.startswith("pk_test_"):
-        return "test"
-    if publishable_key.startswith("pk_live_"):
-        return "live"
-    return "unknown"
-
-
-def _get_clerk_frontend_api_from_publishable_key() -> Optional[str]:
-    publishable_key = _get_runtime_clerk_publishable_key()
-    if not publishable_key:
-        return None
-
-    parts = publishable_key.split("_", 2)
-    if len(parts) != 3:
-        return None
-
-    encoded_frontend_api = parts[2].strip()
-    if not encoded_frontend_api:
-        return None
-
-    try:
-        padded = encoded_frontend_api + ("=" * (-len(encoded_frontend_api) % 4))
-        decoded = base64.b64decode(padded, validate=True).decode("ascii").strip()
-    except Exception:
-        return None
-
-    frontend_api = decoded[:-1] if decoded.endswith("$") else decoded
-    if not frontend_api or not re.fullmatch(r"[A-Za-z0-9.-]+", frontend_api):
-        return None
-    return frontend_api
-
-
-def _does_clerk_frontend_api_resolve() -> Optional[bool]:
-    frontend_api = _get_clerk_frontend_api_from_publishable_key()
-    if not frontend_api:
-        return None
-
-    try:
-        socket.getaddrinfo(frontend_api, 443)
-    except socket.gaierror:
-        return False
-    except OSError:
-        return None
-    return True
-
-
-def _should_expose_auth_diagnostics() -> bool:
-    return os.environ.get("EXPOSE_AUTH_DIAGNOSTICS", "").strip().lower() in {"1", "true", "yes"}
-
-
-def _get_clerk_csp_sources() -> str:
-    sources = list(BASE_CLERK_CSP_SOURCES)
-    frontend_api = _get_clerk_frontend_api_from_publishable_key()
-    if frontend_api:
-        sources.append(f"https://{frontend_api}")
-    return " ".join(dict.fromkeys(sources))
-
-
-def _dedupe_csp_sources(*source_groups: str) -> str:
-    sources: List[str] = []
-    for source_group in source_groups:
-        sources.extend(source for source in source_group.split() if source)
-    return " ".join(dict.fromkeys(sources))
-
-
 def _build_content_security_policy() -> str:
-    clerk_sources = _get_clerk_csp_sources()
-    clerk_telemetry_sources = " ".join(CLERK_TELEMETRY_CSP_SOURCES)
-    clerk_challenge_sources = " ".join(CLERK_CHALLENGE_CSP_SOURCES)
-    script_sources = _dedupe_csp_sources(clerk_sources, clerk_challenge_sources)
-    connect_sources = _dedupe_csp_sources(
-        clerk_sources,
-        "https://api.clerk.com",
-        clerk_telemetry_sources,
-        clerk_challenge_sources,
-    )
-    frame_sources = _dedupe_csp_sources(clerk_sources, clerk_challenge_sources)
     return (
         "default-src 'self'; "
-        f"script-src 'self' {script_sources}; "
+        "script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob: https:; "
         "font-src 'self' data:; "
-        f"connect-src 'self' {connect_sources}; "
-        f"frame-src {frame_sources}; "
-        f"form-action 'self' {clerk_sources}; "
+        "connect-src 'self'; "
+        "frame-src 'none'; "
+        "form-action 'self'; "
         "worker-src 'self' blob:; "
         "object-src 'none'; "
         "base-uri 'self'; "
         "frame-ancestors 'none'"
     )
-
-
-def _normalize_forwarded_proto(value: Any) -> Optional[str]:
-    proto = str(value or "").split(",", 1)[0].strip().lower()
-    return proto if proto in FORWARDED_PROTO_VALUES else None
-
-
-def _normalize_forwarded_host(value: Any) -> Optional[str]:
-    host = str(value or "").split(",", 1)[0].strip()
-    if not host or len(host) > 253:
-        return None
-    if any(char in host for char in ("/", "\\", "@", "?", "#")):
-        return None
-    if not HOST_PATTERN.fullmatch(host):
-        return None
-    if ":" in host:
-        port_text = ""
-        if host.startswith("[") and "]:" in host:
-            _, _, port_text = host.rpartition(":")
-        elif not host.startswith("["):
-            _, _, port_text = host.rpartition(":")
-        if port_text:
-            try:
-                port = int(port_text)
-            except ValueError:
-                return None
-            if port < 1 or port > 65535:
-                return None
-    return host
-
-
-def _get_request_origin_parts(request: Request) -> Tuple[str, str]:
-    proto = (
-        _normalize_forwarded_proto(request.headers.get("x-forwarded-proto"))
-        or _normalize_forwarded_proto(request.url.scheme)
-        or "https"
-    )
-    host = (
-        _normalize_forwarded_host(request.headers.get("x-forwarded-host"))
-        or _normalize_forwarded_host(request.headers.get("host"))
-        or _normalize_forwarded_host(request.url.netloc)
-    )
-    if not host:
-        raise ClerkConfigurationError("Unable to determine a valid request host for Clerk proxying.")
-    return proto, host
-
-
-def _get_clerk_proxy_url(request: Request) -> str:
-    proto, host = _get_request_origin_parts(request)
-    return f"{proto}://{host}{CLERK_PROXY_PATH}"
-
-
-def _get_client_ip(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for", "").strip()
-    if forwarded_for:
-        return forwarded_for
-    if request.client and request.client.host:
-        return request.client.host
-    return ""
-
-
-def _get_clerk_proxy_headers(request: Request) -> Dict[str, str]:
-    headers = {
-        key: value
-        for key, value in request.headers.items()
-        if key.lower() not in HOP_BY_HOP_HEADERS
-        and key.lower() not in CLERK_PROXY_CONTROL_HEADERS
-    }
-    _, host = _get_request_origin_parts(request)
-    headers["Host"] = host
-    headers["Clerk-Proxy-Url"] = _get_clerk_proxy_url(request)
-    headers["Clerk-Secret-Key"] = _get_secret_key()
-    forwarded_for = _get_client_ip(request)
-    if forwarded_for:
-        headers["X-Forwarded-For"] = forwarded_for
-    return headers
-
-
-def _get_upstream_clerk_proxy_url(path: str, query: str) -> str:
-    frontend_api = _get_clerk_frontend_api_from_publishable_key()
-    if not frontend_api:
-        raise ClerkConfigurationError(
-            "Clerk publishable key is not configured. Set VITE_CLERK_PUBLISHABLE_KEY or CLERK_PUBLISHABLE_KEY."
-        )
-    upstream_url = f"https://{frontend_api}/{path.lstrip('/')}"
-    if query:
-        upstream_url = f"{upstream_url}?{query}"
-    return upstream_url
-
-
-def _get_proxy_response_headers(upstream_headers: httpx.Headers) -> Dict[str, str]:
-    return {
-        key: value
-        for key, value in upstream_headers.items()
-        if key.lower() not in HOP_BY_HOP_HEADERS and key.lower() != "set-cookie"
-    }
-
-
-async def _proxy_clerk_frontend_api(request: Request, path: str) -> Response:
-    try:
-        upstream_url = _get_upstream_clerk_proxy_url(path, request.url.query)
-        proxy_headers = _get_clerk_proxy_headers(request)
-    except ClerkConfigurationError as exc:
-        return JSONResponse(status_code=503, content={"error": str(exc)})
-
-    request_body = await request.body()
-    try:
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=False) as client:
-            upstream_response = await client.request(
-                request.method,
-                upstream_url,
-                content=request_body,
-                headers=proxy_headers,
-            )
-    except httpx.HTTPError:
-        return JSONResponse(
-            status_code=502,
-            content={"error": "Unable to reach Clerk Frontend API through the proxy."},
-        )
-
-    response = Response(
-        content=upstream_response.content,
-        status_code=upstream_response.status_code,
-        headers=_get_proxy_response_headers(upstream_response.headers),
-    )
-    for cookie in upstream_response.headers.get_list("set-cookie"):
-        response.headers.append("set-cookie", cookie)
-    return response
 
 
 def _parse_pdf_upload_direct(content: bytes, password: str) -> Dict[str, Any]:
@@ -1009,6 +735,8 @@ def _resolve_benchmark_components(
     eq_mid150 = BenchmarkComponent("148726", 1.0, "Nifty Midcap 150 TRI proxy")
     eq_small250 = BenchmarkComponent("148519", 1.0, "Nifty Smallcap 250 TRI proxy")
     eq_sensex = BenchmarkComponent("152422", 1.0, "BSE Sensex TRI proxy")
+    eq_bse_teck = BenchmarkComponent("148763", 1.0, "BSE Teck TRI proxy")
+    eq_nifty_infra = BenchmarkComponent("140102", 1.0, "Nifty Infrastructure TRI proxy")
     eq_nasdaq100 = BenchmarkComponent("149219", 1.0, "Nasdaq 100 proxy")
     eq_sp500 = BenchmarkComponent("148381", 1.0, "S&P 500 proxy")
     eq_hang_seng = BenchmarkComponent("140095", 1.0, "Hang Seng proxy")
@@ -1080,7 +808,11 @@ def _resolve_benchmark_components(
     if category == "Equity":
         if has_any("BUSINESS CYCLE"):
             return [eq_bse500]
-        if has_any("BANKING", "FINANCIAL SERVICES", "PHARMA", "HEALTHCARE", "INFRA", "INFRASTRUCTURE", "CONSUMPTION", "MNC", "MANUFACTURING", "DIGITAL", "TECHNOLOGY", "PSU"):
+        if has_any("TECHNOLOGY", "TECK"):
+            return [eq_bse_teck]
+        if has_any("INFRASTRUCTURE", "INFRA"):
+            return [eq_nifty_infra]
+        if has_any("BANKING", "FINANCIAL SERVICES", "PHARMA", "HEALTHCARE", "CONSUMPTION", "MNC", "MANUFACTURING", "DIGITAL", "PSU"):
             return []
         if has_any("LARGE & MID", "LARGE AND MID", "LARGEMIDCAP", "LARGE MIDCAP 250", "LARGEMIDCAP 250"):
             return [
@@ -1575,20 +1307,6 @@ class AnalysisResponse(BaseModel):
     holdings: List[Holding] = Field(default_factory=list)
     summary: Optional[AnalysisSummary] = None
     error: Optional[str] = None
-
-
-class AuthSessionResponse(BaseModel):
-    user_id: str
-    session_id: Optional[str] = None
-    is_admin: bool
-
-
-class PublicConfigResponse(BaseModel):
-    clerk_publishable_key: Optional[str] = None
-    clerk_key_type: Optional[str] = None
-    clerk_frontend_api: Optional[str] = None
-    clerk_frontend_api_resolves: Optional[bool] = None
-    clerk_secret_configured: Optional[bool] = None
 
 
 class AdminAnalyticsMetrics(BaseModel):
@@ -2583,46 +2301,16 @@ def parse_cas_data(_data):
     return AnalysisResponse(success=False, error="Legacy list format not supported in new analyzer")
 
 
-@app.get("/api/config", response_model=PublicConfigResponse, response_model_exclude_none=True)
-async def public_config():
-    return PublicConfigResponse(
-        clerk_publishable_key=_get_runtime_clerk_publishable_key(),
-        clerk_key_type=_get_runtime_clerk_key_type(),
-        clerk_frontend_api=_get_clerk_frontend_api_from_publishable_key(),
-        clerk_frontend_api_resolves=_does_clerk_frontend_api_resolve(),
-        clerk_secret_configured=_has_secret_key() if _should_expose_auth_diagnostics() else None,
-    )
-
-
-@app.api_route(f"{CLERK_PROXY_PATH}/{{path:path}}", methods=CLERK_PROXY_METHODS)
-async def clerk_frontend_api_proxy(request: Request, path: str):
-    return await _proxy_clerk_frontend_api(request, path)
-
-
-@app.api_route(CLERK_PROXY_PATH, methods=CLERK_PROXY_METHODS)
-async def clerk_frontend_api_proxy_root(request: Request):
-    return await _proxy_clerk_frontend_api(request, "")
-
-
-@app.get("/api/auth/me", response_model=AuthSessionResponse)
-async def auth_me(auth: AuthContext = Depends(require_authenticated_user)):
-    return AuthSessionResponse(
-        user_id=auth.user_id,
-        session_id=auth.session_id,
-        is_admin=auth.is_admin,
-    )
-
-
 @app.get("/api/admin/overview", response_model=AdminOverviewResponse)
-async def admin_overview(auth: AuthContext = Depends(require_admin_user)):
+async def admin_overview():
     record_audit_log(
-        user_id=auth.user_id,
+        user_id=ANALYTICS_USER_ID,
         route="/api/admin/overview",
         action="admin_overview_viewed",
         status="success",
         message="Admin overview fetched.",
     )
-    overview = get_admin_overview(registered_users=await fetch_clerk_user_count())
+    overview = get_admin_overview(registered_users=None)
     return AdminOverviewResponse(
         metrics=AdminAnalyticsMetrics(**overview["metrics"]),
         recent_analyses=[AdminAnalysisRun(**item) for item in overview["recent_analyses"]],
@@ -2633,7 +2321,6 @@ async def admin_overview(auth: AuthContext = Depends(require_admin_user)):
 @app.post("/api/analyze", response_model=AnalysisResponse)
 async def analyze(
     request: Request,
-    auth: AuthContext = Depends(require_authenticated_user),
     file: UploadFile = File(...),
     password: str = Form(""),
 ):
@@ -2648,8 +2335,8 @@ async def analyze(
         total_market_value = response.summary.total_market_value if response and response.summary else None
         record_analysis_run(
             request_id=request_id,
-            user_id=auth.user_id,
-            session_id=auth.session_id,
+            user_id=ANALYTICS_USER_ID,
+            session_id=None,
             file_name=raw_filename or None,
             file_type=file_type,
             status=status,
@@ -2725,7 +2412,6 @@ async def analyze(
 @app.post("/api/parse_pdf")
 async def parse_pdf(
     request: Request,
-    auth: AuthContext = Depends(require_authenticated_user),
     file: UploadFile = File(...),
     password: str = Form(""),
     output_format: str = Form("json"),
@@ -2736,7 +2422,7 @@ async def parse_pdf(
         if normalized_output_format not in ALLOWED_PARSE_OUTPUT_FORMATS:
             message = "Unsupported output format. Use 'json' or 'excel'."
             record_audit_log(
-                user_id=auth.user_id,
+                user_id=ANALYTICS_USER_ID,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="validation_error",
@@ -2747,7 +2433,7 @@ async def parse_pdf(
         content, read_error = await _read_upload_limited(file)
         if read_error:
             record_audit_log(
-                user_id=auth.user_id,
+                user_id=ANALYTICS_USER_ID,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="validation_error",
@@ -2757,7 +2443,7 @@ async def parse_pdf(
         if content is None:
             message = "Unable to read uploaded file."
             record_audit_log(
-                user_id=auth.user_id,
+                user_id=ANALYTICS_USER_ID,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="validation_error",
@@ -2768,7 +2454,7 @@ async def parse_pdf(
         validation_error = _validate_upload(file, content)
         if validation_error:
             record_audit_log(
-                user_id=auth.user_id,
+                user_id=ANALYTICS_USER_ID,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="validation_error",
@@ -2777,7 +2463,7 @@ async def parse_pdf(
             return JSONResponse(status_code=400, content={"error": validation_error})
         if not (file.filename or "").lower().endswith(".pdf"):
             record_audit_log(
-                user_id=auth.user_id,
+                user_id=ANALYTICS_USER_ID,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="validation_error",
@@ -2788,7 +2474,7 @@ async def parse_pdf(
         result = await _parse_pdf_upload(content, password=password)
         if not result["success"]:
             record_audit_log(
-                user_id=auth.user_id,
+                user_id=ANALYTICS_USER_ID,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="parse_error",
@@ -2798,7 +2484,7 @@ async def parse_pdf(
 
         if normalized_output_format == "excel":
             record_audit_log(
-                user_id=auth.user_id,
+                user_id=ANALYTICS_USER_ID,
                 route=request.url.path,
                 action="parse_pdf_succeeded",
                 status="success",
@@ -2812,7 +2498,7 @@ async def parse_pdf(
                 headers={"Content-Disposition": "attachment; filename=portfolio.xlsx"},
             )
         record_audit_log(
-            user_id=auth.user_id,
+            user_id=ANALYTICS_USER_ID,
             route=request.url.path,
             action="parse_pdf_succeeded",
             status="success",
@@ -2823,7 +2509,7 @@ async def parse_pdf(
     except Exception as e:
         log_debug(f"[{request_id}] parse_pdf error: {type(e).__name__}: {e}")
         record_audit_log(
-            user_id=auth.user_id,
+            user_id=ANALYTICS_USER_ID,
             route=request.url.path,
             action="parse_pdf_failed",
             status="internal_error",

@@ -28,7 +28,7 @@ describe("UploadPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /analyze portfolio/i }))
 
     await waitFor(() => {
-      expect(analyzePortfolio).toHaveBeenCalledWith(pdfFile, "", expect.any(Function))
+      expect(analyzePortfolio).toHaveBeenCalledWith(pdfFile, "")
     })
   })
 })

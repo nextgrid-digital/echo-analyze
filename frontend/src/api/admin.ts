@@ -1,8 +1,8 @@
-import { apiFetch, readJson, type TokenGetter } from "@/api/client"
+import { apiFetch, readJson } from "@/api/client"
 import type { AdminOverviewResponse } from "@/types/auth"
 
-export async function getAdminOverview(getToken: TokenGetter): Promise<AdminOverviewResponse> {
-  const response = await apiFetch("/api/admin/overview", { method: "GET" }, getToken)
+export async function getAdminOverview(): Promise<AdminOverviewResponse> {
+  const response = await apiFetch("/api/admin/overview", { method: "GET" })
   const result = await readJson<AdminOverviewResponse & { detail?: string }>(response)
 
   if (!response.ok || !result) {

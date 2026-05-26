@@ -82,7 +82,7 @@ def _sanitize_metadata(value: Any) -> Any:
 
 
 def _analytics_hash_salt() -> bytes:
-    salt = os.environ.get("ANALYTICS_ID_HASH_SALT") or os.environ.get("CLERK_SECRET_KEY")
+    salt = os.environ.get("ANALYTICS_ID_HASH_SALT")
     return (salt or "echo-analyze-local-analytics").encode("utf-8")
 
 
