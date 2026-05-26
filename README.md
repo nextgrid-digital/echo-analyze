@@ -141,7 +141,7 @@ for monthly recurring billing. Configure these environment variables (e.g. on Ve
   required to accept `/api/payments/webhook` events)
 - `RAZORPAY_PLAN_ID` - the `plan_id` of the monthly plan you created in Razorpay (required
   for the subscribe-monthly flow)
-- `RAZORPAY_DEFAULT_AMOUNT_PAISE` - amount in paise (`236000` = ₹2,360 = ₹2,000 + 18% GST)
+- `RAZORPAY_DEFAULT_AMOUNT_PAISE` - default order amount in paise (e.g. `9900` for ₹99)
 - `RAZORPAY_CURRENCY` - currency code, defaults to `INR`
 - `RAZORPAY_PLAN_DESCRIPTION` - human-readable label shown on the billing page
 - `RAZORPAY_SUBSCRIPTION_TOTAL_COUNT` - how many billing cycles to charge (default `12`)
@@ -149,8 +149,7 @@ for monthly recurring billing. Configure these environment variables (e.g. on Ve
 ### Charging a specific subscriber monthly
 
 1. In the Razorpay dashboard, create a monthly plan: Subscriptions -> Plans -> New Plan with
-   `period=monthly`, `interval=1`, and billing amount **₹2,360** (₹2,000 + 18% GST).
-   Copy the plan id (`plan_...`). Set `RAZORPAY_DEFAULT_AMOUNT_PAISE=236000` to match.
+   `period=monthly`, `interval=1`, and your monthly amount. Copy the plan id (`plan_...`).
 2. Add the env vars above on Vercel and redeploy. The publishable key is delivered to the
    browser via `/api/payments/config` so it never has to be baked into the SPA bundle.
 3. The subscriber signs in with Clerk, opens `/billing`, and clicks "Subscribe monthly".

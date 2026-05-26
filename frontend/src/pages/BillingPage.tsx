@@ -18,8 +18,6 @@ import {
 } from "@/api/payments"
 import { ArrowLeft, ShieldCheck } from "lucide-react"
 
-const GST_RATE = 0.18
-
 function formatPrice(amountPaise: number | null | undefined, currency: string): string {
   if (!amountPaise || amountPaise <= 0) return "\u2014"
   const rupees = amountPaise / 100
@@ -32,16 +30,6 @@ function formatPrice(amountPaise: number | null | undefined, currency: string): 
   } catch {
     return `${currency} ${rupees.toFixed(2)}`
   }
-}
-
-/** Display base + GST when total is tax-inclusive (e.g. 2000 + 18% = 2360). */
-function formatGstBreakdown(amountPaise: number | null | undefined, currency: string): string | null {
-  if (!amountPaise || amountPaise <= 0) return null
-  const total = amountPaise / 100
-  const base = total / (1 + GST_RATE)
-  const gst = total - base
-  const fmt = (n: number) => formatPrice(Math.round(n * 100), currency)
-  return `${fmt(base)} base + ${fmt(gst)} GST (${(GST_RATE * 100).toFixed(0)}%)`
 }
 
 export function BillingPage() {
@@ -77,9 +65,6 @@ export function BillingPage() {
   const subscriptionPrice = config
     ? formatPrice(config.default_amount_paise, config.currency)
     : "—"
-  const gstBreakdown = config
-    ? formatGstBreakdown(config.default_amount_paise, config.currency)
-    : null
 
   return (
     <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 py-8 sm:py-12">
@@ -156,17 +141,8 @@ export function BillingPage() {
                     {subscriptionPrice}
                     <span className="text-sm font-normal text-muted-foreground"> / {config.period}</span>
                   </div>
-                  {gstBreakdown ? (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {gstBreakdown} — billed every{" "}
-                      {config.interval > 1 ? `${config.interval} ${config.period}s` : config.period}.
-                    </p>
-                  ) : (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Billed automatically every {config.interval > 1 ? `${config.interval} ${config.period}s` : config.period}.
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Billed automatically every {config.interval > 1 ? `${config.interval} ${config.period}s` : config.period}.
                     Cancel anytime from the Razorpay dashboard.
                   </p>
                 </div>
