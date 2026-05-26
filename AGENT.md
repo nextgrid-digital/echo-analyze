@@ -27,7 +27,6 @@ Important: top-level modules under `app/` are compatibility shims that re-export
 - `app/Code/utils.py`: NAV/history fetchers, cache persistence, and XIRR solver.
 - `app/Code/holdings.py`: holdings sourcing from optional API, AMFI disclosures, and Groww fallback.
 - `app/Code/overlap.py`: fund overlap matrix calculation.
-- `app/Code/razorpay_payments.py`: Razorpay client helpers (orders, subscriptions, signature verification).
 
 ## Frontend Map
 

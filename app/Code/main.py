@@ -32,7 +32,6 @@ from app.Code.auth import (
     require_admin_user,
     require_authenticated_user,
 )
-from app.Code import razorpay_payments
 from app.cas_parser import convert_to_excel, parse_with_casparser
 from app.holdings import get_holdings_for_schemes, save_amfi_cache_async
 from app.overlap import compute_overlap_matrix
@@ -87,18 +86,6 @@ CLERK_TELEMETRY_CSP_SOURCES = (
 )
 CLERK_CHALLENGE_CSP_SOURCES = (
     "https://challenges.cloudflare.com",
-)
-RAZORPAY_SCRIPT_CSP_SOURCES = (
-    "https://checkout.razorpay.com",
-)
-RAZORPAY_FRAME_CSP_SOURCES = (
-    "https://api.razorpay.com",
-    "https://checkout.razorpay.com",
-)
-RAZORPAY_CONNECT_CSP_SOURCES = (
-    "https://api.razorpay.com",
-    "https://lumberjack.razorpay.com",
-    "https://lumberjack-cx.razorpay.com",
 )
 CLERK_PROXY_PATH = "/__clerk"
 CLERK_PROXY_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
@@ -177,8 +164,6 @@ def _should_disable_cache(path: str) -> bool:
     if path == "/" or path == "/dashboard" or path.startswith("/dashboard/"):
         return True
     if path == "/admin" or path.startswith("/admin/"):
-        return True
-    if path == "/billing" or path.startswith("/billing/"):
         return True
     return False
 
@@ -475,26 +460,14 @@ def _build_content_security_policy() -> str:
     clerk_sources = _get_clerk_csp_sources()
     clerk_telemetry_sources = " ".join(CLERK_TELEMETRY_CSP_SOURCES)
     clerk_challenge_sources = " ".join(CLERK_CHALLENGE_CSP_SOURCES)
-    razorpay_script_sources = " ".join(RAZORPAY_SCRIPT_CSP_SOURCES)
-    razorpay_frame_sources = " ".join(RAZORPAY_FRAME_CSP_SOURCES)
-    razorpay_connect_sources = " ".join(RAZORPAY_CONNECT_CSP_SOURCES)
-    script_sources = _dedupe_csp_sources(
-        clerk_sources,
-        clerk_challenge_sources,
-        razorpay_script_sources,
-    )
+    script_sources = _dedupe_csp_sources(clerk_sources, clerk_challenge_sources)
     connect_sources = _dedupe_csp_sources(
         clerk_sources,
         "https://api.clerk.com",
         clerk_telemetry_sources,
         clerk_challenge_sources,
-        razorpay_connect_sources,
     )
-    frame_sources = _dedupe_csp_sources(
-        clerk_sources,
-        clerk_challenge_sources,
-        razorpay_frame_sources,
-    )
+    frame_sources = _dedupe_csp_sources(clerk_sources, clerk_challenge_sources)
     return (
         "default-src 'self'; "
         f"script-src 'self' {script_sources}; "
@@ -1661,79 +1634,6 @@ class AdminOverviewResponse(BaseModel):
     recent_analyses: List[AdminAnalysisRun] = Field(default_factory=list)
     recent_logs: List[AdminLogEntry] = Field(default_factory=list)
 
-
-class PaymentsConfigResponse(BaseModel):
-    enabled: bool
-    key_id: Optional[str] = None
-    currency: str = "INR"
-    default_amount_paise: Optional[int] = None
-    plan_id: Optional[str] = None
-    period: str = "monthly"
-    interval: int = 1
-    description: Optional[str] = None
-
-
-class CreateOrderRequest(BaseModel):
-    amount_paise: int = Field(..., ge=razorpay_payments.MIN_AMOUNT_PAISE)
-    currency: Optional[str] = Field(default=None, max_length=8)
-    receipt: Optional[str] = Field(default=None, max_length=40)
-    notes: Optional[Dict[str, Any]] = None
-
-
-class CreateOrderResponse(BaseModel):
-    order_id: str
-    amount: int
-    currency: str
-    receipt: Optional[str] = None
-    status: Optional[str] = None
-    key_id: str
-
-
-class CreateSubscriptionRequest(BaseModel):
-    plan_id: Optional[str] = Field(default=None, max_length=64)
-    total_count: Optional[int] = Field(default=None, ge=1, le=120)
-    customer_notify: bool = True
-    notes: Optional[Dict[str, Any]] = None
-
-
-class CreateSubscriptionResponse(BaseModel):
-    subscription_id: str
-    plan_id: Optional[str] = None
-    status: Optional[str] = None
-    short_url: Optional[str] = None
-    current_start: Optional[int] = None
-    current_end: Optional[int] = None
-    total_count: Optional[int] = None
-    paid_count: Optional[int] = None
-    remaining_count: Optional[int] = None
-    key_id: str
-
-
-class VerifyPaymentRequest(BaseModel):
-    razorpay_payment_id: str = Field(..., min_length=4, max_length=64)
-    razorpay_signature: str = Field(..., min_length=10, max_length=256)
-    razorpay_order_id: Optional[str] = Field(default=None, max_length=64)
-    razorpay_subscription_id: Optional[str] = Field(default=None, max_length=64)
-
-
-class VerifyPaymentResponse(BaseModel):
-    verified: bool
-    kind: Literal["order", "subscription"]
-
-
-class SubscriptionStatusResponse(BaseModel):
-    subscription_id: str
-    status: Optional[str] = None
-    plan_id: Optional[str] = None
-    current_start: Optional[int] = None
-    current_end: Optional[int] = None
-    ended_at: Optional[int] = None
-    charge_at: Optional[int] = None
-    paid_count: Optional[int] = None
-    remaining_count: Optional[int] = None
-    total_count: Optional[int] = None
-
-
 async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     if not isinstance(cas_data, dict):
         return AnalysisResponse(success=False, error="Invalid CAS JSON format. Root object must be a JSON object.")
@@ -2730,282 +2630,6 @@ async def admin_overview(auth: AuthContext = Depends(require_admin_user)):
     )
 
 
-@app.get("/api/payments/config", response_model=PaymentsConfigResponse)
-async def payments_config():
-    defaults = razorpay_payments.get_plan_defaults()
-    return PaymentsConfigResponse(
-        enabled=razorpay_payments.is_ready(),
-        key_id=razorpay_payments.get_public_key_id(),
-        currency=defaults.currency,
-        default_amount_paise=defaults.amount_paise,
-        plan_id=defaults.plan_id,
-        period=defaults.period,
-        interval=defaults.interval,
-        description=defaults.description,
-    )
-
-
-@app.post("/api/payments/create-order", response_model=CreateOrderResponse)
-async def payments_create_order(
-    payload: CreateOrderRequest,
-    auth: AuthContext = Depends(require_authenticated_user),
-):
-    if not razorpay_payments.is_ready():
-        record_audit_log(
-            user_id=auth.user_id,
-            route="/api/payments/create-order",
-            action="razorpay_not_configured",
-            status="service_unavailable",
-            message="Razorpay environment variables are not set.",
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="Payments are temporarily unavailable. Please try again later.",
-        )
-
-    notes = dict(payload.notes or {})
-    notes.setdefault("clerk_user_id", auth.user_id)
-    try:
-        result = await razorpay_payments.create_order(
-            amount_paise=payload.amount_paise,
-            currency=payload.currency,
-            receipt=payload.receipt,
-            notes=notes,
-        )
-    except HTTPException as exc:
-        record_audit_log(
-            user_id=auth.user_id,
-            route="/api/payments/create-order",
-            action="create_order_failed",
-            status=str(exc.status_code),
-            message=str(exc.detail),
-            metadata={"amount_paise": payload.amount_paise, "currency": payload.currency},
-        )
-        raise
-
-    order_id = result.get("order_id")
-    if not order_id:
-        raise HTTPException(status_code=502, detail="Razorpay did not return an order id.")
-    record_audit_log(
-        user_id=auth.user_id,
-        route="/api/payments/create-order",
-        action="order_created",
-        status="success",
-        message="Razorpay order created.",
-        metadata={
-            "order_id": order_id,
-            "amount": result.get("amount"),
-            "currency": result.get("currency"),
-        },
-    )
-    return CreateOrderResponse(
-        order_id=order_id,
-        amount=int(result.get("amount") or payload.amount_paise),
-        currency=str(result.get("currency") or (payload.currency or "INR")),
-        receipt=result.get("receipt"),
-        status=result.get("status"),
-        key_id=razorpay_payments.get_public_key_id() or "",
-    )
-
-
-@app.post("/api/payments/create-subscription", response_model=CreateSubscriptionResponse)
-async def payments_create_subscription(
-    payload: CreateSubscriptionRequest,
-    auth: AuthContext = Depends(require_authenticated_user),
-):
-    if not razorpay_payments.is_ready():
-        raise HTTPException(
-            status_code=503,
-            detail="Subscriptions are temporarily unavailable. Please try again later.",
-        )
-
-    notes = dict(payload.notes or {})
-    notes.setdefault("clerk_user_id", auth.user_id)
-    try:
-        result = await razorpay_payments.create_subscription(
-            plan_id=payload.plan_id,
-            total_count=payload.total_count,
-            customer_notify=payload.customer_notify,
-            notes=notes,
-        )
-    except HTTPException as exc:
-        record_audit_log(
-            user_id=auth.user_id,
-            route="/api/payments/create-subscription",
-            action="create_subscription_failed",
-            status=str(exc.status_code),
-            message=str(exc.detail),
-            metadata={"plan_id": payload.plan_id},
-        )
-        raise
-
-    subscription_id = result.get("subscription_id")
-    if not subscription_id:
-        raise HTTPException(status_code=502, detail="Razorpay did not return a subscription id.")
-    record_audit_log(
-        user_id=auth.user_id,
-        route="/api/payments/create-subscription",
-        action="subscription_created",
-        status="success",
-        message="Razorpay subscription created.",
-        metadata={
-            "subscription_id": subscription_id,
-            "plan_id": result.get("plan_id"),
-            "status": result.get("status"),
-        },
-    )
-    return CreateSubscriptionResponse(
-        subscription_id=subscription_id,
-        plan_id=result.get("plan_id"),
-        status=result.get("status"),
-        short_url=result.get("short_url"),
-        current_start=result.get("current_start"),
-        current_end=result.get("current_end"),
-        total_count=result.get("total_count"),
-        paid_count=result.get("paid_count"),
-        remaining_count=result.get("remaining_count"),
-        key_id=razorpay_payments.get_public_key_id() or "",
-    )
-
-
-@app.post("/api/payments/verify-payment", response_model=VerifyPaymentResponse)
-async def payments_verify_payment(
-    payload: VerifyPaymentRequest,
-    auth: AuthContext = Depends(require_authenticated_user),
-):
-    if not payload.razorpay_order_id and not payload.razorpay_subscription_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Provide either razorpay_order_id or razorpay_subscription_id.",
-        )
-
-    kind: Literal["order", "subscription"] = (
-        "subscription" if payload.razorpay_subscription_id else "order"
-    )
-    verified = razorpay_payments.verify_checkout_signature(
-        razorpay_order_id=payload.razorpay_order_id,
-        razorpay_payment_id=payload.razorpay_payment_id,
-        razorpay_signature=payload.razorpay_signature,
-        razorpay_subscription_id=payload.razorpay_subscription_id,
-    )
-
-    audit_metadata = {
-        "razorpay_payment_id": payload.razorpay_payment_id,
-        "razorpay_order_id": payload.razorpay_order_id,
-        "razorpay_subscription_id": payload.razorpay_subscription_id,
-        "kind": kind,
-    }
-    if verified:
-        record_audit_log(
-            user_id=auth.user_id,
-            route="/api/payments/verify-payment",
-            action="payment_verified",
-            status="success",
-            message="Razorpay signature verified.",
-            metadata=audit_metadata,
-        )
-        return VerifyPaymentResponse(verified=True, kind=kind)
-
-    record_audit_log(
-        user_id=auth.user_id,
-        route="/api/payments/verify-payment",
-        action="payment_signature_mismatch",
-        status="bad_request",
-        message="Razorpay signature did not match.",
-        metadata=audit_metadata,
-    )
-    raise HTTPException(status_code=400, detail="Payment signature could not be verified.")
-
-
-@app.get(
-    "/api/payments/subscriptions/{subscription_id}",
-    response_model=SubscriptionStatusResponse,
-)
-async def payments_subscription_status(
-    subscription_id: str,
-    auth: AuthContext = Depends(require_authenticated_user),
-):
-    if not razorpay_payments.is_ready():
-        raise HTTPException(status_code=503, detail="Payments are not configured.")
-
-    payload = await razorpay_payments.fetch_subscription(subscription_id)
-    return SubscriptionStatusResponse(
-        subscription_id=str(payload.get("id") or subscription_id),
-        status=payload.get("status"),
-        plan_id=payload.get("plan_id"),
-        current_start=payload.get("current_start"),
-        current_end=payload.get("current_end"),
-        ended_at=payload.get("ended_at"),
-        charge_at=payload.get("charge_at"),
-        paid_count=payload.get("paid_count"),
-        remaining_count=payload.get("remaining_count"),
-        total_count=payload.get("total_count"),
-    )
-
-
-@app.post("/api/payments/subscriptions/{subscription_id}/cancel")
-async def payments_cancel_subscription(
-    subscription_id: str,
-    auth: AuthContext = Depends(require_authenticated_user),
-):
-    if not razorpay_payments.is_ready():
-        raise HTTPException(status_code=503, detail="Payments are not configured.")
-
-    payload = await razorpay_payments.cancel_subscription(subscription_id)
-    record_audit_log(
-        user_id=auth.user_id,
-        route="/api/payments/subscriptions/cancel",
-        action="subscription_cancelled",
-        status="success",
-        message="Razorpay subscription scheduled for cancellation at cycle end.",
-        metadata={
-            "subscription_id": subscription_id,
-            "status": payload.get("status"),
-        },
-    )
-    return JSONResponse(
-        content={
-            "subscription_id": str(payload.get("id") or subscription_id),
-            "status": payload.get("status"),
-        }
-    )
-
-
-@app.post("/api/payments/webhook")
-async def payments_webhook(request: Request):
-    raw_body = await request.body()
-    signature = request.headers.get("x-razorpay-signature")
-    if not razorpay_payments.verify_webhook_signature(
-        raw_body=raw_body, signature_header=signature
-    ):
-        record_audit_log(
-            user_id=None,
-            route="/api/payments/webhook",
-            action="webhook_signature_invalid",
-            status="bad_request",
-            message="Razorpay webhook signature missing or invalid.",
-        )
-        raise HTTPException(status_code=400, detail="Invalid webhook signature.")
-
-    try:
-        event_payload = json.loads(raw_body.decode("utf-8") or "{}")
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Webhook body is not valid JSON.")
-    if not isinstance(event_payload, dict):
-        raise HTTPException(status_code=400, detail="Webhook body must be a JSON object.")
-
-    event, summary = razorpay_payments.split_event_metadata(event_payload)
-    record_audit_log(
-        user_id=None,
-        route="/api/payments/webhook",
-        action=f"webhook_{event}",
-        status="received",
-        message=f"Razorpay webhook received: {event}",
-        metadata={"summary": summary},
-    )
-    return {"received": True, "event": event}
-
-
 @app.post("/api/analyze", response_model=AnalysisResponse)
 async def analyze(
     request: Request,
@@ -3239,16 +2863,6 @@ async def admin_page():
 
 @app.get("/admin/{path:path}")
 async def admin_page_nested(path: str):
-    return _serve_spa()
-
-
-@app.get("/billing")
-async def billing_page():
-    return _serve_spa()
-
-
-@app.get("/billing/{path:path}")
-async def billing_page_nested(path: str):
     return _serve_spa()
 
 
