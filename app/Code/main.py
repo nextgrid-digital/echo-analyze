@@ -1036,8 +1036,6 @@ def _resolve_benchmark_components(
     eq_mid150 = BenchmarkComponent("148726", 1.0, "Nifty Midcap 150 TRI proxy")
     eq_small250 = BenchmarkComponent("148519", 1.0, "Nifty Smallcap 250 TRI proxy")
     eq_sensex = BenchmarkComponent("152422", 1.0, "BSE Sensex TRI proxy")
-    eq_bse_teck = BenchmarkComponent("148763", 1.0, "BSE Teck TRI proxy")
-    eq_nifty_infra = BenchmarkComponent("140102", 1.0, "Nifty Infrastructure TRI proxy")
     eq_nasdaq100 = BenchmarkComponent("149219", 1.0, "Nasdaq 100 proxy")
     eq_sp500 = BenchmarkComponent("148381", 1.0, "S&P 500 proxy")
     eq_hang_seng = BenchmarkComponent("140095", 1.0, "Hang Seng proxy")
@@ -1109,11 +1107,7 @@ def _resolve_benchmark_components(
     if category == "Equity":
         if has_any("BUSINESS CYCLE"):
             return [eq_bse500]
-        if has_any("TECHNOLOGY", "TECK"):
-            return [eq_bse_teck]
-        if has_any("INFRASTRUCTURE", "INFRA"):
-            return [eq_nifty_infra]
-        if has_any("BANKING", "FINANCIAL SERVICES", "PHARMA", "HEALTHCARE", "CONSUMPTION", "MNC", "MANUFACTURING", "DIGITAL", "PSU"):
+        if has_any("BANKING", "FINANCIAL SERVICES", "PHARMA", "HEALTHCARE", "INFRA", "INFRASTRUCTURE", "CONSUMPTION", "MNC", "MANUFACTURING", "DIGITAL", "TECHNOLOGY", "PSU"):
             return []
         if has_any("LARGE & MID", "LARGE AND MID", "LARGEMIDCAP", "LARGE MIDCAP 250", "LARGEMIDCAP 250"):
             return [
