@@ -11,9 +11,6 @@ const DashboardPage = lazy(() =>
 const AdminPage = lazy(() =>
   import("@/pages/AdminPage").then((module) => ({ default: module.AdminPage }))
 )
-const BillingPage = lazy(() =>
-  import("@/pages/BillingPage").then((module) => ({ default: module.BillingPage }))
-)
 
 function App() {
   return (
@@ -28,7 +25,6 @@ function App() {
         <Route path="/" element={<UploadPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/admin" element={<AdminPage />} />
-        <Route path="/billing" element={<BillingPage />} />
       </Routes>
     </Suspense>
   )
