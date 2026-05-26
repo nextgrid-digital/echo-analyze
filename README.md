@@ -11,8 +11,7 @@ A FastAPI-based application for analyzing mutual fund portfolios from CAS (Conso
 - Asset allocation and concentration metrics
 - Fixed income analysis
 - Performance tracking
-- Clerk-backed user authentication for protected analysis routes
-- Admin page with tracked users, run timings, and recent activity logs
+- Optional admin page with tracked users, run timings, and recent activity logs
 
 ## Documentation
 - Repo operating guide: `AGENT.md`
@@ -63,34 +62,22 @@ This will:
 6. **Open your browser:**
    Navigate to http://localhost:8000
 
-## Clerk Setup
+## Configuration
 
-### 1. Create a Clerk application
-
-1. Create or open your app in the Clerk dashboard.
-2. Enable the sign-in methods you want, such as email/password or Google.
-3. Copy the publishable key and secret key from Clerk.
-
-### 2. Configure environment variables
+### 1. Configure environment variables
 
 - Backend: copy `.env.example` to `.env` and fill in:
-  - `CLERK_SECRET_KEY`
-  - `VITE_CLERK_PUBLISHABLE_KEY` or `CLERK_PUBLISHABLE_KEY`
-  - `CLERK_JWT_KEY` (optional, recommended if you want networkless verification)
-  - `CLERK_ADMIN_USER_IDS`
-  - `CLERK_ALLOWED_PARTIES`
-  - `CLERK_ALLOWED_ISSUERS` (optional, recommended; comma-separated Clerk issuer URLs)
-  - `CLERK_REQUIRE_AZP` (recommended `true` when your tokens include `azp`; set to `false` only for legacy tokens that omit it)
   - `ENABLE_DEBUG_LOGS` (keep `false` unless you are temporarily debugging locally)
-  - `EXPOSE_AUTH_DIAGNOSTICS` (optional local diagnostic; keep unset/false in production)
+  - `ADMIN_ACCESS_ENABLED` (optional; defaults to disabled unless set to `true`)
   - `PDF_PARSE_EXECUTOR` (optional; defaults to `auto`; on Vercel, `auto` uses thread parsing to avoid child-process hangs)
   - `PDF_PARSE_TIMEOUT_SECONDS` (optional; defaults to `120`, capped between `1` and `240`)
 - Frontend-only Vite dev also supports `frontend/.env.local` with:
-  - `VITE_CLERK_PUBLISHABLE_KEY`
+  - `APP_ENABLE_ADMIN_ACCESS` (optional; set to `true` only when admin access should be visible)
 
-`CLERK_ADMIN_USER_IDS` should contain one or more Clerk user IDs separated by commas. Those users can open `/admin`.
+Admin access is disabled by default. Set both backend `ADMIN_ACCESS_ENABLED=true` and frontend
+`APP_ENABLE_ADMIN_ACCESS=true` when you intentionally want `/admin` available.
 
-### 3. Run the app
+### 2. Run the app
 
 1. Start the FastAPI app from the repo root.
 2. For local frontend development, run Vite from `frontend/`:
@@ -105,22 +92,17 @@ This will:
    npm run build
    ```
 
-### 4. How the auth flow works
+### 3. How analytics works
 
-- The React app signs users in with Clerk.
-- The app reads the Clerk publishable key from `/api/config` at runtime, so local FastAPI and Vercel deployments use the currently configured environment instead of a stale value baked into `static/`.
-- Protected API calls attach a Clerk session token from the frontend.
-- FastAPI verifies that token against Clerk JWKS before allowing `/api/analyze`, `/api/parse_pdf`, `/api/auth/me`, or `/api/admin/overview`.
-- If you set `CLERK_JWT_KEY`, FastAPI can verify tokens without fetching JWKS on each cache refresh.
-- Each analysis run is stored in a lightweight SQLite analytics database so `/admin` can show user counts, timings, and recent logs.
+- Each analysis run is stored in a lightweight SQLite analytics database.
+- When admin access is enabled, `/admin` can show user counts, timings, and recent logs.
 
 ## API Endpoints
 
 - `GET /` - Portfolio Overview UI (home page)
-- `POST /api/analyze` - Analyze CAS file (PDF or JSON), requires Clerk auth
-- `POST /api/parse_pdf` - Parse CAS PDF to JSON/Excel, requires Clerk auth
-- `GET /api/auth/me` - Return current authenticated user and admin access
-- `GET /api/admin/overview` - Admin analytics summary, requires admin access
+- `POST /api/analyze` - Analyze CAS file (PDF or JSON)
+- `POST /api/parse_pdf` - Parse CAS PDF to JSON/Excel
+- `GET /api/admin/overview` - Admin analytics summary, disabled unless admin access is enabled
 - `GET /api/health` - Health check endpoint
 
 ## Project Structure
@@ -150,16 +132,8 @@ echo-analyze/
   cd frontend
   npm run build
   ```
-- `vercel.json` routes `/api/*` to FastAPI and sends SPA paths (like `/dashboard` and `/admin`) to `static/index.html`.
-- After deploying, check `https://YOUR_DOMAIN/api/config`. It should return the Clerk key type,
-  frontend API domain, and `clerk_frontend_api_resolves: true`. A live Clerk key encodes the
-  production Frontend API host, so DNS for that host must resolve before Clerk can load.
-- In production, `clerk_key_type` should normally be `live`. If it reports `test`, the deployment is
-  using the development Clerk instance, so production-only providers such as Google may be missing
-  until the Vercel environment variables are updated to the live publishable/secret keys.
-- If the live Clerk instance uses a proxy URL, `/__clerk/*` is routed through FastAPI and forwarded
-  to the runtime Clerk Frontend API with Clerk's required proxy headers. A 404 from `/__clerk/v1/*`
-  means this route is not deployed yet or the deployment is serving an older `vercel.json`.
+- `vercel.json` routes `/api/*` to FastAPI and sends SPA paths (like `/dashboard`) to `static/index.html`.
+- `/admin` is routed through FastAPI so the backend admin-access flag can hide or unlock it.
 - The default analytics store is file-based. On Vercel, that falls back to `/tmp`, which is ephemeral. For production-grade admin analytics, point `ANALYTICS_DB_PATH` to persistent storage or swap the SQLite helper for a hosted database.
 
 ## Dependencies
@@ -169,7 +143,6 @@ echo-analyze/
 - **httpx** - HTTP client for API calls
 - **python-multipart** - File upload support
 - **pydantic** - Data validation
-- **PyJWT[crypto]** - Clerk session token verification
 - **casparser** - Repo-local vendored CAS PDF parser package
 - **pdfminer-six** - PDF text extraction for CAS parsing
 - **openpyxl** - Excel file support
@@ -180,8 +153,6 @@ echo-analyze/
 The server runs in reload mode by default, so any changes to Python files will automatically restart the server.
 
 Debug logs are written to `data/backend_debug.log` only when `ENABLE_DEBUG_LOGS=true`.
-Public auth diagnostics such as backend secret presence are omitted from `/api/config` unless
-`EXPOSE_AUTH_DIAGNOSTICS=true`.
 CAS PDF parsing runs in an isolated worker when the host supports it and times out after
 `PDF_PARSE_TIMEOUT_SECONDS` seconds, defaulting to `120`. `PDF_PARSE_EXECUTOR=auto` uses
 the isolated subprocess locally and thread-based parsing on Vercel, where child processes can

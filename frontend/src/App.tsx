@@ -1,6 +1,8 @@
 import { Suspense, lazy } from "react"
-import { Route, Routes } from "react-router-dom"
+import { Navigate, Route, Routes } from "react-router-dom"
 import "./App.css"
+
+const ADMIN_ACCESS_ENABLED = import.meta.env.APP_ENABLE_ADMIN_ACCESS === "true"
 
 const UploadPage = lazy(() =>
   import("@/pages/UploadPage").then((module) => ({ default: module.UploadPage }))
@@ -24,7 +26,10 @@ function App() {
       <Routes>
         <Route path="/" element={<UploadPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/admin" element={<AdminPage />} />
+        <Route
+          path="/admin"
+          element={ADMIN_ACCESS_ENABLED ? <AdminPage /> : <Navigate to="/" replace />}
+        />
       </Routes>
     </Suspense>
   )

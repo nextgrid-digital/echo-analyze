@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import { getAdminOverview } from "@/api/admin"
-import { AuthToolbar } from "@/components/auth/AuthToolbar"
+import { AdminAccessToolbar } from "@/components/AdminAccessToolbar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -24,7 +24,7 @@ import type {
   AdminAnalyticsMetrics,
   AdminLogEntry,
   AdminOverviewResponse,
-} from "@/types/auth"
+} from "@/types/admin"
 
 function formatDuration(durationMs?: number | null) {
   if (durationMs == null) {
@@ -179,7 +179,7 @@ function buildMetricCards(metrics: AdminAnalyticsMetrics) {
     {
       label: "Registered users",
       value: String(metrics.registered_users ?? metrics.tracked_users),
-      caption: "Authenticated users if available, otherwise tracked analysts.",
+      caption: "Registered users if available, otherwise tracked analysts.",
     },
     {
       label: "Tracked analysts",
@@ -250,7 +250,7 @@ export function AdminPage() {
               <p className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Admin</p>
               <h1 className="text-3xl font-semibold tracking-tight">Analytics overview</h1>
             </div>
-            <AuthToolbar />
+            <AdminAccessToolbar />
           </div>
 
           <Card>
@@ -290,7 +290,7 @@ export function AdminPage() {
             <Button asChild variant="outline">
               <Link to="/">Back to analyzer</Link>
             </Button>
-            <AuthToolbar />
+            <AdminAccessToolbar />
           </div>
         </div>
 
@@ -325,7 +325,7 @@ export function AdminPage() {
           <CardHeader>
             <CardTitle>Recent activity log</CardTitle>
             <CardDescription>
-              Auth, analysis, and admin events captured by the application.
+              Analysis and admin events captured by the application.
             </CardDescription>
           </CardHeader>
           <CardContent>

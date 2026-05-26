@@ -1,9 +1,3 @@
-export interface AuthSessionResponse {
-  user_id: string
-  session_id?: string | null
-  is_admin: boolean
-}
-
 export interface AdminAnalyticsMetrics {
   registered_users?: number | null
   tracked_users: number

@@ -4,8 +4,8 @@ import { DashboardPage } from "../DashboardPage"
 import { clearLatestAnalysis, storeLatestAnalysis } from "@/lib/analysisSession"
 import type { AnalysisResponse } from "@/types/api"
 
-vi.mock("@/components/auth/AuthToolbar", () => ({
-  AuthToolbar: () => <div data-testid="auth-toolbar">Auth</div>,
+vi.mock("@/components/AdminAccessToolbar", () => ({
+  AdminAccessToolbar: () => <div data-testid="admin-access-toolbar">Admin</div>,
 }))
 
 vi.mock("@/components/dashboard/Dashboard", () => ({

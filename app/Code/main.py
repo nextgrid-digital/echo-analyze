@@ -14,7 +14,7 @@ from time import monotonic, perf_counter
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import httpx
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -55,6 +55,7 @@ PDF_PARSE_STARTUP_ERROR = "PDF parsing could not start. Please try again later."
 PDF_PARSE_TIMEOUT_ERROR = "PDF parsing timed out. Please try again with a smaller file."
 PDF_PARSE_GENERIC_ERROR = "Unable to parse the provided PDF file."
 DEBUG_LOG_ENABLED = os.environ.get("ENABLE_DEBUG_LOGS", "").strip().lower() in {"1", "true", "yes"}
+ADMIN_ACCESS_ENABLED = os.environ.get("ADMIN_ACCESS_ENABLED", "").strip().lower() in {"1", "true", "yes"}
 SENSITIVE_API_PATHS = {
     "/api/analyze",
     "/api/parse_pdf",
@@ -104,7 +105,7 @@ app.add_middleware(
     allow_origins=_get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
+    allow_headers=["Content-Type", "Accept"],
 )
 
 
@@ -2303,6 +2304,9 @@ def parse_cas_data(_data):
 
 @app.get("/api/admin/overview", response_model=AdminOverviewResponse)
 async def admin_overview():
+    if not ADMIN_ACCESS_ENABLED:
+        raise HTTPException(status_code=404, detail="Admin access is temporarily disabled.")
+
     record_audit_log(
         user_id=ANALYTICS_USER_ID,
         route="/api/admin/overview",
@@ -2544,11 +2548,15 @@ async def dashboard_page_nested(path: str):
 
 @app.get("/admin")
 async def admin_page():
+    if not ADMIN_ACCESS_ENABLED:
+        raise HTTPException(status_code=404, detail="Admin access is temporarily disabled.")
     return _serve_spa()
 
 
 @app.get("/admin/{path:path}")
 async def admin_page_nested(path: str):
+    if not ADMIN_ACCESS_ENABLED:
+        raise HTTPException(status_code=404, detail="Admin access is temporarily disabled.")
     return _serve_spa()
 
 

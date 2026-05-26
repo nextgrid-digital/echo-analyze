@@ -1,5 +1,5 @@
 import { apiFetch, readJson } from "@/api/client"
-import type { AdminOverviewResponse } from "@/types/auth"
+import type { AdminOverviewResponse } from "@/types/admin"
 
 export async function getAdminOverview(): Promise<AdminOverviewResponse> {
   const response = await apiFetch("/api/admin/overview", { method: "GET" })

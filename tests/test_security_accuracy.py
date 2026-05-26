@@ -959,18 +959,21 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertFalse(body.get("success", True))
         self.assertIn("too large", body.get("error", "").lower())
 
-    def test_spa_routes_return_index_html_locally(self):
+    def test_spa_routes_return_index_html_locally_with_admin_hidden(self):
         client = TestClient(app)
 
         admin_response = client.get("/admin")
         dashboard_response = client.get("/dashboard")
 
-        self.assertEqual(admin_response.status_code, 200)
+        self.assertEqual(admin_response.status_code, 404)
         self.assertEqual(dashboard_response.status_code, 200)
-        self.assertIn("<!doctype html>", admin_response.text.lower())
         self.assertIn("<!doctype html>", dashboard_response.text.lower())
         self.assertEqual(admin_response.headers.get("cache-control"), "no-store, max-age=0")
         self.assertEqual(dashboard_response.headers.get("cache-control"), "no-store, max-age=0")
+
+        admin_api_response = client.get("/api/admin/overview")
+        self.assertEqual(admin_api_response.status_code, 404)
+        self.assertEqual(admin_api_response.headers.get("cache-control"), "no-store, max-age=0")
 
     def test_analyze_disables_client_and_proxy_caching(self):
         client = TestClient(app)

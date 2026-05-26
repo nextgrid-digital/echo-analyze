@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { analyzePortfolio } from "@/api/analyze"
-import { AuthToolbar } from "@/components/auth/AuthToolbar"
+import { AdminAccessToolbar } from "@/components/AdminAccessToolbar"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -131,7 +131,7 @@ export function UploadPage() {
     <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 py-8 sm:py-12">
       <div className="w-full max-w-3xl mx-auto">
         <div className="mb-8 flex justify-end">
-          <AuthToolbar />
+          <AdminAccessToolbar />
         </div>
 
         <header className="text-center mb-12 sm:mb-16">

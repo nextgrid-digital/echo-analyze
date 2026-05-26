@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { CircleAlert, X } from "lucide-react"
 import { useNavigate } from "react-router-dom"
-import { AuthToolbar } from "@/components/auth/AuthToolbar"
+import { AdminAccessToolbar } from "@/components/AdminAccessToolbar"
 import { Dashboard } from "@/components/dashboard/Dashboard"
 import { Footer } from "@/components/dashboard/Footer"
 import { WarningRail } from "@/components/dashboard/WarningRail"
 import { Button } from "@/components/ui/button"
-import { loadLatestAnalysis } from "@/lib/analysisSession"
+import { clearLatestAnalysis, loadLatestAnalysis } from "@/lib/analysisSession"
 import { createEmptySummary, createEmptyHoldings } from "@/lib/emptyData"
 import { getDashboardMethodologyWarnings } from "@/lib/portfolioAnalysis"
 import type { AnalysisResponse } from "@/types/api"
@@ -224,7 +224,7 @@ export function DashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:gap-4 no-print">
-          <AuthToolbar />
+          <AdminAccessToolbar />
           <Button
             type="button"
             variant="default"
