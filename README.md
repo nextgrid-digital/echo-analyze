@@ -132,8 +132,6 @@ This will:
 
 ## Razorpay Billing
 
-**Staging setup checklist:** [docs/RAZORPAY_STAGING_SETUP.md](docs/RAZORPAY_STAGING_SETUP.md) (₹2,000 + 18% GST = ₹2,360/month).
-
 Echo supports Razorpay Standard Checkout for one-time payments and Razorpay Subscriptions
 for monthly recurring billing. Configure these environment variables (e.g. on Vercel):
 
