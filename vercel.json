@@ -47,20 +47,6 @@
       "continue": true
     },
     {
-      "src": "^/billing$",
-      "headers": {
-        "Cache-Control": "no-store, max-age=0"
-      },
-      "continue": true
-    },
-    {
-      "src": "^/billing/(.*)$",
-      "headers": {
-        "Cache-Control": "no-store, max-age=0"
-      },
-      "continue": true
-    },
-    {
       "src": "/api/(.*)",
       "dest": "app/Code/main.py"
     },
@@ -94,14 +80,6 @@
     },
     {
       "src": "/admin/(.*)",
-      "dest": "app/Code/main.py"
-    },
-    {
-      "src": "/billing",
-      "dest": "app/Code/main.py"
-    },
-    {
-      "src": "/billing/(.*)",
       "dest": "app/Code/main.py"
     },
     {
