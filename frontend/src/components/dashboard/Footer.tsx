@@ -13,7 +13,7 @@ export const Footer = memo(function Footer() {
               This portfolio analysis report contains confidential and proprietary
               information belonging to the investor named herein. This report is
               strictly confidential and is intended solely for the use of the investor
-              and their authorized financial advisor or wealth manager.
+              and their authorized Financial advisor or Wealth manager.
             </p>
           </div>
 
