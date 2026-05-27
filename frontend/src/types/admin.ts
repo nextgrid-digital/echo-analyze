@@ -1,6 +1,10 @@
+export type AdminLogWindow = "24h" | "7d" | "30d"
+
 export interface AdminAnalyticsMetrics {
   registered_users?: number | null
+  total_users?: number | null
   tracked_users: number
+  active_users: number
   active_users_7d: number
   total_analyses: number
   successful_analyses: number
@@ -14,9 +18,7 @@ export interface AdminAnalyticsMetrics {
 
 export interface AdminAnalysisRun {
   request_id: string
-  user_id: string
-  session_id?: string | null
-  file_name?: string | null
+  username: string
   file_type?: string | null
   status: string
   duration_ms?: number | null
@@ -27,7 +29,7 @@ export interface AdminAnalysisRun {
 }
 
 export interface AdminLogEntry {
-  user_id?: string | null
+  username?: string | null
   route: string
   action: string
   status: string
@@ -36,8 +38,16 @@ export interface AdminLogEntry {
   created_at: string
 }
 
+export interface AdminTopUser {
+  username: string
+  report_count: number
+  last_analysis_at?: string | null
+}
+
 export interface AdminOverviewResponse {
   metrics: AdminAnalyticsMetrics
+  log_window: AdminLogWindow
   recent_analyses: AdminAnalysisRun[]
   recent_logs: AdminLogEntry[]
+  top_users: AdminTopUser[]
 }

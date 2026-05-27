@@ -11,24 +11,26 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from time import monotonic, perf_counter
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, get_args
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.Code.analytics import get_admin_overview, record_analysis_run, record_audit_log
+from app.Code.supabase_auth import (
+    get_supabase_registered_user_count,
+    require_supabase_user,
+)
 from app.cas_parser import convert_to_excel, parse_with_casparser
 from app.holdings import get_holdings_for_schemes, save_amfi_cache_async
 from app.overlap import compute_overlap_matrix
 from app.utils import calculate_xirr, fetch_live_nav, fetch_nav_history, save_cache_async
 
 app = FastAPI()
-
-ANALYTICS_USER_ID = "anonymous"
 
 LOG_FILE = "data/backend_debug.log"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -55,10 +57,10 @@ PDF_PARSE_STARTUP_ERROR = "PDF parsing could not start. Please try again later."
 PDF_PARSE_TIMEOUT_ERROR = "PDF parsing timed out. Please try again with a smaller file."
 PDF_PARSE_GENERIC_ERROR = "Unable to parse the provided PDF file."
 DEBUG_LOG_ENABLED = os.environ.get("ENABLE_DEBUG_LOGS", "").strip().lower() in {"1", "true", "yes"}
-ADMIN_ACCESS_ENABLED = os.environ.get("ADMIN_ACCESS_ENABLED", "").strip().lower() in {"1", "true", "yes"}
 SENSITIVE_API_PATHS = {
     "/api/analyze",
     "/api/parse_pdf",
+    "/api/auth/me",
     "/api/admin/overview",
 }
 
@@ -105,7 +107,7 @@ app.add_middleware(
     allow_origins=_get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Accept"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 
@@ -153,6 +155,10 @@ def get_sub_category(scheme_name: str, scheme_type: str) -> str:
         return "Small-Cap"
     if "FLEXI CAP" in name:
         return "Flexi Cap"
+    if "TECHNOLOGY" in name or "TECK" in name:
+        return "Sectoral - Technology"
+    if "INFRASTRUCTURE" in name:
+        return "Thematic - Infrastructure"
     if "LARGE CAP" in name or "BLUECHIP" in name or "TOP 100" in name or "FOCUS" in name:
         return "Large-Cap"
     if "HYBRID" in name or "BALANCED" in name or "AGGRESSIVE" in name:
@@ -323,13 +329,27 @@ def _get_pdf_parse_executor() -> str:
 
 
 def _build_content_security_policy() -> str:
+    connect_sources = ["'self'", "https://*.supabase.co", "https://*.supabase.com"]
+    for env_key in ("SUPABASE_URL", "APP_SUPABASE_URL"):
+        raw_url = os.environ.get(env_key, "").strip()
+        if not raw_url:
+            continue
+        try:
+            parsed = httpx.URL(raw_url)
+        except Exception:
+            continue
+        if parsed.scheme in {"https", "http"} and parsed.host:
+            source = f"{parsed.scheme}://{parsed.host}"
+            if source not in connect_sources:
+                connect_sources.append(source)
+
     return (
         "default-src 'self'; "
         "script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob: https:; "
         "font-src 'self' data:; "
-        "connect-src 'self'; "
+        f"connect-src {' '.join(connect_sources)}; "
         "frame-src 'none'; "
         "form-action 'self'; "
         "worker-src 'self' blob:; "
@@ -1310,9 +1330,56 @@ class AnalysisResponse(BaseModel):
     error: Optional[str] = None
 
 
+def _annotation_allows_none(annotation: Any) -> bool:
+    if annotation is Any:
+        return True
+    return type(None) in get_args(annotation) or annotation is type(None)
+
+
+def _sanitize_nonfinite_json_values(value: Any, annotation: Any = None) -> Any:
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value
+        return None if _annotation_allows_none(annotation) else 0.0
+
+    if isinstance(value, BaseModel):
+        model_fields = getattr(type(value), "model_fields", None) or getattr(value, "__fields__", {})
+        for field_name, field_info in model_fields.items():
+            field_annotation = getattr(field_info, "annotation", None)
+            sanitized = _sanitize_nonfinite_json_values(
+                getattr(value, field_name),
+                field_annotation,
+            )
+            setattr(value, field_name, sanitized)
+        return value
+
+    if isinstance(value, list):
+        return [_sanitize_nonfinite_json_values(item) for item in value]
+
+    if isinstance(value, tuple):
+        return tuple(_sanitize_nonfinite_json_values(item) for item in value)
+
+    if isinstance(value, dict):
+        return {key: _sanitize_nonfinite_json_values(item) for key, item in value.items()}
+
+    return value
+
+
+def _safe_analysis_response(response: AnalysisResponse) -> AnalysisResponse:
+    return _sanitize_nonfinite_json_values(response)
+
+
+class AuthSessionResponse(BaseModel):
+    user_id: str
+    username: str
+    is_admin: bool
+
+
 class AdminAnalyticsMetrics(BaseModel):
     registered_users: Optional[int] = None
+    total_users: Optional[int] = None
     tracked_users: int
+    active_users: int
     active_users_7d: int
     total_analyses: int
     successful_analyses: int
@@ -1326,9 +1393,7 @@ class AdminAnalyticsMetrics(BaseModel):
 
 class AdminAnalysisRun(BaseModel):
     request_id: str
-    user_id: str
-    session_id: Optional[str] = None
-    file_name: Optional[str] = None
+    username: str
     file_type: Optional[str] = None
     status: str
     duration_ms: Optional[int] = None
@@ -1339,7 +1404,7 @@ class AdminAnalysisRun(BaseModel):
 
 
 class AdminLogEntry(BaseModel):
-    user_id: Optional[str] = None
+    username: Optional[str] = None
     route: str
     action: str
     status: str
@@ -1348,10 +1413,18 @@ class AdminLogEntry(BaseModel):
     created_at: str
 
 
+class AdminTopUser(BaseModel):
+    username: str
+    report_count: int
+    last_analysis_at: Optional[str] = None
+
+
 class AdminOverviewResponse(BaseModel):
     metrics: AdminAnalyticsMetrics
+    log_window: Literal["24h", "7d", "30d"] = "24h"
     recent_analyses: List[AdminAnalysisRun] = Field(default_factory=list)
     recent_logs: List[AdminLogEntry] = Field(default_factory=list)
+    top_users: List[AdminTopUser] = Field(default_factory=list)
 
 async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     if not isinstance(cas_data, dict):
@@ -1539,7 +1612,9 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             cat, ambiguous = _infer_category(name, scheme_type, sub_cat)
             benchmark_components_raw = _resolve_benchmark_components(name, scheme_type, sub_cat, cat)
             benchmark_components = _normalize_benchmark_components(benchmark_components_raw, benchmark_histories_prepared)
-            benchmark_name = _format_benchmark_name(benchmark_components)
+            benchmark_name = _format_benchmark_name(benchmark_components) or _format_benchmark_name(
+                benchmark_components_raw
+            )
             if ambiguous:
                 ambiguous_category_count += 1
             schemes_seen.add(name)
@@ -1636,6 +1711,10 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                         benchmark_txn_total += 1
                         b_nav, is_exact = _nav_from_prepared_history(date_str, history_bundle)
                         if not b_nav:
+                            continue
+                        # IDCW/interest payouts can appear as zero-unit withdrawals. They should not
+                        # reduce benchmark units because no scheme units were sold.
+                        if is_withdrawal and abs(raw_units) <= 1e-9:
                             continue
                         txn_bm_units = ((-cashflow) * comp.weight) / b_nav
                         scheme_benchmark_units[comp.code] = max(0.0, scheme_benchmark_units.get(comp.code, 0.0) + txn_bm_units)
@@ -2295,30 +2374,42 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             overlap_available_funds=overlap_available_funds,
         ),
     )
-    return AnalysisResponse(success=True, holdings=holdings, summary=summary)
+    return _safe_analysis_response(AnalysisResponse(success=True, holdings=holdings, summary=summary))
 
 
 def parse_cas_data(_data):
     return AnalysisResponse(success=False, error="Legacy list format not supported in new analyzer")
 
 
-@app.get("/api/admin/overview", response_model=AdminOverviewResponse)
-async def admin_overview():
-    if not ADMIN_ACCESS_ENABLED:
-        raise HTTPException(status_code=404, detail="Admin access is temporarily disabled.")
+@app.get("/api/auth/me", response_model=AuthSessionResponse)
+async def auth_me(request: Request):
+    user = await require_supabase_user(request)
+    return AuthSessionResponse(user_id=user.user_id, username=user.username, is_admin=user.is_admin)
 
+
+@app.get("/api/admin/overview", response_model=AdminOverviewResponse)
+async def admin_overview(
+    request: Request,
+    log_window: Literal["24h", "7d", "30d"] = Query("24h"),
+):
+    user = await require_supabase_user(request, require_admin=True)
     record_audit_log(
-        user_id=ANALYTICS_USER_ID,
+        user_id=user.user_id,
+        username=user.username,
         route="/api/admin/overview",
         action="admin_overview_viewed",
         status="success",
         message="Admin overview fetched.",
+        metadata={"log_window": log_window},
     )
-    overview = get_admin_overview(registered_users=None)
+    registered_users = await get_supabase_registered_user_count()
+    overview = get_admin_overview(registered_users=registered_users, log_window=log_window)
     return AdminOverviewResponse(
         metrics=AdminAnalyticsMetrics(**overview["metrics"]),
+        log_window=overview["log_window"],
         recent_analyses=[AdminAnalysisRun(**item) for item in overview["recent_analyses"]],
         recent_logs=[AdminLogEntry(**item) for item in overview["recent_logs"]],
+        top_users=[AdminTopUser(**item) for item in overview["top_users"]],
     )
 
 
@@ -2328,6 +2419,7 @@ async def analyze(
     file: UploadFile = File(...),
     password: str = Form(""),
 ):
+    auth_user = await require_supabase_user(request)
     request_id = uuid.uuid4().hex[:10]
     started_at = perf_counter()
     raw_filename = (file.filename or "").strip()
@@ -2339,9 +2431,9 @@ async def analyze(
         total_market_value = response.summary.total_market_value if response and response.summary else None
         record_analysis_run(
             request_id=request_id,
-            user_id=ANALYTICS_USER_ID,
+            user_id=auth_user.user_id,
+            username=auth_user.username,
             session_id=None,
-            file_name=raw_filename or None,
             file_type=file_type,
             status=status,
             duration_ms=int((perf_counter() - started_at) * 1000),
@@ -2420,13 +2512,15 @@ async def parse_pdf(
     password: str = Form(""),
     output_format: str = Form("json"),
 ):
+    auth_user = await require_supabase_user(request)
     request_id = uuid.uuid4().hex[:10]
     normalized_output_format = output_format.strip().lower()
     try:
         if normalized_output_format not in ALLOWED_PARSE_OUTPUT_FORMATS:
             message = "Unsupported output format. Use 'json' or 'excel'."
             record_audit_log(
-                user_id=ANALYTICS_USER_ID,
+                user_id=auth_user.user_id,
+                username=auth_user.username,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="validation_error",
@@ -2437,7 +2531,8 @@ async def parse_pdf(
         content, read_error = await _read_upload_limited(file)
         if read_error:
             record_audit_log(
-                user_id=ANALYTICS_USER_ID,
+                user_id=auth_user.user_id,
+                username=auth_user.username,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="validation_error",
@@ -2447,7 +2542,8 @@ async def parse_pdf(
         if content is None:
             message = "Unable to read uploaded file."
             record_audit_log(
-                user_id=ANALYTICS_USER_ID,
+                user_id=auth_user.user_id,
+                username=auth_user.username,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="validation_error",
@@ -2458,7 +2554,8 @@ async def parse_pdf(
         validation_error = _validate_upload(file, content)
         if validation_error:
             record_audit_log(
-                user_id=ANALYTICS_USER_ID,
+                user_id=auth_user.user_id,
+                username=auth_user.username,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="validation_error",
@@ -2467,7 +2564,8 @@ async def parse_pdf(
             return JSONResponse(status_code=400, content={"error": validation_error})
         if not (file.filename or "").lower().endswith(".pdf"):
             record_audit_log(
-                user_id=ANALYTICS_USER_ID,
+                user_id=auth_user.user_id,
+                username=auth_user.username,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="validation_error",
@@ -2478,7 +2576,8 @@ async def parse_pdf(
         result = await _parse_pdf_upload(content, password=password)
         if not result["success"]:
             record_audit_log(
-                user_id=ANALYTICS_USER_ID,
+                user_id=auth_user.user_id,
+                username=auth_user.username,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="parse_error",
@@ -2488,7 +2587,8 @@ async def parse_pdf(
 
         if normalized_output_format == "excel":
             record_audit_log(
-                user_id=ANALYTICS_USER_ID,
+                user_id=auth_user.user_id,
+                username=auth_user.username,
                 route=request.url.path,
                 action="parse_pdf_succeeded",
                 status="success",
@@ -2502,7 +2602,8 @@ async def parse_pdf(
                 headers={"Content-Disposition": "attachment; filename=portfolio.xlsx"},
             )
         record_audit_log(
-            user_id=ANALYTICS_USER_ID,
+            user_id=auth_user.user_id,
+            username=auth_user.username,
             route=request.url.path,
             action="parse_pdf_succeeded",
             status="success",
@@ -2513,7 +2614,8 @@ async def parse_pdf(
     except Exception as e:
         log_debug(f"[{request_id}] parse_pdf error: {type(e).__name__}: {e}")
         record_audit_log(
-            user_id=ANALYTICS_USER_ID,
+            user_id=auth_user.user_id,
+            username=auth_user.username,
             route=request.url.path,
             action="parse_pdf_failed",
             status="internal_error",
@@ -2548,15 +2650,11 @@ async def dashboard_page_nested(path: str):
 
 @app.get("/admin")
 async def admin_page():
-    if not ADMIN_ACCESS_ENABLED:
-        raise HTTPException(status_code=404, detail="Admin access is temporarily disabled.")
     return _serve_spa()
 
 
 @app.get("/admin/{path:path}")
 async def admin_page_nested(path: str):
-    if not ADMIN_ACCESS_ENABLED:
-        raise HTTPException(status_code=404, detail="Admin access is temporarily disabled.")
     return _serve_spa()
 
 

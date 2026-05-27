@@ -1,1 +1,0 @@
-async function e(t){const n=await t.text();if(!n)return null;try{return JSON.parse(n)}catch{return null}}async function r(t,n={}){return fetch(t,{...n,credentials:"same-origin"})}export{r as a,e as r};
