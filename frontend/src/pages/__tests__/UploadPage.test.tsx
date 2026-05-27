@@ -2,12 +2,36 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { UploadPage } from "../UploadPage"
 import { analyzePortfolio } from "@/api/analyze"
+import { useAuth } from "@/auth/useAuth"
 
 vi.mock("@/api/analyze", () => ({
   analyzePortfolio: vi.fn(),
 }))
 
+vi.mock("@/components/AdminAccessToolbar", () => ({
+  AdminAccessToolbar: () => <div data-testid="admin-access-toolbar">Admin</div>,
+}))
+
+vi.mock("@/auth/useAuth", () => ({
+  useAuth: vi.fn(),
+}))
+
 describe("UploadPage", () => {
+  beforeEach(() => {
+    vi.mocked(useAuth).mockReturnValue({
+      configured: true,
+      loading: false,
+      session: null,
+      user: { id: "user_test" } as ReturnType<typeof useAuth>["user"],
+      username: "test-user",
+      isAdmin: false,
+      signIn: vi.fn(),
+      signInWithGoogle: vi.fn(),
+      signUp: vi.fn(),
+      signOut: vi.fn(),
+    })
+  })
+
   it("allows PDF analysis attempts without forcing a password first", async () => {
     vi.mocked(analyzePortfolio).mockResolvedValue({
       success: false,

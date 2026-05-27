@@ -23,7 +23,9 @@ import type {
   AdminAnalysisRun,
   AdminAnalyticsMetrics,
   AdminLogEntry,
+  AdminLogWindow,
   AdminOverviewResponse,
+  AdminTopUser,
 } from "@/types/admin"
 
 function formatDuration(durationMs?: number | null) {
@@ -76,18 +78,6 @@ function getStatusVariant(status: string): "default" | "destructive" | "outline"
   return "outline"
 }
 
-function truncateIdentifier(value?: string | null) {
-  if (!value) {
-    return "N/A"
-  }
-
-  if (value.length <= 16) {
-    return value
-  }
-
-  return `${value.slice(0, 8)}...${value.slice(-4)}`
-}
-
 function MetricCard({
   label,
   value,
@@ -117,7 +107,7 @@ function RecentAnalysesTable({ rows }: { rows: AdminAnalysisRun[] }) {
         <TableRow>
           <TableHead>When</TableHead>
           <TableHead>User</TableHead>
-          <TableHead>File</TableHead>
+          <TableHead>Type</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Duration</TableHead>
           <TableHead>Value</TableHead>
@@ -128,8 +118,8 @@ function RecentAnalysesTable({ rows }: { rows: AdminAnalysisRun[] }) {
         {rows.map((row) => (
           <TableRow key={row.request_id}>
             <TableCell>{formatTimestamp(row.created_at)}</TableCell>
-            <TableCell>{truncateIdentifier(row.user_id)}</TableCell>
-            <TableCell>{row.file_name ?? "Unknown file"}</TableCell>
+            <TableCell>{row.username}</TableCell>
+            <TableCell>{row.file_type?.toUpperCase() ?? "N/A"}</TableCell>
             <TableCell>
               <Badge variant={getStatusVariant(row.status)}>{row.status}</Badge>
             </TableCell>
@@ -160,7 +150,7 @@ function ActivityLogTable({ rows }: { rows: AdminLogEntry[] }) {
         {rows.map((row, index) => (
           <TableRow key={`${row.created_at}-${row.action}-${index}`}>
             <TableCell>{formatTimestamp(row.created_at)}</TableCell>
-            <TableCell>{truncateIdentifier(row.user_id)}</TableCell>
+            <TableCell>{row.username ?? "Unknown user"}</TableCell>
             <TableCell>{row.action}</TableCell>
             <TableCell>
               <Badge variant={getStatusVariant(row.status)}>{row.status}</Badge>
@@ -174,16 +164,39 @@ function ActivityLogTable({ rows }: { rows: AdminLogEntry[] }) {
   )
 }
 
+function TopUsersTable({ rows }: { rows: AdminTopUser[] }) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>User</TableHead>
+          <TableHead>Reports analyzed</TableHead>
+          <TableHead>Last analysis</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow key={row.username}>
+            <TableCell>{row.username}</TableCell>
+            <TableCell>{row.report_count}</TableCell>
+            <TableCell>{formatTimestamp(row.last_analysis_at)}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  )
+}
+
 function buildMetricCards(metrics: AdminAnalyticsMetrics) {
   return [
     {
-      label: "Registered users",
-      value: String(metrics.registered_users ?? metrics.tracked_users),
-      caption: "Registered users if available, otherwise tracked analysts.",
+      label: "Total users",
+      value: String(metrics.total_users ?? metrics.registered_users ?? metrics.tracked_users),
+      caption: "Supabase users if available, otherwise tracked analysts.",
     },
     {
-      label: "Tracked analysts",
-      value: String(metrics.tracked_users),
+      label: "Active users",
+      value: String(metrics.active_users),
       caption: `${metrics.active_users_7d} active in the last 7 days.`,
     },
     {
@@ -201,6 +214,7 @@ function buildMetricCards(metrics: AdminAnalyticsMetrics) {
 
 export function AdminPage() {
   const [overview, setOverview] = useState<AdminOverviewResponse | null>(null)
+  const [logWindow, setLogWindow] = useState<AdminLogWindow>("24h")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -210,7 +224,7 @@ export function AdminPage() {
     async function loadOverview() {
       setLoading(true)
       try {
-        const nextOverview = await getAdminOverview()
+        const nextOverview = await getAdminOverview(logWindow)
         if (!isCancelled) {
           setOverview(nextOverview)
           setError(null)
@@ -231,7 +245,7 @@ export function AdminPage() {
     return () => {
       isCancelled = true
     }
-  }, [])
+  }, [logWindow])
 
   if (loading) {
     return (
@@ -307,9 +321,25 @@ export function AdminPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle>Top users</CardTitle>
+            <CardDescription>
+              Users with the highest number of analyzed reports.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {overview.top_users.length > 0 ? (
+              <TopUsersTable rows={overview.top_users} />
+            ) : (
+              <p className="text-sm text-muted-foreground">No report activity has been recorded yet.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Recent analysis runs</CardTitle>
             <CardDescription>
-              Latest portfolio analysis requests recorded by the backend.
+              Latest portfolio analysis requests. CAS files and filenames are not stored.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -323,10 +353,24 @@ export function AdminPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Recent activity log</CardTitle>
-            <CardDescription>
-              Analysis and admin events captured by the application.
-            </CardDescription>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle>Recent activity log</CardTitle>
+                <CardDescription>
+                  Analysis and admin events captured by the application.
+                </CardDescription>
+              </div>
+              <select
+                className="h-9 rounded-none border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                value={logWindow}
+                onChange={(event) => setLogWindow(event.target.value as AdminLogWindow)}
+                aria-label="Activity log window"
+              >
+                <option value="24h">Recent 24 hours</option>
+                <option value="7d">Recent 7 days</option>
+                <option value="30d">Recent 1 month</option>
+              </select>
+            </div>
           </CardHeader>
           <CardContent>
             {overview.recent_logs.length > 0 ? (

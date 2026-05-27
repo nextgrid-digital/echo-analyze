@@ -16,16 +16,21 @@ export async function analyzePortfolio(
 
   const responseText = await response.text()
   let result: AnalysisResponse | null = null
+  let detail: string | null = null
 
   try {
-    result = responseText ? JSON.parse(responseText) as AnalysisResponse : null
+    const parsed = responseText ? JSON.parse(responseText) as AnalysisResponse & { detail?: unknown } : null
+    result = parsed
+    if (typeof parsed?.detail === "string") {
+      detail = parsed.detail
+    }
   } catch {
     result = null
   }
 
   if (!response.ok) {
     const fallbackMessage = responseText || `HTTP ${response.status}`
-    throw new Error(result?.error ?? fallbackMessage)
+    throw new Error(result?.error ?? detail ?? fallbackMessage)
   }
 
   if (!result) {

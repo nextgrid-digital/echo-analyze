@@ -2,7 +2,7 @@
 
 ## Overview
 
-Echo Analyze is a Mutual Fund CAS analysis app with optional admin analytics.
+Echo Analyze is a Supabase-authenticated Mutual Fund CAS analysis app with admin analytics.
 
 - Backend: FastAPI parses CAS PDFs/JSON, computes portfolio analytics, stores lightweight admin telemetry, and serves the built SPA.
 - Frontend: React/Vite renders the upload flow, dashboard, admin console, CSV exports, and PDF/image captures.
@@ -15,12 +15,14 @@ Echo Analyze is a Mutual Fund CAS analysis app with optional admin analytics.
 - Backend package initializer: `app/Code/__init__.py` loads local `.env` values for development.
 - Frontend source: `frontend/src/`
 - Built frontend assets: `static/`
+- Supabase setup artifacts: `supabase/`
 
 Important: top-level modules under `app/` are compatibility shims that re-export `app/Code/*`. Change backend logic in `app/Code/`.
 
 ## Backend Map
 
 - `app/Code/main.py`: FastAPI routes, upload validation, response models, security headers, parser timeout wrapper, and portfolio analysis pipeline.
+- `app/Code/supabase_auth.py`: Supabase session verification, username extraction, admin checks, and optional Auth admin user counts.
 - `app/Code/analytics.py`: SQLite-backed admin metrics and sanitized audit/analysis logs.
 - `app/Code/cas_parser.py`: CAS PDF parsing adapter plus Excel export helpers.
 - `app/Code/utils.py`: NAV/history fetchers, cache persistence, and XIRR solver.
@@ -32,6 +34,8 @@ Important: top-level modules under `app/` are compatibility shims that re-export
 - `frontend/src/pages/UploadPage.tsx`: upload and analyze flow.
 - `frontend/src/pages/DashboardPage.tsx`: dashboard route, session restoration, notices modal, and PDF export.
 - `frontend/src/pages/AdminPage.tsx`: admin analytics console.
+- `frontend/src/auth/`: Supabase sign-in/sign-up state and auth gate.
+- `frontend/src/lib/supabase.ts`: Supabase browser client, access-token helper, username/admin metadata helpers.
 - `frontend/src/lib/analysisSession.ts`: session-scoped dashboard restoration.
 - `frontend/src/lib/csv.ts`: CSV and spreadsheet formula escaping.
 - `frontend/src/components/dashboard/`: dashboard cards, sections, charts, and exports.
@@ -78,12 +82,14 @@ run_local.bat
 
 ## Security Posture
 
-- Admin routes are disabled by default. Set backend `ADMIN_ACCESS_ENABLED=true` and frontend `APP_ENABLE_ADMIN_ACCESS=true` only when intentionally exposing `/admin`.
-- `/api/analyze`, `/api/parse_pdf`, `/api/admin/overview`, `/dashboard*`, `/admin*`, and `/` return no-store cache headers.
+- Protected API routes verify the Supabase bearer token with Supabase Auth before processing requests.
+- Admin API access requires a Supabase admin user. By default this means `app_metadata.role = "admin"`; backend allowlists can also be configured with `SUPABASE_ADMIN_USER_IDS` or `SUPABASE_ADMIN_EMAILS`.
+- `/api/analyze`, `/api/parse_pdf`, `/api/auth/me`, `/api/admin/overview`, `/dashboard*`, `/admin*`, and `/` return no-store cache headers.
 - Uploads are limited to 25 MB, allowed extensions/content types are checked, PDF magic bytes are validated, and JSON shape is validated before analysis.
 - CAS PDF parsing runs in a killable subprocess locally when available, with `PDF_PARSE_TIMEOUT_SECONDS` capped between 1 and 240 seconds and defaulting to 120. `PDF_PARSE_EXECUTOR=auto` uses thread parsing on Vercel to avoid hosted child-process hangs.
 - CAS parser imports resolve to the repo-local `casparser/` package. Keep `app/Code/pdfminer_hardening.py` as defense-in-depth around CMap loading.
-- Logs and analytics sanitize file names, PAN-like tokens, emails, phone numbers, and control characters.
+- Logs and analytics sanitize usernames, messages, PAN-like tokens, emails, phone numbers, and control characters.
+- CAS files, parsed CAS reports, and uploaded filenames must not be stored. Admin views should show usernames only, not email addresses or raw Supabase IDs.
 - CSV and Excel exports escape spreadsheet formula prefixes, including leading whitespace/tab variants.
 - Dashboard analysis handoff is in memory only; do not persist full CAS analysis data in Web Storage or browser history state.
 - Responses include a restrictive Content Security Policy in addition to `nosniff`, `DENY` framing, and referrer-policy headers.
@@ -99,6 +105,9 @@ run_local.bat
 - Runtime caches and SQLite analytics live in `data/` by default and are ignored by git.
 - Debug logging writes to `data/backend_debug.log` only when `ENABLE_DEBUG_LOGS=true`.
 - `ANALYTICS_DB_PATH` can move the admin SQLite database; Vercel defaults to ephemeral `/tmp`.
+- Supabase backend env: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, optional `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ADMIN_ROLE`, `SUPABASE_ADMIN_USER_IDS`, and `SUPABASE_ADMIN_EMAILS`.
+- Supabase frontend env: `APP_SUPABASE_URL`, `APP_SUPABASE_ANON_KEY`, and optional `APP_SUPABASE_ADMIN_ROLE`. Never put service-role credentials in `frontend/`.
+- Supabase migrations/admin helper SQL live in `supabase/`; keep Supabase-side schema changes there.
 - CORS origins come from `CORS_ALLOW_ORIGINS`; `*` is intentionally filtered out because credentials are enabled.
 - Optional holdings API endpoint comes from `HOLDINGS_API_URL`.
 

@@ -6,6 +6,10 @@ vi.mock("@/api/admin", () => ({
   getAdminOverview: vi.fn(),
 }))
 
+vi.mock("@/components/AdminAccessToolbar", () => ({
+  AdminAccessToolbar: () => <div data-testid="admin-access-toolbar">Admin</div>,
+}))
+
 import { getAdminOverview } from "@/api/admin"
 
 describe("AdminPage", () => {
@@ -13,7 +17,9 @@ describe("AdminPage", () => {
     vi.mocked(getAdminOverview).mockResolvedValue({
       metrics: {
         registered_users: null,
+        total_users: 1,
         tracked_users: 1,
+        active_users: 1,
         active_users_7d: 1,
         total_analyses: 2,
         successful_analyses: 2,
@@ -24,8 +30,10 @@ describe("AdminPage", () => {
         slowest_duration_ms: 1600,
         last_analysis_at: "2026-05-26T00:00:00Z",
       },
+      log_window: "24h",
       recent_analyses: [],
       recent_logs: [],
+      top_users: [{ username: "alok", report_count: 3, last_analysis_at: "2026-05-26T00:00:00Z" }],
     })
 
     render(

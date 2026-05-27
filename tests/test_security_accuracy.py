@@ -3,6 +3,7 @@ import base64
 import csv
 import io
 import json
+import math
 import os
 import socket
 import tempfile
@@ -30,7 +31,7 @@ from casparser.types import (
     StatementPeriod,
     TransactionData,
 )
-from app.Code.analytics import _pseudonymize_identifier, _sanitize_file_name, _sanitize_text
+from app.Code.analytics import _pseudonymize_identifier, _sanitize_text
 from app.Code.cas_parser import convert_to_excel, parse_with_casparser
 from app.Code.env_loader import load_local_env
 from app.Code.pdfminer_hardening import (
@@ -54,8 +55,24 @@ from app.Code.main import (
     app,
     map_casparser_to_analysis,
     MAX_CAS_TRANSACTIONS,
+    AnalysisResponse,
+    Holding,
+    _safe_analysis_response,
 )
 from app.Code.utils import calculate_xirr, fetch_live_nav, fetch_nav_history
+
+
+class _FakeSupabaseUser:
+    user_id = "user_test"
+    username = "test-user"
+    email = "test@example.com"
+    app_metadata = {"role": "admin"}
+    user_metadata = {"username": "test-user"}
+    is_admin = True
+
+
+async def _fake_require_supabase_user(*args, **kwargs):
+    return _FakeSupabaseUser()
 
 
 class _FakeResponse:
@@ -131,6 +148,34 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(isinstance(summary.warnings, list))
         self.assertIsNotNone(summary.tax)
         self.assertEqual(summary.tax.equity_ltcg_rate_pct, 12.5)
+
+    def test_analysis_response_sanitizes_non_json_float_values(self):
+        response = AnalysisResponse(
+            success=True,
+            holdings=[
+                Holding(
+                    fund_family="Test AMC",
+                    folio="1/1",
+                    scheme_name="Test Fund",
+                    amfi="100001",
+                    units=math.nan,
+                    nav=math.inf,
+                    market_value=1000.0,
+                    cost_value=900.0,
+                    category="Equity",
+                    sub_category="Large-Cap",
+                    xirr=math.inf,
+                    benchmark_xirr=math.nan,
+                )
+            ],
+        )
+
+        safe_response = _safe_analysis_response(response)
+
+        self.assertEqual(safe_response.holdings[0].units, 0.0)
+        self.assertEqual(safe_response.holdings[0].nav, 0.0)
+        self.assertIsNone(safe_response.holdings[0].xirr)
+        self.assertIsNone(safe_response.holdings[0].benchmark_xirr)
 
     async def test_taxable_gains_apply_ltcg_exemption(self):
         cas_data = {
@@ -838,7 +883,10 @@ class TestErrorSanitization(unittest.TestCase):
     def test_analyze_returns_sanitized_internal_error(self):
         client = TestClient(app)
         files = {"file": ("sample.json", b'{"folios": []}', "application/json")}
-        with patch("app.Code.main.map_casparser_to_analysis", side_effect=RuntimeError("boom secret details")):
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main.map_casparser_to_analysis",
+            side_effect=RuntimeError("boom secret details"),
+        ):
             response = client.post("/api/analyze", files=files, data={"password": ""})
         body = response.json()
         self.assertIn("Request ID", body.get("error", ""))
@@ -847,7 +895,8 @@ class TestErrorSanitization(unittest.TestCase):
     def test_upload_signature_validation_rejects_invalid_pdf_bytes(self):
         client = TestClient(app)
         files = {"file": ("statement.pdf", b"not-a-real-pdf", "application/pdf")}
-        response = client.post("/api/analyze", files=files, data={"password": ""})
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user):
+            response = client.post("/api/analyze", files=files, data={"password": ""})
         body = response.json()
         self.assertFalse(body.get("success", True))
         self.assertIn("invalid or corrupted", body.get("error", "").lower())
@@ -868,7 +917,8 @@ class TestErrorSanitization(unittest.TestCase):
     def test_analyze_rejects_invalid_cas_json_shape(self):
         client = TestClient(app)
         files = {"file": ("sample.json", b'{"folios":["oops"]}', "application/json")}
-        response = client.post("/api/analyze", files=files, data={"password": ""})
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user):
+            response = client.post("/api/analyze", files=files, data={"password": ""})
         body = response.json()
         self.assertFalse(body.get("success", True))
         self.assertIn("invalid cas json format", body.get("error", "").lower())
@@ -895,7 +945,8 @@ class TestErrorSanitization(unittest.TestCase):
             ]
         }
         files = {"file": ("sample.json", json.dumps(payload).encode("utf-8"), "application/json")}
-        response = client.post("/api/analyze", files=files, data={"password": ""})
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user):
+            response = client.post("/api/analyze", files=files, data={"password": ""})
 
         body = response.json()
         self.assertFalse(body.get("success", True))
@@ -954,35 +1005,38 @@ class TestErrorSanitization(unittest.TestCase):
         client = TestClient(app)
         with patch("app.Code.main.MAX_UPLOAD_BYTES", 10):
             files = {"file": ("sample.json", b'{"folios": []}', "application/json")}
-            response = client.post("/api/analyze", files=files, data={"password": ""})
+            with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user):
+                response = client.post("/api/analyze", files=files, data={"password": ""})
         body = response.json()
         self.assertFalse(body.get("success", True))
         self.assertIn("too large", body.get("error", "").lower())
 
-    def test_spa_routes_return_index_html_locally_with_admin_hidden(self):
+    def test_spa_routes_return_index_html_locally_with_admin_api_protected(self):
         client = TestClient(app)
 
         admin_response = client.get("/admin")
         dashboard_response = client.get("/dashboard")
 
-        self.assertEqual(admin_response.status_code, 404)
+        self.assertEqual(admin_response.status_code, 200)
         self.assertEqual(dashboard_response.status_code, 200)
+        self.assertIn("<!doctype html>", admin_response.text.lower())
         self.assertIn("<!doctype html>", dashboard_response.text.lower())
         self.assertEqual(admin_response.headers.get("cache-control"), "no-store, max-age=0")
         self.assertEqual(dashboard_response.headers.get("cache-control"), "no-store, max-age=0")
 
         admin_api_response = client.get("/api/admin/overview")
-        self.assertEqual(admin_api_response.status_code, 404)
+        self.assertEqual(admin_api_response.status_code, 401)
         self.assertEqual(admin_api_response.headers.get("cache-control"), "no-store, max-age=0")
 
     def test_analyze_disables_client_and_proxy_caching(self):
         client = TestClient(app)
 
-        response = client.post(
-            "/api/analyze",
-            files={"file": ("sample.json", b"{}", "application/json")},
-            data={"password": ""},
-        )
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user):
+            response = client.post(
+                "/api/analyze",
+                files={"file": ("sample.json", b"{}", "application/json")},
+                data={"password": ""},
+            )
 
         self.assertEqual(response.headers.get("cache-control"), "no-store, max-age=0")
         self.assertEqual(response.headers.get("pragma"), "no-cache")
@@ -991,6 +1045,7 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertEqual(response.headers.get("x-frame-options"), "DENY")
         csp = response.headers.get("content-security-policy", "")
         self.assertIn("default-src 'self'", csp)
+        self.assertIn("https://*.supabase.co", csp)
         self.assertIn("object-src 'none'", csp)
         self.assertIn("frame-ancestors 'none'", csp)
 
@@ -1016,11 +1071,6 @@ class TestAnalyticsPrivacyHelpers(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertRegex(first or "", r"^usr_[0-9a-f]{16}$")
         self.assertNotIn("user_123", first or "")
-
-    def test_sanitize_file_name_redacts_path_and_sensitive_tokens(self):
-        sanitized = _sanitize_file_name(r"C:\\fakepath\\rahul-ABCDE1234F-john@example.com.pdf")
-
-        self.assertEqual(sanitized, "rahul-[REDACTED_PAN]-[REDACTED_EMAIL].pdf")
 
     def test_sanitize_text_redacts_phone_and_normalizes_whitespace(self):
         sanitized = _sanitize_text(" Call me at +91 98765 43210 \nthanks ")
