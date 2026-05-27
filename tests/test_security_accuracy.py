@@ -288,6 +288,54 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(expected_benchmark_xirr)
         self.assertAlmostEqual(holding.benchmark_xirr, round(expected_benchmark_xirr or 0.0, 2), places=1)
 
+    async def test_idcw_zero_unit_payout_does_not_zero_out_benchmark_terminal_value(self):
+        cas_data = {
+            "folios": [
+                {
+                    "amc": "HDFC Mutual Fund",
+                    "folio": "1/1",
+                    "schemes": [
+                        {
+                            "scheme": "HDFC ELSS Tax saver - Regular Plan - IDCW",
+                            "amfi": "100001",
+                            "type": "EQUITY",
+                            "close": 1000.0,
+                            "valuation": {"nav": 120.0, "value": 120000.0, "cost": 100000.0},
+                            "transactions": [
+                                {"date": "2020-01-01", "amount": 100000.0, "units": 1000.0, "description": "Purchase"},
+                                {"date": "2022-01-01", "amount": 150000.0, "units": 0.0, "description": "IDCW PAYOUT"},
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "statement_period": {"from": "01-Jan-2020", "to": "01-Jan-2026"},
+        }
+
+        async def fake_live_nav(_):
+            return 0.0
+
+        async def fake_nav_history(code):
+            if str(code) == "100001":
+                return {"01-01-2020": 100.0, "01-01-2022": 110.0, "01-01-2026": 120.0}
+            if str(code) == "152731":
+                return {"01-01-2020": 100.0, "01-01-2022": 150.0, "01-01-2026": 120.0}
+            return {}
+
+        with patch("app.Code.main.fetch_live_nav", new=fake_live_nav), patch(
+            "app.Code.main.fetch_nav_history", new=fake_nav_history
+        ), patch("app.Code.main.save_cache_async", new=AsyncMock()), patch(
+            "app.Code.main.get_holdings_for_schemes", new=AsyncMock(return_value={})
+        ), patch(
+            "app.Code.main.save_amfi_cache_async", new=AsyncMock()
+        ):
+            response = await map_casparser_to_analysis(cas_data)
+
+        self.assertTrue(response.success)
+        holding = response.holdings[0]
+        self.assertEqual(holding.benchmark_name, "Nifty 500 TRI proxy")
+        self.assertIsNotNone(holding.benchmark_xirr)
+
     async def test_performance_uses_distinct_1y_and_3y_windows(self):
         cas_data = {
             "folios": [
@@ -471,6 +519,25 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(sectoral, [])
 
+    def test_technology_and_infrastructure_funds_use_sector_benchmarks(self):
+        technology = _resolve_benchmark_components(
+            "ICICI Prudential Technology Fund - Growth",
+            "EQUITY",
+            "Sectoral - Technology",
+            "Equity",
+        )
+        self.assertEqual([c.code for c in technology], ["148763"])
+        self.assertEqual(technology[0].label, "BSE Teck TRI proxy")
+
+        infrastructure = _resolve_benchmark_components(
+            "UTI Infrastructure Fund - Regular Plan",
+            "EQUITY",
+            "Thematic - Infrastructure",
+            "Equity",
+        )
+        self.assertEqual([c.code for c in infrastructure], ["140102"])
+        self.assertEqual(infrastructure[0].label, "Nifty Infrastructure TRI proxy")
+
     def test_business_cycle_equity_funds_use_bse_500_tri_proxy_only(self):
         business_cycle = _resolve_benchmark_components(
             "Motilal Oswal Business Cycle Fund - Direct Plan - Growth",
@@ -527,6 +594,77 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(response.success)
         self.assertEqual(response.holdings[0].benchmark_name, "Nifty 500 TRI proxy")
+
+    async def test_analysis_labels_technology_and_infrastructure_benchmarks_without_proxy_history(self):
+        cas_data = {
+            "folios": [
+                {
+                    "amc": "ICICI Prudential Mutual Fund",
+                    "folio": "20644404/27",
+                    "schemes": [
+                        {
+                            "scheme": "ICICI Prudential Technology Fund - Growth",
+                            "amfi": "100001",
+                            "type": "EQUITY",
+                            "close": 100.0,
+                            "valuation": {"nav": 120.0, "value": 12000.0, "cost": 10000.0},
+                            "transactions": [{"date": "2024-01-01", "amount": 10000.0, "description": "Purchase"}],
+                        }
+                    ],
+                },
+                {
+                    "amc": "UTI Mutual Fund",
+                    "folio": "511213501963/0",
+                    "schemes": [
+                        {
+                            "scheme": "UTI Infrastructure Fund - Regular Plan",
+                            "amfi": "100002",
+                            "type": "EQUITY",
+                            "close": 100.0,
+                            "valuation": {"nav": 130.0, "value": 13000.0, "cost": 10000.0},
+                            "transactions": [{"date": "2024-01-01", "amount": 10000.0, "description": "Purchase"}],
+                        }
+                    ],
+                },
+            ],
+            "statement_period": {"from": "01-Jan-2024", "to": "01-Jan-2025"},
+        }
+
+        async def fake_live_nav(_):
+            return 0.0
+
+        async def fake_nav_history(amfi_code):
+            if amfi_code in {"100001", "100002"}:
+                return {"01-01-2024": 100.0, "01-01-2025": 110.0}
+            return {}
+
+        with patch("app.Code.main.fetch_live_nav", new=fake_live_nav), patch(
+            "app.Code.main.fetch_nav_history", new=fake_nav_history
+        ), patch("app.Code.main.save_cache_async", new=AsyncMock()), patch(
+            "app.Code.main.get_holdings_for_schemes", new=AsyncMock(return_value={})
+        ), patch(
+            "app.Code.main.save_amfi_cache_async", new=AsyncMock()
+        ):
+            response = await map_casparser_to_analysis(cas_data)
+
+        self.assertTrue(response.success)
+        holdings_by_name = {holding.scheme_name: holding for holding in response.holdings}
+        self.assertEqual(
+            holdings_by_name["ICICI Prudential Technology Fund - Growth"].benchmark_name,
+            "BSE Teck TRI proxy",
+        )
+        self.assertEqual(
+            holdings_by_name["ICICI Prudential Technology Fund - Growth"].sub_category,
+            "Sectoral - Technology",
+        )
+        self.assertEqual(
+            holdings_by_name["UTI Infrastructure Fund - Regular Plan"].benchmark_name,
+            "Nifty Infrastructure TRI proxy",
+        )
+        self.assertEqual(
+            holdings_by_name["UTI Infrastructure Fund - Regular Plan"].sub_category,
+            "Thematic - Infrastructure",
+        )
 
     async def test_performance_summary_exposes_comparable_coverage(self):
         cas_data = {
