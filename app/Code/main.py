@@ -153,6 +153,10 @@ def get_sub_category(scheme_name: str, scheme_type: str) -> str:
         return "Small-Cap"
     if "FLEXI CAP" in name:
         return "Flexi Cap"
+    if "TECHNOLOGY" in name or "TECK" in name:
+        return "Sectoral - Technology"
+    if "INFRASTRUCTURE" in name:
+        return "Thematic - Infrastructure"
     if "LARGE CAP" in name or "BLUECHIP" in name or "TOP 100" in name or "FOCUS" in name:
         return "Large-Cap"
     if "HYBRID" in name or "BALANCED" in name or "AGGRESSIVE" in name:
@@ -1539,7 +1543,9 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             cat, ambiguous = _infer_category(name, scheme_type, sub_cat)
             benchmark_components_raw = _resolve_benchmark_components(name, scheme_type, sub_cat, cat)
             benchmark_components = _normalize_benchmark_components(benchmark_components_raw, benchmark_histories_prepared)
-            benchmark_name = _format_benchmark_name(benchmark_components)
+            benchmark_name = _format_benchmark_name(benchmark_components) or _format_benchmark_name(
+                benchmark_components_raw
+            )
             if ambiguous:
                 ambiguous_category_count += 1
             schemes_seen.add(name)
