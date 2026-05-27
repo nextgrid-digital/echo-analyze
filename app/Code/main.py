@@ -1643,6 +1643,10 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                         b_nav, is_exact = _nav_from_prepared_history(date_str, history_bundle)
                         if not b_nav:
                             continue
+                        # IDCW/interest payouts can appear as zero-unit withdrawals. They should not
+                        # reduce benchmark units because no scheme units were sold.
+                        if is_withdrawal and abs(raw_units) <= 1e-9:
+                            continue
                         txn_bm_units = ((-cashflow) * comp.weight) / b_nav
                         scheme_benchmark_units[comp.code] = max(0.0, scheme_benchmark_units.get(comp.code, 0.0) + txn_bm_units)
                         scheme_benchmark_unit_events.setdefault(comp.code, []).append((dt, txn_bm_units))

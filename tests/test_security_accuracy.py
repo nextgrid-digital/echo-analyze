@@ -243,6 +243,54 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(expected_benchmark_xirr)
         self.assertAlmostEqual(holding.benchmark_xirr, round(expected_benchmark_xirr or 0.0, 2), places=1)
 
+    async def test_idcw_zero_unit_payout_does_not_zero_out_benchmark_terminal_value(self):
+        cas_data = {
+            "folios": [
+                {
+                    "amc": "HDFC Mutual Fund",
+                    "folio": "1/1",
+                    "schemes": [
+                        {
+                            "scheme": "HDFC ELSS Tax saver - Regular Plan - IDCW",
+                            "amfi": "100001",
+                            "type": "EQUITY",
+                            "close": 1000.0,
+                            "valuation": {"nav": 120.0, "value": 120000.0, "cost": 100000.0},
+                            "transactions": [
+                                {"date": "2020-01-01", "amount": 100000.0, "units": 1000.0, "description": "Purchase"},
+                                {"date": "2022-01-01", "amount": 150000.0, "units": 0.0, "description": "IDCW PAYOUT"},
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "statement_period": {"from": "01-Jan-2020", "to": "01-Jan-2026"},
+        }
+
+        async def fake_live_nav(_):
+            return 0.0
+
+        async def fake_nav_history(code):
+            if str(code) == "100001":
+                return {"01-01-2020": 100.0, "01-01-2022": 110.0, "01-01-2026": 120.0}
+            if str(code) == "152731":
+                return {"01-01-2020": 100.0, "01-01-2022": 150.0, "01-01-2026": 120.0}
+            return {}
+
+        with patch("app.Code.main.fetch_live_nav", new=fake_live_nav), patch(
+            "app.Code.main.fetch_nav_history", new=fake_nav_history
+        ), patch("app.Code.main.save_cache_async", new=AsyncMock()), patch(
+            "app.Code.main.get_holdings_for_schemes", new=AsyncMock(return_value={})
+        ), patch(
+            "app.Code.main.save_amfi_cache_async", new=AsyncMock()
+        ):
+            response = await map_casparser_to_analysis(cas_data)
+
+        self.assertTrue(response.success)
+        holding = response.holdings[0]
+        self.assertEqual(holding.benchmark_name, "Nifty 500 TRI proxy")
+        self.assertIsNotNone(holding.benchmark_xirr)
+
     async def test_performance_uses_distinct_1y_and_3y_windows(self):
         cas_data = {
             "folios": [
