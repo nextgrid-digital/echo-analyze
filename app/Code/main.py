@@ -336,7 +336,7 @@ def _build_content_security_policy() -> str:
             continue
         try:
             parsed = httpx.URL(raw_url)
-        except Exception:
+        except httpx.InvalidURL:
             continue
         if parsed.scheme in {"https", "http"} and parsed.host:
             source = f"{parsed.scheme}://{parsed.host}"
@@ -1398,7 +1398,6 @@ class AdminAnalysisRun(BaseModel):
     status: str
     duration_ms: Optional[int] = None
     holdings_count: Optional[int] = None
-    total_market_value: Optional[float] = None
     error_message: Optional[str] = None
     created_at: str
 
@@ -2428,7 +2427,6 @@ async def analyze(
 
     def record_outcome(response: Optional[AnalysisResponse], status: str, error_message: Optional[str] = None) -> None:
         holdings_count = response.summary.holdings_count if response and response.summary else None
-        total_market_value = response.summary.total_market_value if response and response.summary else None
         record_analysis_run(
             request_id=request_id,
             user_id=auth_user.user_id,
@@ -2438,7 +2436,7 @@ async def analyze(
             status=status,
             duration_ms=int((perf_counter() - started_at) * 1000),
             holdings_count=holdings_count,
-            total_market_value=total_market_value,
+            total_market_value=None,
             error_message=error_message,
         )
 

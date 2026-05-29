@@ -102,10 +102,9 @@ def _is_admin_user(user: Dict[str, Any]) -> bool:
     user_id = str(user.get("id") or "").strip()
     email = str(user.get("email") or "").strip().lower()
     app_metadata = user.get("app_metadata") if isinstance(user.get("app_metadata"), dict) else {}
-    user_metadata = user.get("user_metadata") if isinstance(user.get("user_metadata"), dict) else {}
 
     admin_role = os.environ.get("SUPABASE_ADMIN_ROLE", "admin").strip().lower() or "admin"
-    roles = set(_metadata_roles(app_metadata)) | set(_metadata_roles(user_metadata))
+    roles = set(_metadata_roles(app_metadata))
     if admin_role in roles or bool(app_metadata.get("is_admin")):
         return True
 

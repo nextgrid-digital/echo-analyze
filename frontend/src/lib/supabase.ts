@@ -106,8 +106,7 @@ export function isSupabaseAdminUser(user: User | null | undefined) {
 
   const adminRole = import.meta.env.APP_SUPABASE_ADMIN_ROLE?.trim().toLowerCase() || "admin"
   const appMetadata = user.app_metadata ?? {}
-  const userMetadata = user.user_metadata ?? {}
-  const roles = new Set([...metadataRoles(appMetadata), ...metadataRoles(userMetadata)])
+  const roles = new Set(metadataRoles(appMetadata))
 
   return roles.has(adminRole) || appMetadata.is_admin === true
 }

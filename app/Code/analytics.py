@@ -104,6 +104,8 @@ def _pseudonymize_existing_identifiers(conn: sqlite3.Connection) -> None:
                 conn.execute("UPDATE audit_logs SET user_id = ? WHERE id = ?", (user_id, row["id"]))
         if _column_exists(conn, "analysis_runs", "file_name"):
             conn.execute("UPDATE analysis_runs SET file_name = NULL")
+        if _column_exists(conn, "analysis_runs", "total_market_value"):
+            conn.execute("UPDATE analysis_runs SET total_market_value = NULL")
     except Exception:
         return
 
@@ -263,7 +265,7 @@ def record_analysis_run(
                 status,
                 duration_ms,
                 holdings_count,
-                total_market_value,
+                None,
                 safe_error_message,
                 created_at,
             ),
@@ -287,7 +289,6 @@ def record_analysis_run(
             "file_type": file_type,
             "duration_ms": duration_ms,
             "holdings_count": holdings_count,
-            "total_market_value": total_market_value,
         },
     )
 
@@ -372,7 +373,6 @@ def get_admin_overview(*, registered_users: Optional[int] = None, log_window: st
                 status,
                 duration_ms,
                 holdings_count,
-                total_market_value,
                 error_message,
                 created_at
             FROM analysis_runs

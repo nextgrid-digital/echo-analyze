@@ -5,6 +5,7 @@ import io
 import json
 import math
 import os
+import sqlite3
 import socket
 import tempfile
 import time
@@ -19,6 +20,7 @@ from openpyxl import load_workbook
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+import app.Code.analytics as analytics_module
 import app.Code.holdings as holdings_module
 from casparser.enums import CASFileType, FileType, TransactionType
 from casparser.parsers.utils import cas2csv, cas2csv_summary
@@ -31,7 +33,13 @@ from casparser.types import (
     StatementPeriod,
     TransactionData,
 )
-from app.Code.analytics import _pseudonymize_identifier, _sanitize_text
+from app.Code.analytics import (
+    _pseudonymize_identifier,
+    _sanitize_text,
+    get_admin_overview,
+    init_analytics_db,
+    record_analysis_run,
+)
 from app.Code.cas_parser import convert_to_excel, parse_with_casparser
 from app.Code.env_loader import load_local_env
 from app.Code.pdfminer_hardening import (
@@ -59,6 +67,7 @@ from app.Code.main import (
     Holding,
     _safe_analysis_response,
 )
+from app.Code.supabase_auth import _is_admin_user
 from app.Code.utils import calculate_xirr, fetch_live_nav, fetch_nav_history
 
 
@@ -1214,6 +1223,87 @@ class TestAnalyticsPrivacyHelpers(unittest.TestCase):
         sanitized = _sanitize_text(" Call me at +91 98765 43210 \nthanks ")
 
         self.assertEqual(sanitized, "Call me at [REDACTED_PHONE] thanks")
+
+    def test_analysis_telemetry_does_not_persist_or_return_portfolio_value(self):
+        original_db_path = analytics_module.DB_PATH
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                analytics_module.DB_PATH = Path(tmp_dir) / "analytics.db"
+                init_analytics_db()
+
+                record_analysis_run(
+                    request_id="req_privacy",
+                    user_id="user_123",
+                    username="privacy-test",
+                    session_id=None,
+                    file_type="json",
+                    status="success",
+                    duration_ms=123,
+                    holdings_count=4,
+                    total_market_value=9876543.21,
+                )
+
+                overview = get_admin_overview()
+                self.assertEqual(len(overview["recent_analyses"]), 1)
+                self.assertNotIn("total_market_value", overview["recent_analyses"][0])
+                self.assertNotIn("total_market_value", overview["recent_logs"][0]["metadata"])
+
+                conn = sqlite3.connect(analytics_module.DB_PATH)
+                try:
+                    stored_value = conn.execute(
+                        "SELECT total_market_value FROM analysis_runs WHERE request_id = ?",
+                        ("req_privacy",),
+                    ).fetchone()[0]
+                finally:
+                    conn.close()
+                self.assertIsNone(stored_value)
+        finally:
+            analytics_module.DB_PATH = original_db_path
+
+
+class TestSupabaseAuthorization(unittest.TestCase):
+    def test_admin_check_ignores_user_mutable_metadata_roles(self):
+        user = {
+            "id": "user_123",
+            "email": "user@example.com",
+            "app_metadata": {},
+            "user_metadata": {
+                "role": "admin",
+                "roles": ["admin"],
+                "user_role": "admin",
+                "user_roles": "admin",
+            },
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "SUPABASE_ADMIN_ROLE": "admin",
+                "SUPABASE_ADMIN_USER_IDS": "",
+                "SUPABASE_ADMIN_EMAILS": "",
+            },
+            clear=False,
+        ):
+            self.assertFalse(_is_admin_user(user))
+
+    def test_admin_check_accepts_trusted_app_metadata_role(self):
+        user = {
+            "id": "user_123",
+            "email": "user@example.com",
+            "app_metadata": {"role": "admin"},
+            "user_metadata": {},
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "SUPABASE_ADMIN_ROLE": "admin",
+                "SUPABASE_ADMIN_USER_IDS": "",
+                "SUPABASE_ADMIN_EMAILS": "",
+            },
+            clear=False,
+        ):
+            self.assertTrue(_is_admin_user(user))
 
 
 class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):

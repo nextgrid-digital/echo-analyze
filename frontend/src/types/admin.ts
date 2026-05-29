@@ -23,7 +23,6 @@ export interface AdminAnalysisRun {
   status: string
   duration_ms?: number | null
   holdings_count?: number | null
-  total_market_value?: number | null
   error_message?: string | null
   created_at: string
 }

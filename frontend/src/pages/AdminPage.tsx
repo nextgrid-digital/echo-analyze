@@ -56,18 +56,6 @@ function formatTimestamp(value?: string | null) {
   }).format(parsed)
 }
 
-function formatCurrency(value?: number | null) {
-  if (value == null) {
-    return "N/A"
-  }
-
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(value)
-}
-
 function getStatusVariant(status: string): "default" | "destructive" | "outline" {
   if (status === "success") {
     return "default"
@@ -110,7 +98,6 @@ function RecentAnalysesTable({ rows }: { rows: AdminAnalysisRun[] }) {
           <TableHead>Type</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Duration</TableHead>
-          <TableHead>Value</TableHead>
           <TableHead>Holdings</TableHead>
         </TableRow>
       </TableHeader>
@@ -124,7 +111,6 @@ function RecentAnalysesTable({ rows }: { rows: AdminAnalysisRun[] }) {
               <Badge variant={getStatusVariant(row.status)}>{row.status}</Badge>
             </TableCell>
             <TableCell>{formatDuration(row.duration_ms)}</TableCell>
-            <TableCell>{formatCurrency(row.total_market_value)}</TableCell>
             <TableCell>{row.holdings_count ?? "N/A"}</TableCell>
           </TableRow>
         ))}
