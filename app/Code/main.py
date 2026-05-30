@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from time import monotonic, perf_counter
-from typing import Any, Dict, List, Literal, Optional, Tuple, get_args
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple, get_args
 
 import httpx
 from fastapi import FastAPI, File, Form, Query, Request, UploadFile
@@ -907,6 +907,15 @@ def _nav_from_prepared_history(
     return _benchmark_nav_for_date(date_str, hist, keys, days)
 
 
+async def _fetch_nav_history_for_required_dates(code: str, required_dates: Optional[Set[date]]) -> dict:
+    try:
+        return await fetch_nav_history(code, required_dates=required_dates)
+    except TypeError as exc:
+        if "required_dates" not in str(exc) and "unexpected keyword" not in str(exc):
+            raise
+        return await fetch_nav_history(code)
+
+
 def _units_at_cutoff(
     units_now: float,
     unit_events: List[Tuple[datetime, float]],
@@ -1527,6 +1536,16 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
     all_amfis = set()
     benchmark_codes_needed = set()
+    history_dates_by_code: Dict[str, Set[date]] = {}
+
+    def add_history_date(code: str, value: Any) -> None:
+        if not code:
+            return
+        parsed = _parse_iso_date(value)
+        if parsed:
+            history_dates_by_code.setdefault(code, set()).add(parsed.date())
+
+    history_anchor_dates = [analysis_now_dt, one_year_cutoff_dt, three_year_cutoff_dt]
     for folio_data in folios:
         if not isinstance(folio_data, dict):
             continue
@@ -1539,13 +1558,31 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             amfi = _normalize_amfi_code(scheme.get("amfi"))
             if amfi:
                 all_amfis.add(amfi)
+                for anchor_dt in history_anchor_dates:
+                    add_history_date(amfi, anchor_dt)
             name = _safe_text(scheme.get("scheme"), "Unknown Scheme")
             scheme_type = _safe_text(scheme.get("type"), "OTHERS")
             sub_cat = get_sub_category(name, scheme_type)
             cat, _ = _infer_category(name, scheme_type, sub_cat)
             comps = _resolve_benchmark_components(name, scheme_type, sub_cat, cat)
+            transaction_dates: List[datetime] = []
+            transactions = scheme.get("transactions", [])
+            if isinstance(transactions, list):
+                for txn in transactions:
+                    if not isinstance(txn, dict):
+                        continue
+                    txn_dt = _parse_iso_date(txn.get("date"))
+                    if not txn_dt:
+                        continue
+                    transaction_dates.append(txn_dt)
+                    if amfi:
+                        add_history_date(amfi, txn_dt)
             for comp in comps:
                 benchmark_codes_needed.add(comp.code)
+                for anchor_dt in history_anchor_dates:
+                    add_history_date(comp.code, anchor_dt)
+                for txn_dt in transaction_dates:
+                    add_history_date(comp.code, txn_dt)
 
     nav_map: Dict[str, float] = {}
     benchmark_histories_prepared: Dict[str, Tuple[Dict[str, float], List[str], List[date], float]] = {}
@@ -1557,8 +1594,14 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
         live_nav_results, benchmark_history_results, scheme_history_results = await asyncio.gather(
             asyncio.gather(*[fetch_live_nav(code) for code in amfi_codes], return_exceptions=True),
-            asyncio.gather(*[fetch_nav_history(code) for code in benchmark_codes], return_exceptions=True),
-            asyncio.gather(*[fetch_nav_history(code) for code in amfi_codes], return_exceptions=True),
+            asyncio.gather(
+                *[_fetch_nav_history_for_required_dates(code, history_dates_by_code.get(code)) for code in benchmark_codes],
+                return_exceptions=True,
+            ),
+            asyncio.gather(
+                *[_fetch_nav_history_for_required_dates(code, history_dates_by_code.get(code)) for code in amfi_codes],
+                return_exceptions=True,
+            ),
         )
 
         for code, result in zip(amfi_codes, live_nav_results):

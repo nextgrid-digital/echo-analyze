@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 
 import app.Code.analytics as analytics_module
 import app.Code.holdings as holdings_module
+import app.Code.utils as utils_module
 from casparser.enums import CASFileType, FileType, TransactionType
 from casparser.parsers.utils import cas2csv, cas2csv_summary
 from casparser.types import (
@@ -70,7 +71,7 @@ from app.Code.main import (
     _safe_analysis_response,
 )
 from app.Code.supabase_auth import _get_supabase_url, _is_admin_user, _is_allowed_supabase_url
-from app.Code.utils import calculate_xirr, fetch_live_nav, fetch_nav_history
+from app.Code.utils import calculate_xirr, fetch_live_nav, fetch_nav_history, _parse_amfi_nav_history_text_for_code
 
 
 class _FakeSupabaseUser:
@@ -1139,6 +1140,87 @@ class TestErrorSanitization(unittest.TestCase):
         with patch("app.Code.utils._get_client", side_effect=AssertionError("network called")):
             self.assertEqual(asyncio.run(fetch_live_nav("100001/../../evil")), 0.0)
             self.assertEqual(asyncio.run(fetch_nav_history("100001/../../evil")), {})
+
+    def test_amfi_history_parser_extracts_target_scheme_rows(self):
+        text = (
+            "Scheme Code;Scheme Name;ISIN Div Payout/ISIN Growth;ISIN Div Reinvestment;"
+            "Net Asset Value;Repurchase Price;Sale Price;Date\n"
+            "Open Ended Schemes ( Equity Scheme )\n"
+            "Axis Mutual Fund\n"
+            "152731;Axis Nifty 500 Index Fund - Direct Plan - Growth Option;INF846K019W9;-;"
+            "10.2500;;;01-Jan-2024\n"
+            "120716;UTI Nifty 50 Index Fund - Growth Option- Direct;INF789F01XA0;-;"
+            "164.8682;;;29-May-2026\n"
+            "not-a-code;Bad Row;;;;;;01-Jan-2024\n"
+        )
+
+        history = _parse_amfi_nav_history_text_for_code(text, "152731")
+
+        self.assertEqual(history, {"01-01-2024": 10.25})
+
+    def test_nav_history_falls_back_to_official_amfi_history_export(self):
+        class TextResponse:
+            def __init__(self, status_code, text="", payload=None):
+                self.status_code = status_code
+                self.text = text
+                self._payload = payload or {}
+
+            def json(self):
+                return self._payload
+
+        class FakeClient:
+            def __init__(self):
+                self.calls = []
+
+            async def get(self, url, **kwargs):
+                self.calls.append((url, kwargs))
+                if "api.mfapi.in" in url:
+                    return TextResponse(502, payload={})
+                if url == utils_module.NAV_ALL_URL:
+                    return TextResponse(
+                        200,
+                        "Open Ended Schemes(Equity Scheme)\n"
+                        "Axis Mutual Fund\n"
+                        "152731;INF846K019W9;-;Axis Nifty 500 Index Fund - Direct Plan - Growth Option;"
+                        "11.0000;29-May-2026\n",
+                    )
+                if url == utils_module.AMFI_FUND_LIST_URL:
+                    return TextResponse(200, '{"mfId":"53","mfName":"Axis Mutual Fund"}')
+                if url == utils_module.NAV_HISTORY_URL:
+                    return TextResponse(
+                        200,
+                        "Scheme Code;Scheme Name;ISIN Div Payout/ISIN Growth;ISIN Div Reinvestment;"
+                        "Net Asset Value;Repurchase Price;Sale Price;Date\n"
+                        "152731;Axis Nifty 500 Index Fund - Direct Plan - Growth Option;INF846K019W9;-;"
+                        "10.0000;;;01-Jan-2024\n",
+                    )
+                return TextResponse(404)
+
+        async def fake_get_client():
+            return fake_client
+
+        fake_client = FakeClient()
+        utils_module._history_cache.clear()
+        utils_module._history_cache_years.clear()
+        utils_module._history_full_cache.clear()
+        utils_module._history_primary_failed_codes.clear()
+        utils_module._fetch_locks.clear()
+        utils_module._navall_map.clear()
+        utils_module._navall_scheme_amc_map.clear()
+        utils_module._navall_history_date_map.clear()
+        utils_module._navall_cache_date = None
+        utils_module._amfi_fund_ids.clear()
+        utils_module._amfi_history_chunk_cache.clear()
+        utils_module._amfi_history_chunk_locks.clear()
+
+        with patch("app.Code.utils._get_client", new=fake_get_client):
+            history = asyncio.run(fetch_nav_history("152731", required_dates=[date(2024, 1, 1)]))
+
+        self.assertEqual(history["01-01-2024"], 10.0)
+        self.assertEqual(history["29-05-2026"], 11.0)
+        history_calls = [kwargs for url, kwargs in fake_client.calls if url == utils_module.NAV_HISTORY_URL]
+        self.assertTrue(history_calls)
+        self.assertEqual(history_calls[0]["params"].get("mf"), "53")
 
     def test_parse_amount_rejects_non_finite_values(self):
         self.assertIsNone(_parse_amount("NaN"))
