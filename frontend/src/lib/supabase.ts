@@ -5,21 +5,39 @@ const supabaseAnonKey = import.meta.env.APP_SUPABASE_ANON_KEY?.trim()
 
 let client: SupabaseClient | null = null
 
-function isHttpUrl(value: string | undefined) {
+function isLoopbackHost(host: string) {
+  const normalized = host.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "")
+  return (
+    normalized === "localhost" ||
+    normalized.endsWith(".localhost") ||
+    normalized === "127.0.0.1" ||
+    normalized === "::1"
+  )
+}
+
+function isSupabaseCloudHost(host: string) {
+  const normalized = host.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "")
+  return normalized === "supabase.co" || normalized.endsWith(".supabase.co")
+}
+
+function isAllowedSupabaseUrl(value: string | undefined) {
   if (!value) {
     return false
   }
 
   try {
     const parsed = new URL(value)
-    return parsed.protocol === "https:" || parsed.protocol === "http:"
+    if (parsed.protocol === "https:" && (isSupabaseCloudHost(parsed.hostname) || isLoopbackHost(parsed.hostname))) {
+      return true
+    }
+    return parsed.protocol === "http:" && isLoopbackHost(parsed.hostname)
   } catch {
     return false
   }
 }
 
 export function isSupabaseConfigured() {
-  return Boolean(isHttpUrl(supabaseUrl) && supabaseAnonKey)
+  return Boolean(isAllowedSupabaseUrl(supabaseUrl) && supabaseAnonKey)
 }
 
 export function getSupabaseAuthHost() {
@@ -99,6 +117,19 @@ function metadataRoles(metadata: Record<string, unknown> | null | undefined) {
   return roles.map((role) => role.trim().toLowerCase()).filter(Boolean)
 }
 
+function metadataFlagEnabled(value: unknown) {
+  if (typeof value === "boolean") {
+    return value
+  }
+  if (typeof value === "string") {
+    return ["true", "1", "yes"].includes(value.trim().toLowerCase())
+  }
+  if (typeof value === "number") {
+    return value === 1
+  }
+  return false
+}
+
 export function isSupabaseAdminUser(user: User | null | undefined) {
   if (!user) {
     return false
@@ -108,7 +139,7 @@ export function isSupabaseAdminUser(user: User | null | undefined) {
   const appMetadata = user.app_metadata ?? {}
   const roles = new Set(metadataRoles(appMetadata))
 
-  return roles.has(adminRole) || appMetadata.is_admin === true
+  return roles.has(adminRole) || metadataFlagEnabled(appMetadata.is_admin)
 }
 
 export async function getSupabaseAccessToken() {

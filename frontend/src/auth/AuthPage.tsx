@@ -9,11 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAuth } from "@/auth/useAuth"
 import { cn } from "@/lib/utils"
 
@@ -70,21 +66,19 @@ export function AuthPanel({ className }: AuthPanelProps) {
           <div className="space-y-4">
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="block cursor-not-allowed" tabIndex={0}>
+                <span className="block" title="Coming soon">
                   <Button
                     type="button"
                     variant="outline"
                     className="w-full"
                     disabled
-                    aria-disabled="true"
+                    aria-label="Continue with Google, coming soon"
                   >
                     Continue with Google
                   </Button>
                 </span>
               </TooltipTrigger>
-              <TooltipContent side="top">
-                Google sign-in will be available soon.
-              </TooltipContent>
+              <TooltipContent side="top">Coming soon</TooltipContent>
             </Tooltip>
 
             <div className="flex items-center gap-3">

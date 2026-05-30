@@ -11,6 +11,8 @@ import { storeLatestAnalysis } from "@/lib/analysisSession"
 import type { AnalysisResponse } from "@/types/api"
 import { ArrowRight, Lock, Upload } from "lucide-react"
 
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
 export function UploadPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -25,6 +27,29 @@ export function UploadPage() {
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const isLocked = !user
+
+  const selectFile = (file: File) => {
+    const lowerName = file.name.toLowerCase()
+    const isSupported = lowerName.endsWith(".pdf") || lowerName.endsWith(".json")
+    if (!isSupported) {
+      setSelectedFile(null)
+      setPassword("")
+      setError("Please select a PDF or JSON file.")
+      return
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setSelectedFile(null)
+      setPassword("")
+      setError("File is too large. Maximum supported size is 25 MB.")
+      return
+    }
+
+    setSelectedFile(file)
+    if (!lowerName.endsWith(".pdf")) {
+      setPassword("")
+    }
+    setError(null)
+  }
 
   useEffect(() => {
     return () => {
@@ -62,13 +87,7 @@ export function UploadPage() {
 
     const files = e.dataTransfer.files
     if (files && files.length > 0) {
-      const file = files[0]
-      if (file.name.toLowerCase().endsWith(".pdf") || file.name.toLowerCase().endsWith(".json")) {
-        setSelectedFile(file)
-        setError(null)
-      } else {
-        setError("Please select a PDF or JSON file.")
-      }
+      selectFile(files[0])
     }
   }
 
@@ -79,8 +98,7 @@ export function UploadPage() {
 
     const file = e.target.files?.[0]
     if (file) {
-      setSelectedFile(file)
-      setError(null)
+      selectFile(file)
     }
   }
 

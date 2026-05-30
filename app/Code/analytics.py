@@ -85,6 +85,12 @@ def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
     return any(row["name"] == column for row in rows)
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column_sql: str) -> None:
+    column_name = column_sql.split(None, 1)[0]
+    if not _column_exists(conn, table, column_name):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column_sql}")
+
+
 def _pseudonymize_existing_identifiers(conn: sqlite3.Connection) -> None:
     try:
         rows = conn.execute("SELECT id, user_id, session_id FROM analysis_runs").fetchall()
@@ -147,10 +153,21 @@ def init_analytics_db() -> None:
             )
             """
         )
-        if not _column_exists(conn, "analysis_runs", "username"):
-            conn.execute("ALTER TABLE analysis_runs ADD COLUMN username TEXT NOT NULL DEFAULT 'Unknown user'")
-        if not _column_exists(conn, "audit_logs", "username"):
-            conn.execute("ALTER TABLE audit_logs ADD COLUMN username TEXT")
+        for column_sql in (
+            "username TEXT NOT NULL DEFAULT 'Unknown user'",
+            "session_id TEXT",
+            "file_type TEXT",
+            "duration_ms INTEGER",
+            "holdings_count INTEGER",
+            "total_market_value REAL",
+            "error_message TEXT",
+        ):
+            _ensure_column(conn, "analysis_runs", column_sql)
+        for column_sql in (
+            "username TEXT",
+            "metadata_json TEXT",
+        ):
+            _ensure_column(conn, "audit_logs", column_sql)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_analysis_runs_created_at ON analysis_runs(created_at DESC)"
         )

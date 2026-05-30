@@ -40,7 +40,7 @@ from app.Code.analytics import (
     init_analytics_db,
     record_analysis_run,
 )
-from app.Code.cas_parser import convert_to_excel, parse_with_casparser
+from app.Code.cas_parser import convert_to_excel, parse_with_casparser, recursive_to_dict
 from app.Code.env_loader import load_local_env
 from app.Code.pdfminer_hardening import (
     ORIGINAL_CMAP_LOADER_ATTR,
@@ -48,12 +48,14 @@ from app.Code.pdfminer_hardening import (
 )
 from app.Code.main import (
     _benchmark_nav_for_date,
+    _build_content_security_policy,
     _current_holding_entry_date,
     _get_pdf_parse_executor,
     _get_pdf_parse_timeout_seconds,
     _normalize_amfi_code,
     _parse_amount,
     _parse_iso_date,
+    _parse_pdf_upload_direct,
     _parse_pdf_upload_in_subprocess,
     _parse_pdf_upload,
     _prepare_benchmark_history,
@@ -67,7 +69,7 @@ from app.Code.main import (
     Holding,
     _safe_analysis_response,
 )
-from app.Code.supabase_auth import _is_admin_user
+from app.Code.supabase_auth import _get_supabase_url, _is_admin_user, _is_allowed_supabase_url
 from app.Code.utils import calculate_xirr, fetch_live_nav, fetch_nav_history
 
 
@@ -1158,6 +1160,53 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertFalse(body.get("success", True))
         self.assertIn("too large", body.get("error", "").lower())
 
+    def test_parse_pdf_json_serializes_parser_decimal_and_date_values(self):
+        client = TestClient(app)
+        parser_payload = {
+            "folios": [
+                {
+                    "amount": Decimal("100.50"),
+                    "date": date(2024, 1, 2),
+                    "type": TransactionType.PURCHASE,
+                }
+            ]
+        }
+
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main._parse_pdf_upload",
+            new=AsyncMock(return_value={"success": True, "data": parser_payload}),
+        ):
+            response = client.post(
+                "/api/parse_pdf",
+                files={"file": ("statement.pdf", b"%PDF-1.7\n", "application/pdf")},
+                data={"password": "", "output_format": "json"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["folios"][0]["amount"], 100.5)
+        self.assertEqual(body["folios"][0]["date"], "2024-01-02")
+        self.assertEqual(body["folios"][0]["type"], TransactionType.PURCHASE.value)
+
+    def test_parse_pdf_rejects_malformed_parser_payload_before_export(self):
+        client = TestClient(app)
+        malformed_payload = {"folios": "not-a-list"}
+
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main._parse_pdf_upload",
+            new=AsyncMock(return_value={"success": True, "data": malformed_payload}),
+        ):
+            response = client.post(
+                "/api/parse_pdf",
+                files={"file": ("statement.pdf", b"%PDF-1.7\n", "application/pdf")},
+                data={"password": "", "output_format": "excel"},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        self.assertIn("invalid cas json format", body.get("error", "").lower())
+        self.assertNotIn("request id", body.get("error", "").lower())
+
     def test_spa_routes_return_index_html_locally_with_admin_api_protected(self):
         client = TestClient(app)
 
@@ -1193,8 +1242,23 @@ class TestErrorSanitization(unittest.TestCase):
         csp = response.headers.get("content-security-policy", "")
         self.assertIn("default-src 'self'", csp)
         self.assertIn("https://*.supabase.co", csp)
+        self.assertNotIn("https://*.supabase.com", csp)
         self.assertIn("object-src 'none'", csp)
         self.assertIn("frame-ancestors 'none'", csp)
+
+    def test_csp_rejects_non_supabase_remote_connect_sources(self):
+        with patch.dict(
+            os.environ,
+            {
+                "SUPABASE_URL": "https://example.com",
+                "APP_SUPABASE_URL": "https://project.supabase.co",
+            },
+            clear=False,
+        ):
+            csp = _build_content_security_policy()
+
+        self.assertNotIn("https://example.com", csp)
+        self.assertIn("https://project.supabase.co", csp)
 
     def test_vercel_spa_routes_are_served_by_fastapi_for_security_headers(self):
         vercel_config = json.loads(Path("vercel.json").read_text(encoding="utf-8"))
@@ -1260,8 +1324,78 @@ class TestAnalyticsPrivacyHelpers(unittest.TestCase):
         finally:
             analytics_module.DB_PATH = original_db_path
 
+    def test_init_analytics_db_migrates_legacy_optional_columns(self):
+        original_db_path = analytics_module.DB_PATH
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                analytics_module.DB_PATH = Path(tmp_dir) / "legacy_analytics.db"
+                conn = sqlite3.connect(analytics_module.DB_PATH)
+                try:
+                    conn.execute(
+                        """
+                        CREATE TABLE analysis_runs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            request_id TEXT NOT NULL,
+                            user_id TEXT NOT NULL,
+                            status TEXT NOT NULL,
+                            created_at TEXT NOT NULL
+                        )
+                        """
+                    )
+                    conn.execute(
+                        """
+                        CREATE TABLE audit_logs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            user_id TEXT,
+                            route TEXT NOT NULL,
+                            action TEXT NOT NULL,
+                            status TEXT NOT NULL,
+                            message TEXT NOT NULL,
+                            created_at TEXT NOT NULL
+                        )
+                        """
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+
+                init_analytics_db()
+                record_analysis_run(
+                    request_id="req_legacy",
+                    user_id="user_legacy",
+                    username="legacy-user",
+                    session_id=None,
+                    file_type="json",
+                    status="success",
+                    duration_ms=42,
+                    holdings_count=2,
+                    total_market_value=1000.0,
+                )
+
+                overview = get_admin_overview()
+                self.assertEqual(len(overview["recent_analyses"]), 1)
+                self.assertEqual(overview["recent_analyses"][0]["request_id"], "req_legacy")
+                self.assertEqual(overview["recent_analyses"][0]["holdings_count"], 2)
+                self.assertEqual(overview["recent_logs"][0]["metadata"]["request_id"], "req_legacy")
+        finally:
+            analytics_module.DB_PATH = original_db_path
+
 
 class TestSupabaseAuthorization(unittest.TestCase):
+    def test_supabase_url_allows_supabase_cloud_https_and_loopback_only(self):
+        self.assertTrue(_is_allowed_supabase_url("https://project.supabase.co"))
+        self.assertTrue(_is_allowed_supabase_url("https://project.supabase.co/"))
+        self.assertTrue(_is_allowed_supabase_url("http://127.0.0.1:54321"))
+        self.assertTrue(_is_allowed_supabase_url("http://localhost:54321"))
+        self.assertTrue(_is_allowed_supabase_url("https://localhost:54321"))
+        self.assertFalse(_is_allowed_supabase_url("https://example.com"))
+        self.assertFalse(_is_allowed_supabase_url("https://project.supabase.co.evil.com"))
+        self.assertFalse(_is_allowed_supabase_url("http://example.com"))
+        self.assertFalse(_is_allowed_supabase_url("file:///tmp/auth"))
+
+        with patch.dict(os.environ, {"SUPABASE_URL": "https://example.com"}, clear=False):
+            self.assertEqual(_get_supabase_url(), "")
+
     def test_admin_check_ignores_user_mutable_metadata_roles(self):
         user = {
             "id": "user_123",
@@ -1304,6 +1438,35 @@ class TestSupabaseAuthorization(unittest.TestCase):
             clear=False,
         ):
             self.assertTrue(_is_admin_user(user))
+
+    def test_admin_check_requires_explicit_true_is_admin_claim(self):
+        base_user = {
+            "id": "user_123",
+            "email": "user@example.com",
+            "user_metadata": {},
+        }
+
+        false_values = [False, "false", "0", "no", "off", "", 0, 2, 0.0, 2.0]
+        true_values = [True, "true", "1", "yes", 1, 1.0]
+
+        with patch.dict(
+            os.environ,
+            {
+                "SUPABASE_ADMIN_ROLE": "admin",
+                "SUPABASE_ADMIN_USER_IDS": "",
+                "SUPABASE_ADMIN_EMAILS": "",
+            },
+            clear=False,
+        ):
+            for value in false_values:
+                with self.subTest(value=value):
+                    user = {**base_user, "app_metadata": {"is_admin": value}}
+                    self.assertFalse(_is_admin_user(user))
+
+            for value in true_values:
+                with self.subTest(value=value):
+                    user = {**base_user, "app_metadata": {"is_admin": value}}
+                    self.assertTrue(_is_admin_user(user))
 
 
 class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
@@ -1353,7 +1516,7 @@ class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
         result = _parse_pdf_upload_in_subprocess(
             b"%PDF-1.4\n",
             "",
-            2.0,
+            5.0,
             worker_target=_successful_pdf_parse_worker,
         )
 
@@ -1514,6 +1677,28 @@ class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["success"])
         named_tmp.assert_not_called()
 
+    def test_pdf_parse_direct_does_not_swallow_base_exceptions(self):
+        class FatalParserExit(BaseException):
+            pass
+
+        with patch("app.Code.main.parse_with_casparser", side_effect=FatalParserExit):
+            with self.assertRaises(FatalParserExit):
+                _parse_pdf_upload_direct(b"%PDF-1.4\n", "")
+
+    def test_recursive_to_dict_serializes_json_unsafe_parser_values(self):
+        converted = recursive_to_dict(
+            {
+                "amount": Decimal("100.50"),
+                "date": date(2024, 1, 2),
+                "type": TransactionType.PURCHASE,
+            }
+        )
+
+        json.dumps(converted)
+        self.assertEqual(converted["amount"], "100.50")
+        self.assertEqual(converted["date"], "2024-01-02")
+        self.assertEqual(converted["type"], TransactionType.PURCHASE.value)
+
     async def test_groww_index_failure_does_not_disable_future_retries(self):
         old_loaded = holdings_module._groww_index_loaded
         old_by_code = holdings_module._groww_index_by_code
@@ -1615,6 +1800,25 @@ class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sheet["K2"].value, "'@TYPE")
         self.assertEqual(sheet["F3"].value, "' \t=cmd")
         self.assertEqual(sheet["K3"].value, "'\t@TYPE")
+
+    def test_convert_to_excel_skips_malformed_rows_without_crashing(self):
+        workbook_bytes = convert_to_excel(
+            {
+                "folios": [
+                    "bad folio",
+                    {
+                        "schemes": [
+                            "bad scheme",
+                            {"transactions": ["bad transaction"]},
+                        ],
+                    },
+                ]
+            }
+        )
+        workbook = load_workbook(workbook_bytes)
+        sheet = workbook.active
+
+        self.assertEqual(sheet["A2"].value, "No transactions found")
 
     def test_vendored_casparser_csv_exports_escape_formula_like_cells(self):
         cas_data = CASData(

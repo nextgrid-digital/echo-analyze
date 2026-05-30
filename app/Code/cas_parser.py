@@ -1,8 +1,11 @@
-from typing import Dict, Any, Optional, Union
 import io
 import datetime
 import re
+from decimal import Decimal
+from enum import Enum
 from contextlib import suppress
+from typing import Dict, Any, Optional, Union
+
 from openpyxl import Workbook
 
 from app.Code.pdfminer_hardening import harden_pdfminer_cmap_loading
@@ -23,16 +26,30 @@ def _excel_safe_cell(value):
     return value
 
 def recursive_to_dict(obj):
-    if hasattr(obj, "to_dict"):
-        return recursive_to_dict(obj.to_dict())
-    if hasattr(obj, "__dict__"):
-        return recursive_to_dict({k: v for k, v in obj.__dict__.items() if not k.startswith('_')})
-    if isinstance(obj, dict):
-        return {k: recursive_to_dict(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [recursive_to_dict(x) for x in obj]
+    if isinstance(obj, Decimal):
+        return str(obj)
+    if isinstance(obj, Enum):
+        return recursive_to_dict(obj.value)
     if isinstance(obj, (datetime.date, datetime.datetime)):
         return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: recursive_to_dict(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        return [recursive_to_dict(x) for x in obj]
+
+    model_dump = getattr(obj, "model_dump", None)
+    if callable(model_dump):
+        try:
+            return recursive_to_dict(model_dump(mode="json", by_alias=True))
+        except TypeError:
+            return recursive_to_dict(model_dump(by_alias=True))
+
+    to_dict = getattr(obj, "to_dict", None)
+    if callable(to_dict):
+        return recursive_to_dict(to_dict())
+
+    if hasattr(obj, "__dict__"):
+        return recursive_to_dict({k: v for k, v in obj.__dict__.items() if not k.startswith('_')})
     return obj
 
 
@@ -119,16 +136,29 @@ def convert_to_excel(json_data: Dict[str, Any]) -> io.BytesIO:
     ]
     ws.append(headers)
 
-    folios = json_data.get("folios", [])
+    folios = json_data.get("folios", []) if isinstance(json_data, dict) else []
+    if not isinstance(folios, list):
+        folios = []
     for folio_data in folios:
+        if not isinstance(folio_data, dict):
+            continue
         schemes = folio_data.get("schemes", [])
+        if not isinstance(schemes, list):
+            continue
         for scheme in schemes:
+            if not isinstance(scheme, dict):
+                continue
             scheme_name = scheme.get("scheme", "Unknown")
             folio_num = folio_data.get("folio", scheme.get("folio", "Unknown"))
             advisor = scheme.get("advisor", "")
             amc = folio_data.get("amc", scheme.get("amc", ""))
 
-            for txn in scheme.get("transactions", []):
+            transactions = scheme.get("transactions", [])
+            if not isinstance(transactions, list):
+                continue
+            for txn in transactions:
+                if not isinstance(txn, dict):
+                    continue
                 row = [
                     _excel_safe_cell(amc),
                     _excel_safe_cell(folio_num),

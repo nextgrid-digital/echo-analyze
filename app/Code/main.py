@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, get_args
 
 import httpx
 from fastapi import FastAPI, File, Form, Query, Request, UploadFile
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,6 +24,7 @@ from pydantic import BaseModel, Field
 from app.Code.analytics import get_admin_overview, record_analysis_run, record_audit_log
 from app.Code.supabase_auth import (
     get_supabase_registered_user_count,
+    _is_allowed_supabase_url,
     require_supabase_user,
 )
 from app.cas_parser import convert_to_excel, parse_with_casparser
@@ -329,7 +331,7 @@ def _get_pdf_parse_executor() -> str:
 
 
 def _build_content_security_policy() -> str:
-    connect_sources = ["'self'", "https://*.supabase.co", "https://*.supabase.com"]
+    connect_sources = ["'self'", "https://*.supabase.co"]
     for env_key in ("SUPABASE_URL", "APP_SUPABASE_URL"):
         raw_url = os.environ.get(env_key, "").strip()
         if not raw_url:
@@ -338,7 +340,7 @@ def _build_content_security_policy() -> str:
             parsed = httpx.URL(raw_url)
         except httpx.InvalidURL:
             continue
-        if parsed.scheme in {"https", "http"} and parsed.host:
+        if _is_allowed_supabase_url(raw_url) and parsed.scheme in {"https", "http"} and parsed.host:
             source = f"{parsed.scheme}://{parsed.host}"
             if source not in connect_sources:
                 connect_sources.append(source)
@@ -364,9 +366,18 @@ def _parse_pdf_upload_direct(content: bytes, password: str) -> Dict[str, Any]:
         result = parse_with_casparser(io.BytesIO(content), password=password)
         if not isinstance(result, dict):
             result = {"success": False, "error": PDF_PARSE_GENERIC_ERROR}
-    except BaseException:
+    except Exception:
         result = {"success": False, "error": PDF_PARSE_GENERIC_ERROR}
     return result
+
+
+def _validate_parsed_cas_payload(data: Any) -> Optional[str]:
+    if not isinstance(data, dict):
+        return "Parsed CAS data is malformed."
+    shape_error = _validate_cas_json_shape(data)
+    if shape_error:
+        return shape_error
+    return None
 
 
 def _send_pdf_parse_result(result_sink: Any, result: Dict[str, Any]) -> None:
@@ -2583,6 +2594,19 @@ async def parse_pdf(
             )
             return JSONResponse(status_code=400, content={"error": result["error"]})
 
+        parsed_data = result.get("data")
+        parsed_shape_error = _validate_parsed_cas_payload(parsed_data)
+        if parsed_shape_error:
+            record_audit_log(
+                user_id=auth_user.user_id,
+                username=auth_user.username,
+                route=request.url.path,
+                action="parse_pdf_failed",
+                status="parse_error",
+                message=parsed_shape_error,
+            )
+            return JSONResponse(status_code=400, content={"error": parsed_shape_error})
+
         if normalized_output_format == "excel":
             record_audit_log(
                 user_id=auth_user.user_id,
@@ -2593,7 +2617,7 @@ async def parse_pdf(
                 message="Parsed CAS PDF to Excel.",
                 metadata={"output_format": "excel"},
             )
-            excel_buffer = convert_to_excel(result["data"])
+            excel_buffer = convert_to_excel(parsed_data)
             return StreamingResponse(
                 excel_buffer,
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -2608,7 +2632,7 @@ async def parse_pdf(
             message="Parsed CAS PDF to JSON.",
             metadata={"output_format": "json"},
         )
-        return JSONResponse(content=result["data"])
+        return JSONResponse(content=jsonable_encoder(parsed_data))
     except Exception as e:
         log_debug(f"[{request_id}] parse_pdf error: {type(e).__name__}: {e}")
         record_audit_log(

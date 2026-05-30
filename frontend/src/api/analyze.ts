@@ -7,7 +7,9 @@ export async function analyzePortfolio(
 ): Promise<AnalysisResponse> {
   const formData = new FormData()
   formData.append("file", file)
-  formData.append("password", password)
+  if (file.name.toLowerCase().endsWith(".pdf")) {
+    formData.append("password", password)
+  }
 
   const response = await apiFetch("/api/analyze", {
     method: "POST",

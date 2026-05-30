@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import ipaddress
 import os
 import re
 from dataclasses import dataclass
@@ -19,8 +20,41 @@ class SupabaseUser:
     is_admin: bool
 
 
+def _is_loopback_host(host: str) -> bool:
+    normalized = host.strip().strip("[]").lower()
+    if normalized in {"localhost", "localhost."} or normalized.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_supabase_cloud_host(host: str) -> bool:
+    normalized = host.strip().strip("[]").rstrip(".").lower()
+    return normalized == "supabase.co" or normalized.endswith(".supabase.co")
+
+
+def _is_allowed_supabase_url(value: str) -> bool:
+    raw_value = (value or "").strip()
+    if not raw_value:
+        return False
+    try:
+        parsed = httpx.URL(raw_value)
+    except httpx.InvalidURL:
+        return False
+    if not parsed.host:
+        return False
+    if parsed.scheme == "https" and (_is_supabase_cloud_host(parsed.host) or _is_loopback_host(parsed.host)):
+        return True
+    if parsed.scheme == "http" and _is_loopback_host(parsed.host):
+        return True
+    return False
+
+
 def _get_supabase_url() -> str:
-    return os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+    supabase_url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+    return supabase_url if _is_allowed_supabase_url(supabase_url) else ""
 
 
 def _get_supabase_anon_key() -> str:
@@ -98,6 +132,16 @@ def _metadata_roles(metadata: Dict[str, Any]) -> List[str]:
     return [role.strip().lower() for role in roles if role and role.strip()]
 
 
+def _metadata_flag_enabled(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes"}
+    if isinstance(value, (int, float)):
+        return value == 1
+    return False
+
+
 def _is_admin_user(user: Dict[str, Any]) -> bool:
     user_id = str(user.get("id") or "").strip()
     email = str(user.get("email") or "").strip().lower()
@@ -105,7 +149,7 @@ def _is_admin_user(user: Dict[str, Any]) -> bool:
 
     admin_role = os.environ.get("SUPABASE_ADMIN_ROLE", "admin").strip().lower() or "admin"
     roles = set(_metadata_roles(app_metadata))
-    if admin_role in roles or bool(app_metadata.get("is_admin")):
+    if admin_role in roles or _metadata_flag_enabled(app_metadata.get("is_admin")):
         return True
 
     admin_user_ids = {
