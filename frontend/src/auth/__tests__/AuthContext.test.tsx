@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import { AuthProvider } from "@/auth/AuthContext"
 import { useAuth } from "@/auth/useAuth"
 import { apiFetch, readJson } from "@/api/client"
@@ -7,6 +7,9 @@ import {
   getUsernameFromUser,
   isSupabaseAdminUser,
 } from "@/lib/supabase"
+import type { Session } from "@/lib/supabase"
+
+type AuthStateCallback = (event: string, session: Session | null) => void
 
 vi.mock("@/api/client", () => ({
   apiFetch: vi.fn(),
@@ -33,21 +36,31 @@ function Probe() {
 }
 
 describe("AuthProvider", () => {
+  let emitAuthStateChange: AuthStateCallback | null = null
+  let session: Session
+
   beforeEach(() => {
-    const session = {
+    emitAuthStateChange = null
+    session = {
       access_token: "access-token",
+      refresh_token: "refresh-token",
+      expires_at: 1000,
       user: { id: "user_123" },
-    }
+    } as Session
     vi.mocked(getSupabaseClient).mockReturnValue({
       auth: {
         getSession: vi.fn().mockResolvedValue({ data: { session } }),
-        onAuthStateChange: vi.fn(() => ({
-          data: { subscription: { unsubscribe: vi.fn() } },
-        })),
+        onAuthStateChange: vi.fn((callback: AuthStateCallback) => {
+          emitAuthStateChange = callback
+          return {
+            data: { subscription: { unsubscribe: vi.fn() } },
+          }
+        }),
       },
     } as unknown as ReturnType<typeof getSupabaseClient>)
     vi.mocked(apiFetch).mockResolvedValue(new Response("{}"))
     vi.mocked(readJson).mockResolvedValue({
+      user_id: "user_123",
       username: "allowlisted-admin",
       is_admin: true,
     })
@@ -88,5 +101,56 @@ describe("AuthProvider", () => {
       expect(screen.getByText("local-user")).toBeInTheDocument()
       expect(screen.getByText("admin")).toBeInTheDocument()
     })
+  })
+
+  it("ignores duplicate focus auth events for the same session", async () => {
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText("ready")).toBeInTheDocument()
+    })
+
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      emitAuthStateChange?.("SIGNED_IN", { ...session, user: { id: "user_123" } } as Session)
+    })
+
+    expect(screen.getByText("ready")).toBeInTheDocument()
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps auth ready while refreshing the same user's token", async () => {
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText("ready")).toBeInTheDocument()
+    })
+
+    vi.mocked(apiFetch).mockReturnValueOnce(new Promise(() => {}) as Promise<Response>)
+
+    act(() => {
+      emitAuthStateChange?.("TOKEN_REFRESHED", {
+        ...session,
+        access_token: "new-access-token",
+        expires_at: 2000,
+        user: { id: "user_123" },
+      } as Session)
+    })
+
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledTimes(2)
+    })
+
+    expect(screen.getByText("ready")).toBeInTheDocument()
+    expect(screen.getByText("allowlisted-admin")).toBeInTheDocument()
   })
 })

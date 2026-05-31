@@ -17,8 +17,27 @@ import {
 
 interface ServerAuthContext {
   token: string
+  userId: string
   username: string
   isAdmin: boolean
+}
+
+function isSameAuthSession(previous: Session | null, next: Session | null) {
+  return (
+    previous?.access_token === next?.access_token &&
+    previous?.user?.id === next?.user?.id
+  )
+}
+
+function shouldKeepCurrentSession(
+  event: string,
+  previous: Session | null,
+  next: Session | null,
+) {
+  return (
+    (event === "INITIAL_SESSION" || event === "SIGNED_IN") &&
+    isSameAuthSession(previous, next)
+  )
 }
 
 function formatAuthError(error: unknown, fallback: string) {
@@ -70,8 +89,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession)
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      setSession((currentSession) =>
+        shouldKeepCurrentSession(event, currentSession, nextSession)
+          ? currentSession
+          : nextSession
+      )
       setLoading(false)
     })
 
@@ -83,22 +106,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const user = session?.user ?? null
   const accessToken = session?.access_token ?? null
-  const serverAuthLoaded = !accessToken || serverAuth?.token === accessToken
+  const localUsername = getUsernameFromUser(user)
+  const localIsAdmin = isSupabaseAdminUser(user)
+  const serverAuthForUser =
+    user?.id && serverAuth?.userId === user.id ? serverAuth : null
+  const serverAuthLoaded = !accessToken || Boolean(serverAuthForUser)
 
   useEffect(() => {
-    if (!accessToken) {
+    if (!accessToken || !user?.id) {
       setServerAuth(null)
       return
     }
 
     let isCancelled = false
     const token = accessToken
-    setServerAuth(null)
+    const userId = user.id
+    setServerAuth((currentAuth) =>
+      currentAuth?.userId === userId ? currentAuth : null
+    )
 
     async function loadServerAuth() {
       try {
         const response = await apiFetch("/api/auth/me", { method: "GET" })
         const payload = await readJson<{
+          user_id?: unknown
           username?: unknown
           is_admin?: unknown
         }>(response)
@@ -108,17 +139,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!response.ok || !payload) {
           setServerAuth({
             token,
-            username: getUsernameFromUser(user),
-            isAdmin: isSupabaseAdminUser(user),
+            userId,
+            username: localUsername,
+            isAdmin: localIsAdmin,
           })
           return
         }
         setServerAuth({
           token,
+          userId: typeof payload.user_id === "string" ? payload.user_id : userId,
           username:
             typeof payload.username === "string" && payload.username.trim()
               ? payload.username.trim()
-              : getUsernameFromUser(user),
+              : localUsername,
           isAdmin: payload.is_admin === true,
         })
       } catch {
@@ -127,8 +160,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         setServerAuth({
           token,
-          username: getUsernameFromUser(user),
-          isAdmin: isSupabaseAdminUser(user),
+          userId,
+          username: localUsername,
+          isAdmin: localIsAdmin,
         })
       }
     }
@@ -138,7 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       isCancelled = true
     }
-  }, [accessToken, user])
+  }, [accessToken, localIsAdmin, localUsername, user?.id])
 
   const value = useMemo<AuthContextValue>(() => {
     return {
@@ -146,8 +180,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading: loading || !serverAuthLoaded,
       session,
       user,
-      username: serverAuth?.username ?? getUsernameFromUser(user),
-      isAdmin: serverAuth?.isAdmin ?? isSupabaseAdminUser(user),
+      username: serverAuthForUser?.username ?? localUsername,
+      isAdmin: serverAuthForUser?.isAdmin ?? localIsAdmin,
       async signIn(email: string, password: string) {
         if (!supabase) {
           throw new Error("Supabase is not configured.")
@@ -219,7 +253,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       },
     }
-  }, [configured, loading, serverAuth, serverAuthLoaded, session, supabase, user])
+  }, [
+    configured,
+    loading,
+    localIsAdmin,
+    localUsername,
+    serverAuthForUser,
+    serverAuthLoaded,
+    session,
+    supabase,
+    user,
+  ])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
