@@ -12,6 +12,9 @@ const DashboardPage = lazy(() =>
 const AdminPage = lazy(() =>
   import("@/pages/AdminPage").then((module) => ({ default: module.AdminPage }))
 )
+const PricingPage = lazy(() =>
+  import("@/pages/PricingPage").then((module) => ({ default: module.PricingPage }))
+)
 
 function App() {
   const { loading, user, isAdmin } = useAuth()
@@ -34,6 +37,10 @@ function App() {
     >
       <Routes>
         <Route path="/" element={<UploadPage />} />
+        <Route
+          path="/pricing"
+          element={user ? <PricingPage /> : <Navigate to="/" replace />}
+        />
         <Route
           path="/dashboard"
           element={user ? <DashboardPage /> : <Navigate to="/" replace />}

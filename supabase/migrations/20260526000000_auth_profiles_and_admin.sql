@@ -128,3 +128,8 @@ on public.profiles
 for select
 to authenticated
 using (public.echo_is_admin());
+
+-- Authenticated users may edit only their display username through the browser
+-- Supabase client. Quota, subscription, and billing columns are service-owned.
+revoke update on table public.profiles from anon, authenticated;
+grant update (username) on table public.profiles to authenticated;

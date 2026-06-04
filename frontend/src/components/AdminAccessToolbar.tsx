@@ -13,6 +13,9 @@ export function AdminAccessToolbar() {
           <Link to="/admin">Admin</Link>
         </Button>
       )}
+      <Button asChild type="button" variant="outline">
+        <Link to="/pricing">Pricing</Link>
+      </Button>
       <Button type="button" variant="outline" onClick={() => void signOut()}>
         Sign out
       </Button>

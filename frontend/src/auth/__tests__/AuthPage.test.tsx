@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { AuthPanel } from "@/auth/AuthPage"
 import { useAuth } from "@/auth/useAuth"
 
@@ -14,6 +14,8 @@ function mockAuth(overrides: Partial<ReturnType<typeof useAuth>> = {}) {
     user: null,
     username: "Unknown user",
     isAdmin: false,
+    billingAccess: null,
+    refreshBillingAccess: vi.fn(),
     signIn: vi.fn(),
     signInWithGoogle: vi.fn(),
     signUp: vi.fn(),
@@ -23,17 +25,16 @@ function mockAuth(overrides: Partial<ReturnType<typeof useAuth>> = {}) {
 }
 
 describe("AuthPanel", () => {
-  it("keeps Google OAuth locked while it is not configured", () => {
+  it("starts Google OAuth when the Google sign-in button is clicked", async () => {
     const signInWithGoogle = vi.fn().mockResolvedValue(undefined)
     mockAuth({ signInWithGoogle })
 
     render(<AuthPanel />)
 
-    const googleButton = screen.getByRole("button", { name: /continue with google, coming soon/i })
-    expect(googleButton).toBeDisabled()
-    expect(googleButton.closest("span")).toHaveAttribute("title", "Coming soon")
+    const googleButton = screen.getByRole("button", { name: /continue with google/i })
+    expect(googleButton).toBeEnabled()
 
     fireEvent.click(googleButton)
-    expect(signInWithGoogle).not.toHaveBeenCalled()
+    await waitFor(() => expect(signInWithGoogle).toHaveBeenCalledTimes(1))
   })
 })

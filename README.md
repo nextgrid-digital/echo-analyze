@@ -12,6 +12,7 @@ A FastAPI-based application for analyzing mutual fund portfolios from CAS (Conso
 - Fixed income analysis
 - Performance tracking
 - Supabase-backed authentication
+- One free CAS report per user, with Razorpay subscription unlock for unlimited analysis
 - Admin page for Supabase admin users with log windows, user counts, and top users by report volume
 
 ## Documentation
@@ -72,11 +73,16 @@ This will:
   - `ENABLE_DEBUG_LOGS` (keep `false` unless you are temporarily debugging locally)
   - `SUPABASE_URL`
   - `SUPABASE_ANON_KEY`
-  - `SUPABASE_SERVICE_ROLE_KEY` (optional, backend only; enables total Supabase user counts)
+  - `SUPABASE_SERVICE_ROLE_KEY` (backend only; required for report quotas/subscriptions and total Supabase user counts)
   - `SUPABASE_ADMIN_ROLE` (defaults to `admin`)
   - `SUPABASE_ADMIN_USER_IDS` or `SUPABASE_ADMIN_EMAILS` (optional allowlists)
   - `PDF_PARSE_EXECUTOR` (optional; defaults to `auto`; on Vercel, `auto` uses thread parsing to avoid child-process hangs)
   - `PDF_PARSE_TIMEOUT_SECONDS` (optional; defaults to `120`, capped between `1` and `240`)
+  - `RAZORPAY_KEY_ID`
+  - `RAZORPAY_KEY_SECRET`
+  - `RAZORPAY_PLAN_ID` (create a Razorpay Subscription Plan for Rs 1 while testing)
+  - `RAZORPAY_WEBHOOK_SECRET`
+  - `RAZORPAY_SUBSCRIPTION_TOTAL_COUNT` (defaults to `120`, Razorpay's 10-year maximum for monthly plans)
 - Frontend-only Vite dev also supports `frontend/.env.local` with:
   - `APP_SUPABASE_URL`
   - `APP_SUPABASE_ANON_KEY`
@@ -105,13 +111,37 @@ The backend also supports explicit admin allowlists via `SUPABASE_ADMIN_USER_IDS
 
 - The React app signs users in with Supabase Auth and sends the Supabase access token to FastAPI.
 - FastAPI verifies the token with Supabase before allowing analysis, PDF parsing, or admin APIs.
+- FastAPI checks `public.profiles` before CAS analysis. New users get `cas_report_limit = 1` and `cas_reports_used = 0`.
+- A successful free analysis consumes one report credit. Failed parsing or failed analysis refunds the reserved credit.
+- Razorpay subscription checkout is available at `/pricing`. A subscription in `authenticated` or `active` status unlocks unlimited CAS analysis for that Supabase user.
+- Browser clients can update only their profile username; report quotas, subscription columns, and billing RPCs are locked to the backend service role.
 - Each analysis run stores summary analytics only. CAS files, parsed CAS reports, and uploaded filenames are not stored.
 - The admin page shows usernames, report counts, active/total users, and logs filtered by recent 24 hours, 7 days, or 1 month.
+
+To manually reset a user's free report quota in the Supabase SQL editor:
+
+```sql
+update public.profiles
+set cas_reports_used = 0
+where id = 'USER_UUID_HERE';
+```
+
+To manually grant unlimited access during testing:
+
+```sql
+update public.profiles
+set subscription_status = 'active'
+where id = 'USER_UUID_HERE';
+```
 
 ## API Endpoints
 
 - `GET /` - Portfolio Overview UI (home page)
 - `GET /api/auth/me` - Return the authenticated Supabase user context
+- `GET /api/billing/access` - Return report quota and subscription access for the authenticated user
+- `POST /api/billing/create-subscription` - Create a Razorpay subscription for the authenticated user
+- `POST /api/billing/verify-subscription-payment` - Verify Razorpay Checkout subscription payment signature
+- `POST /api/billing/razorpay-webhook` - Receive Razorpay subscription webhooks
 - `POST /api/analyze` - Analyze CAS file (PDF or JSON), requires Supabase auth
 - `POST /api/parse_pdf` - Parse CAS PDF to JSON/Excel, requires Supabase auth
 - `GET /api/admin/overview` - Admin analytics summary, requires Supabase admin access

@@ -63,8 +63,7 @@ Frontend checks:
 ```powershell
 cd frontend
 npm run lint
-npm exec tsc -- -p tsconfig.app.json --noEmit
-npm exec tsc -- -p tsconfig.node.json --noEmit
+npm run typecheck
 npm test -- --run
 npm audit --audit-level=moderate
 npm run build

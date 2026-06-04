@@ -1,10 +1,12 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react"
 import { apiFetch, readJson } from "@/api/client"
+import { getBillingAccess } from "@/api/billing"
 import { AuthContext, type AuthContextValue } from "@/auth/auth-context"
 import {
   getSupabaseAuthHost,
@@ -63,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(configured)
   const [session, setSession] = useState<Session | null>(null)
   const [serverAuth, setServerAuth] = useState<ServerAuthContext | null>(null)
+  const [billingAccess, setBillingAccess] = useState<AuthContextValue["billingAccess"]>(null)
   const supabase = getSupabaseClient()
 
   useEffect(() => {
@@ -112,9 +115,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user?.id && serverAuth?.userId === user.id ? serverAuth : null
   const serverAuthLoaded = !accessToken || Boolean(serverAuthForUser)
 
+  const refreshBillingAccess = useCallback(async () => {
+    if (!accessToken || !user?.id) {
+      setBillingAccess(null)
+      return null
+    }
+    try {
+      const access = await getBillingAccess()
+      setBillingAccess(access)
+      return access
+    } catch {
+      setBillingAccess(null)
+      return null
+    }
+  }, [accessToken, user?.id])
+
   useEffect(() => {
     if (!accessToken || !user?.id) {
       setServerAuth(null)
+      setBillingAccess(null)
       return
     }
 
@@ -174,6 +193,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [accessToken, localIsAdmin, localUsername, user?.id])
 
+  useEffect(() => {
+    void refreshBillingAccess()
+  }, [refreshBillingAccess])
+
   const value = useMemo<AuthContextValue>(() => {
     return {
       configured,
@@ -182,6 +205,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       username: serverAuthForUser?.username ?? localUsername,
       isAdmin: serverAuthForUser?.isAdmin ?? localIsAdmin,
+      billingAccess,
+      refreshBillingAccess,
       async signIn(email: string, password: string) {
         if (!supabase) {
           throw new Error("Supabase is not configured.")
@@ -258,6 +283,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     localIsAdmin,
     localUsername,
+    billingAccess,
+    refreshBillingAccess,
     serverAuthForUser,
     serverAuthLoaded,
     session,

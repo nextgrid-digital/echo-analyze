@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { analyzePortfolio } from "@/api/analyze"
 import { AuthPanel } from "@/auth/AuthPage"
 import { useAuth } from "@/auth/useAuth"
@@ -9,13 +9,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { storeLatestAnalysis } from "@/lib/analysisSession"
 import type { AnalysisResponse } from "@/types/api"
-import { ArrowRight, Lock, Upload } from "lucide-react"
+import { ArrowRight, CreditCard, Lock, Upload } from "lucide-react"
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 export function UploadPage() {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, billingAccess, refreshBillingAccess } = useAuth()
   const [password, setPassword] = useState("")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
@@ -26,7 +26,9 @@ export function UploadPage() {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResponse | null>(null)
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const isLocked = !user
+  const isBillingLoading = Boolean(user && !billingAccess)
+  const isQuotaLocked = Boolean(user && billingAccess && !billingAccess.can_analyze)
+  const isLocked = !user || isBillingLoading || isQuotaLocked
 
   const selectFile = (file: File) => {
     const lowerName = file.name.toLowerCase()
@@ -104,7 +106,13 @@ export function UploadPage() {
 
   const handleAnalyze = async () => {
     if (isLocked) {
-      setError("Sign in or create an account to analyze CAS reports.")
+      if (!user) {
+        setError("Sign in or create an account to analyze CAS reports.")
+      } else if (isQuotaLocked) {
+        setError("You have used your free CAS report. Subscribe for unlimited analysis.")
+      } else {
+        setError("Checking your report access. Please try again in a moment.")
+      }
       return
     }
 
@@ -155,6 +163,7 @@ export function UploadPage() {
       setAnalysisResult(result)
       storeLatestAnalysis(result)
       setAnalysisComplete(true)
+      void refreshBillingAccess()
       setLoading(false)
     } catch (err) {
       if (progressIntervalRef.current) {
@@ -225,17 +234,38 @@ export function UploadPage() {
               <div className="flex min-h-[220px] flex-col items-center justify-center text-center">
                 <div className="mb-6">
                   {isLocked ? (
-                    <Lock className="w-16 h-16 text-muted-foreground" />
+                    isQuotaLocked ? (
+                      <CreditCard className="w-16 h-16 text-muted-foreground" />
+                    ) : (
+                      <Lock className="w-16 h-16 text-muted-foreground" />
+                    )
                   ) : (
                     <Upload className="w-16 h-16 text-muted-foreground" />
                   )}
                 </div>
                 <p className="text-lg sm:text-xl font-medium text-foreground mb-2">
-                  {isLocked ? "Sign in to unlock CAS analysis" : "Upload CAS PDF or JSON to view insights"}
+                  {!user
+                    ? "Sign in to unlock CAS analysis"
+                    : isQuotaLocked
+                      ? "Free CAS report used"
+                      : isBillingLoading
+                        ? "Checking report access"
+                        : "Upload CAS PDF or JSON to view insights"}
                 </p>
                 <p className="text-sm text-muted-foreground mb-4">
-                  {isLocked ? "Create an account or sign in before selecting a report." : "or drag and drop"}
+                  {!user
+                    ? "Create an account or sign in before selecting a report."
+                    : isQuotaLocked
+                      ? "Upgrade to unlock unlimited reports."
+                      : isBillingLoading
+                        ? "Your quota and subscription status are loading."
+                        : "or drag and drop"}
                 </p>
+                {isQuotaLocked && (
+                  <Button asChild variant="outline" className="mt-2">
+                    <Link to="/pricing">View pricing</Link>
+                  </Button>
+                )}
                 {!isLocked && selectedFile && (
                   <p className="text-sm text-primary font-semibold mt-4">
                     Selected: {selectedFile.name}
@@ -278,6 +308,14 @@ export function UploadPage() {
             )}
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              {user && billingAccess && !billingAccess.has_unlimited_reports && !isQuotaLocked && (
+                <Button asChild variant="outline" className="min-h-[48px] px-8">
+                  <Link to="/pricing">
+                    <CreditCard className="w-5 h-5" />
+                    Upgrade
+                  </Link>
+                </Button>
+              )}
               {analysisComplete && analysisResult ? (
                 <Button
                   onClick={() => navigate("/dashboard")}
@@ -292,7 +330,15 @@ export function UploadPage() {
                   disabled={loading || !selectedFile || isLocked}
                   className="bg-primary text-primary-foreground hover:bg-primary/90 min-h-[48px] px-8 rounded-none disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:shadow-md active:scale-[0.98]"
                 >
-                  {isLocked ? "Sign in to analyze" : loading ? "Processing..." : "Analyze Portfolio"}
+                  {!user
+                    ? "Sign in to analyze"
+                    : isQuotaLocked
+                      ? "Subscribe to analyze"
+                      : isBillingLoading
+                        ? "Checking access..."
+                        : loading
+                          ? "Processing..."
+                          : "Analyze Portfolio"}
                 </Button>
               )}
             </div>

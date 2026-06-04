@@ -9,7 +9,6 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAuth } from "@/auth/useAuth"
 import { cn } from "@/lib/utils"
 
@@ -18,7 +17,7 @@ interface AuthPanelProps {
 }
 
 export function AuthPanel({ className }: AuthPanelProps) {
-  const { configured, signIn, signUp } = useAuth()
+  const { configured, signIn, signInWithGoogle, signUp } = useAuth()
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -49,6 +48,19 @@ export function AuthPanel({ className }: AuthPanelProps) {
     }
   }
 
+  async function handleGoogleSignIn() {
+    setError(null)
+    setMessage(null)
+    setLoading(true)
+
+    try {
+      await signInWithGoogle()
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Google sign-in failed.")
+      setLoading(false)
+    }
+  }
+
   return (
     <Card className={cn("w-full", className)}>
       <CardHeader>
@@ -64,22 +76,15 @@ export function AuthPanel({ className }: AuthPanelProps) {
           </Alert>
         ) : (
           <div className="space-y-4">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="block" title="Coming soon">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full"
-                    disabled
-                    aria-label="Continue with Google, coming soon"
-                  >
-                    Continue with Google
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top">Coming soon</TooltipContent>
-            </Tooltip>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={loading}
+              onClick={() => void handleGoogleSignIn()}
+            >
+              {loading ? "Opening Google..." : "Continue with Google"}
+            </Button>
 
             <div className="flex items-center gap-3">
               <div className="h-px flex-1 bg-border" />

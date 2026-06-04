@@ -1,6 +1,7 @@
-import { act, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { AuthProvider } from "@/auth/AuthContext"
 import { useAuth } from "@/auth/useAuth"
+import { getBillingAccess } from "@/api/billing"
 import { apiFetch, readJson } from "@/api/client"
 import {
   getSupabaseClient,
@@ -14,6 +15,10 @@ type AuthStateCallback = (event: string, session: Session | null) => void
 vi.mock("@/api/client", () => ({
   apiFetch: vi.fn(),
   readJson: vi.fn(),
+}))
+
+vi.mock("@/api/billing", () => ({
+  getBillingAccess: vi.fn(),
 }))
 
 vi.mock("@/lib/supabase", () => ({
@@ -35,9 +40,19 @@ function Probe() {
   )
 }
 
+function OAuthProbe() {
+  const auth = useAuth()
+  return (
+    <button type="button" onClick={() => void auth.signInWithGoogle()}>
+      Google
+    </button>
+  )
+}
+
 describe("AuthProvider", () => {
   let emitAuthStateChange: AuthStateCallback | null = null
   let session: Session
+  let signInWithOAuth: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     emitAuthStateChange = null
@@ -47,6 +62,7 @@ describe("AuthProvider", () => {
       expires_at: 1000,
       user: { id: "user_123" },
     } as Session
+    signInWithOAuth = vi.fn().mockResolvedValue({ error: null })
     vi.mocked(getSupabaseClient).mockReturnValue({
       auth: {
         getSession: vi.fn().mockResolvedValue({ data: { session } }),
@@ -56,6 +72,7 @@ describe("AuthProvider", () => {
             data: { subscription: { unsubscribe: vi.fn() } },
           }
         }),
+        signInWithOAuth,
       },
     } as unknown as ReturnType<typeof getSupabaseClient>)
     vi.mocked(apiFetch).mockResolvedValue(new Response("{}"))
@@ -63,6 +80,16 @@ describe("AuthProvider", () => {
       user_id: "user_123",
       username: "allowlisted-admin",
       is_admin: true,
+    })
+    vi.mocked(getBillingAccess).mockResolvedValue({
+      can_analyze: true,
+      has_unlimited_reports: false,
+      cas_report_limit: 1,
+      cas_reports_used: 0,
+      remaining_free_reports: 1,
+      subscription_status: "free",
+      razorpay_subscription_id: null,
+      current_period_end: null,
     })
   })
 
@@ -114,14 +141,14 @@ describe("AuthProvider", () => {
       expect(screen.getByText("ready")).toBeInTheDocument()
     })
 
-    expect(apiFetch).toHaveBeenCalledTimes(1)
+    vi.mocked(apiFetch).mockClear()
 
     act(() => {
       emitAuthStateChange?.("SIGNED_IN", { ...session, user: { id: "user_123" } } as Session)
     })
 
     expect(screen.getByText("ready")).toBeInTheDocument()
-    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(apiFetch).not.toHaveBeenCalled()
   })
 
   it("keeps auth ready while refreshing the same user's token", async () => {
@@ -135,6 +162,7 @@ describe("AuthProvider", () => {
       expect(screen.getByText("ready")).toBeInTheDocument()
     })
 
+    vi.mocked(apiFetch).mockClear()
     vi.mocked(apiFetch).mockReturnValueOnce(new Promise(() => {}) as Promise<Response>)
 
     act(() => {
@@ -147,10 +175,33 @@ describe("AuthProvider", () => {
     })
 
     await waitFor(() => {
-      expect(apiFetch).toHaveBeenCalledTimes(2)
+      expect(apiFetch).toHaveBeenCalledTimes(1)
     })
 
     expect(screen.getByText("ready")).toBeInTheDocument()
     expect(screen.getByText("allowlisted-admin")).toBeInTheDocument()
+  })
+
+  it("starts Supabase Google OAuth with the configured redirect options", async () => {
+    render(
+      <AuthProvider>
+        <OAuthProbe />
+      </AuthProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Google" }))
+
+    await waitFor(() => {
+      expect(signInWithOAuth).toHaveBeenCalledWith({
+        provider: "google",
+        options: {
+          redirectTo: window.location.origin,
+          queryParams: {
+            access_type: "offline",
+            prompt: "select_account",
+          },
+        },
+      })
+    })
   })
 })

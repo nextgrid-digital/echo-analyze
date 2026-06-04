@@ -1,10 +1,13 @@
 import asyncio
 import base64
 import csv
+import hashlib
+import hmac
 import io
 import json
 import math
 import os
+import re
 import sqlite3
 import socket
 import tempfile
@@ -43,6 +46,15 @@ from app.Code.analytics import (
 )
 from app.Code.cas_parser import convert_to_excel, parse_with_casparser, recursive_to_dict
 from app.Code.env_loader import load_local_env
+from app.Code.billing import (
+    AccessStatus,
+    _parse_access_status,
+    _parse_credit_reservation,
+    apply_subscription_status,
+    extract_subscription_event,
+    verify_checkout_signature,
+    verify_webhook_signature,
+)
 from app.Code.pdfminer_hardening import (
     ORIGINAL_CMAP_LOADER_ATTR,
     harden_pdfminer_cmap_loading,
@@ -1034,6 +1046,12 @@ class TestErrorSanitization(unittest.TestCase):
         client = TestClient(app)
         files = {"file": ("sample.json", b'{"folios": []}', "application/json")}
         with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main.reserve_analysis_credit",
+            new=AsyncMock(return_value=type("Reservation", (), {"credit_consumed": True})()),
+        ), patch(
+            "app.Code.main.refund_analysis_credit",
+            new=AsyncMock(),
+        ), patch(
             "app.Code.main.map_casparser_to_analysis",
             side_effect=RuntimeError("boom secret details"),
         ):
@@ -1549,6 +1567,272 @@ class TestSupabaseAuthorization(unittest.TestCase):
                 with self.subTest(value=value):
                     user = {**base_user, "app_metadata": {"is_admin": value}}
                     self.assertTrue(_is_admin_user(user))
+
+
+class TestBillingSecurity(unittest.TestCase):
+    def test_billing_access_and_reservation_parsing_fail_closed(self):
+        access = _parse_access_status({})
+        self.assertFalse(access.can_analyze)
+        self.assertEqual(access.cas_report_limit, 0)
+        self.assertEqual(access.remaining_free_reports, 0)
+
+        reservation = _parse_credit_reservation([])
+        self.assertFalse(reservation.allowed)
+        self.assertFalse(reservation.credit_consumed)
+
+        reservation = _parse_credit_reservation(
+            {
+                "allowed": False,
+                "can_analyze": True,
+                "has_unlimited_reports": False,
+                "cas_report_limit": 1,
+                "cas_reports_used": 0,
+                "remaining_free_reports": 1,
+                "subscription_status": "free",
+            }
+        )
+        self.assertFalse(reservation.allowed)
+
+    def test_razorpay_checkout_signature_validates_ids_and_signature(self):
+        with patch.dict(os.environ, {"RAZORPAY_KEY_SECRET": "test_secret"}, clear=False):
+            signature = hmac.new(
+                b"test_secret",
+                b"pay_test123|sub_test123",
+                hashlib.sha256,
+            ).hexdigest()
+            verify_checkout_signature(
+                payment_id="pay_test123",
+                subscription_id="sub_test123",
+                signature=signature,
+            )
+
+            with self.assertRaises(HTTPException) as invalid_id:
+                verify_checkout_signature(
+                    payment_id="pay_test123",
+                    subscription_id="sub_test123/../../other",
+                    signature=signature,
+                )
+            self.assertEqual(invalid_id.exception.status_code, 400)
+
+            with self.assertRaises(HTTPException) as invalid_signature:
+                verify_checkout_signature(
+                    payment_id="pay_test123",
+                    subscription_id="sub_test123",
+                    signature="not-a-hex-signature",
+                )
+            self.assertEqual(invalid_signature.exception.status_code, 400)
+
+    def test_apply_subscription_status_rejects_invalid_state_before_rpc(self):
+        async def never_called(*args, **kwargs):
+            raise AssertionError("Supabase RPC should not be called")
+
+        with patch("app.Code.billing._supabase_rpc", new=never_called):
+            with self.assertRaises(HTTPException) as bad_id:
+                asyncio.run(
+                    apply_subscription_status(
+                        user_id="user_test",
+                        subscription_id="sub_test123/../../other",
+                        customer_id=None,
+                        status="active",
+                        current_period_end=None,
+                    )
+                )
+            self.assertEqual(bad_id.exception.status_code, 400)
+
+            with self.assertRaises(HTTPException) as bad_status:
+                asyncio.run(
+                    apply_subscription_status(
+                        user_id="user_test",
+                        subscription_id="sub_test123",
+                        customer_id=None,
+                        status="trialing",
+                        current_period_end=None,
+                    )
+                )
+            self.assertEqual(bad_status.exception.status_code, 400)
+
+    def test_razorpay_webhook_signature_uses_exact_raw_body(self):
+        raw_body = b'{"event":"subscription.activated","payload":{}}'
+        with patch.dict(os.environ, {"RAZORPAY_WEBHOOK_SECRET": "webhook_secret"}, clear=False):
+            signature = hmac.new(b"webhook_secret", raw_body, hashlib.sha256).hexdigest()
+            verify_webhook_signature(raw_body, signature)
+
+            with self.assertRaises(HTTPException) as mismatched_body:
+                verify_webhook_signature(raw_body + b"\n", signature)
+            self.assertEqual(mismatched_body.exception.status_code, 400)
+
+    def test_subscription_webhook_event_requires_configured_plan(self):
+        payload = {
+            "payload": {
+                "subscription": {
+                    "entity": {
+                        "id": "sub_test123",
+                        "plan_id": "plan_good123",
+                        "status": "active",
+                        "customer_id": "cust_test123",
+                        "current_end": 1893456000,
+                        "notes": {"user_id": "user_test"},
+                    }
+                }
+            }
+        }
+
+        with patch.dict(os.environ, {"RAZORPAY_PLAN_ID": "plan_good123"}, clear=False):
+            event = extract_subscription_event(payload)
+        self.assertIsNotNone(event)
+        self.assertEqual(event["subscription_id"], "sub_test123")
+        self.assertEqual(event["status"], "active")
+        self.assertEqual(event["user_id"], "user_test")
+
+        with patch.dict(os.environ, {"RAZORPAY_PLAN_ID": "plan_other123"}, clear=False):
+            self.assertIsNone(extract_subscription_event(payload))
+
+        bad_status_payload = json.loads(json.dumps(payload))
+        bad_status_payload["payload"]["subscription"]["entity"]["status"] = "trialing"
+        with patch.dict(os.environ, {"RAZORPAY_PLAN_ID": "plan_good123"}, clear=False):
+            self.assertIsNone(extract_subscription_event(bad_status_payload))
+
+    def test_supabase_billing_migration_restricts_profile_writes_and_rpc_execute(self):
+        hardening_sql = Path(
+            "supabase/migrations/20260604000000_harden_profile_billing_permissions.sql"
+        ).read_text(encoding="utf-8")
+        normalized_sql = re.sub(r"\s+", " ", hardening_sql.lower())
+
+        self.assertIn("revoke update on table public.profiles from anon, authenticated", normalized_sql)
+        self.assertIn("grant update (username) on table public.profiles to authenticated", normalized_sql)
+
+        privileged_functions = [
+            "public.echo_get_access_status(uuid)",
+            "public.echo_consume_report_credit(uuid)",
+            "public.echo_refund_report_credit(uuid)",
+            "public.echo_apply_razorpay_subscription_event(uuid, text, text, text, timestamptz)",
+            "public.echo_claim_razorpay_webhook_event(text, text)",
+        ]
+        for function_signature in privileged_functions:
+            with self.subTest(function_signature=function_signature):
+                self.assertIn(
+                    f"revoke execute on function {function_signature} from public, anon, authenticated",
+                    normalized_sql,
+                )
+                self.assertIn(
+                    f"grant execute on function {function_signature} to service_role",
+                    normalized_sql,
+                )
+
+    def test_create_subscription_refuses_when_access_is_already_unlimited(self):
+        client = TestClient(app)
+        active_access = AccessStatus(
+            can_analyze=True,
+            has_unlimited_reports=True,
+            cas_report_limit=1,
+            cas_reports_used=1,
+            remaining_free_reports=0,
+            subscription_status="active",
+            razorpay_subscription_id="sub_test123",
+            current_period_end=None,
+        )
+
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main.get_access_status",
+            new=AsyncMock(return_value=active_access),
+        ), patch(
+            "app.Code.main.create_razorpay_subscription",
+            new=AsyncMock(side_effect=AssertionError("Razorpay should not be called")),
+        ):
+            response = client.post("/api/billing/create-subscription")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("already active", response.json().get("detail", "").lower())
+
+    def test_verify_subscription_rejects_wrong_plan_before_applying_access(self):
+        client = TestClient(app)
+        access = AccessStatus(
+            can_analyze=False,
+            has_unlimited_reports=False,
+            cas_report_limit=1,
+            cas_reports_used=1,
+            remaining_free_reports=0,
+            subscription_status="created",
+            razorpay_subscription_id="sub_test123",
+            current_period_end=None,
+        )
+        signature = hmac.new(
+            b"test_secret",
+            b"pay_test123|sub_test123",
+            hashlib.sha256,
+        ).hexdigest()
+
+        apply_mock = AsyncMock()
+        with patch.dict(
+            os.environ,
+            {"RAZORPAY_KEY_SECRET": "test_secret", "RAZORPAY_PLAN_ID": "plan_good123"},
+            clear=False,
+        ), patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main.get_access_status",
+            new=AsyncMock(return_value=access),
+        ), patch(
+            "app.Code.main.fetch_razorpay_subscription",
+            new=AsyncMock(return_value={"id": "sub_test123", "status": "active", "plan_id": "plan_bad123"}),
+        ), patch(
+            "app.Code.main.apply_subscription_status",
+            new=apply_mock,
+        ):
+            response = client.post(
+                "/api/billing/verify-subscription-payment",
+                json={
+                    "razorpay_payment_id": "pay_test123",
+                    "razorpay_subscription_id": "sub_test123",
+                    "razorpay_signature": signature,
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        apply_mock.assert_not_called()
+
+    def test_verify_subscription_rejects_missing_status_before_applying_access(self):
+        client = TestClient(app)
+        access = AccessStatus(
+            can_analyze=False,
+            has_unlimited_reports=False,
+            cas_report_limit=1,
+            cas_reports_used=1,
+            remaining_free_reports=0,
+            subscription_status="created",
+            razorpay_subscription_id="sub_test123",
+            current_period_end=None,
+        )
+        signature = hmac.new(
+            b"test_secret",
+            b"pay_test123|sub_test123",
+            hashlib.sha256,
+        ).hexdigest()
+
+        apply_mock = AsyncMock()
+        with patch.dict(
+            os.environ,
+            {"RAZORPAY_KEY_SECRET": "test_secret", "RAZORPAY_PLAN_ID": "plan_good123"},
+            clear=False,
+        ), patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main.get_access_status",
+            new=AsyncMock(return_value=access),
+        ), patch(
+            "app.Code.main.fetch_razorpay_subscription",
+            new=AsyncMock(return_value={"id": "sub_test123", "plan_id": "plan_good123"}),
+        ), patch(
+            "app.Code.main.apply_subscription_status",
+            new=apply_mock,
+        ):
+            response = client.post(
+                "/api/billing/verify-subscription-payment",
+                json={
+                    "razorpay_payment_id": "pay_test123",
+                    "razorpay_subscription_id": "sub_test123",
+                    "razorpay_signature": signature,
+                },
+            )
+
+        self.assertEqual(response.status_code, 502)
+        apply_mock.assert_not_called()
 
 
 class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):

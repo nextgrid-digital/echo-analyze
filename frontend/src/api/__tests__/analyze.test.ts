@@ -8,7 +8,7 @@ vi.mock("@/api/client", () => ({
 
 describe("analyzePortfolio", () => {
   afterEach(() => {
-    vi.restoreAllMocks()
+    vi.clearAllMocks()
   })
 
   it("sends the PDF password only for PDF uploads", async () => {
@@ -18,7 +18,11 @@ describe("analyzePortfolio", () => {
     await analyzePortfolio(file, "ABCDE1234F")
 
     const body = vi.mocked(apiFetch).mock.calls[0]?.[1]?.body as FormData
-    expect(body.get("file")).toBe(file)
+    const formFile = body.get("file")
+    expect(formFile).toBeInstanceOf(File)
+    expect((formFile as File).name).toBe(file.name)
+    expect((formFile as File).size).toBe(file.size)
+    expect((formFile as File).type).toBe(file.type)
     expect(body.has("password")).toBe(false)
   })
 
@@ -29,7 +33,11 @@ describe("analyzePortfolio", () => {
     await analyzePortfolio(file, "ABCDE1234F")
 
     const body = vi.mocked(apiFetch).mock.calls[0]?.[1]?.body as FormData
-    expect(body.get("file")).toBe(file)
+    const formFile = body.get("file")
+    expect(formFile).toBeInstanceOf(File)
+    expect((formFile as File).name).toBe(file.name)
+    expect((formFile as File).size).toBe(file.size)
+    expect((formFile as File).type).toBe(file.type)
     expect(body.get("password")).toBe("ABCDE1234F")
   })
 })

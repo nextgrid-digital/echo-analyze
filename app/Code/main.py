@@ -14,7 +14,7 @@ from time import monotonic, perf_counter
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple, get_args
 
 import httpx
-from fastapi import FastAPI, File, Form, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
@@ -22,6 +22,23 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.Code.analytics import get_admin_overview, record_analysis_run, record_audit_log
+from app.Code.billing import (
+    apply_subscription_status,
+    claim_webhook_event,
+    create_razorpay_subscription,
+    extract_subscription_event,
+    fetch_razorpay_subscription,
+    get_access_status,
+    get_razorpay_key_id,
+    is_reusable_checkout_status,
+    is_unlimited_subscription_status,
+    normalize_subscription_status,
+    refund_analysis_credit,
+    reserve_analysis_credit,
+    subscription_matches_configured_plan,
+    verify_checkout_signature,
+    verify_webhook_signature,
+)
 from app.Code.supabase_auth import (
     get_supabase_registered_user_count,
     _is_allowed_supabase_url,
@@ -63,6 +80,10 @@ SENSITIVE_API_PATHS = {
     "/api/analyze",
     "/api/parse_pdf",
     "/api/auth/me",
+    "/api/billing/access",
+    "/api/billing/create-subscription",
+    "/api/billing/verify-subscription-payment",
+    "/api/billing/razorpay-webhook",
     "/api/admin/overview",
 }
 
@@ -119,6 +140,8 @@ def _should_disable_cache(path: str) -> bool:
     if path == "/" or path == "/dashboard" or path.startswith("/dashboard/"):
         return True
     if path == "/admin" or path.startswith("/admin/"):
+        return True
+    if path == "/pricing" or path.startswith("/pricing/"):
         return True
     return False
 
@@ -347,12 +370,12 @@ def _build_content_security_policy() -> str:
 
     return (
         "default-src 'self'; "
-        "script-src 'self'; "
+        "script-src 'self' https://checkout.razorpay.com; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob: https:; "
         "font-src 'self' data:; "
         f"connect-src {' '.join(connect_sources)}; "
-        "frame-src 'none'; "
+        "frame-src https://api.razorpay.com https://checkout.razorpay.com; "
         "form-action 'self'; "
         "worker-src 'self' blob:; "
         "object-src 'none'; "
@@ -1393,6 +1416,35 @@ class AuthSessionResponse(BaseModel):
     user_id: str
     username: str
     is_admin: bool
+
+
+class BillingAccessResponse(BaseModel):
+    can_analyze: bool
+    has_unlimited_reports: bool
+    cas_report_limit: int
+    cas_reports_used: int
+    remaining_free_reports: int
+    subscription_status: str
+    razorpay_subscription_id: Optional[str] = None
+    current_period_end: Optional[str] = None
+
+
+class CreateSubscriptionResponse(BaseModel):
+    key_id: str
+    subscription_id: str
+    subscription_status: str
+    access: BillingAccessResponse
+
+
+class VerifySubscriptionPaymentRequest(BaseModel):
+    razorpay_payment_id: str
+    razorpay_subscription_id: str
+    razorpay_signature: str
+
+
+class VerifySubscriptionPaymentResponse(BaseModel):
+    success: bool
+    access: BillingAccessResponse
 
 
 class AdminAnalyticsMetrics(BaseModel):
@@ -2440,6 +2492,106 @@ async def auth_me(request: Request):
     return AuthSessionResponse(user_id=user.user_id, username=user.username, is_admin=user.is_admin)
 
 
+@app.get("/api/billing/access", response_model=BillingAccessResponse)
+async def billing_access(request: Request):
+    user = await require_supabase_user(request)
+    access = await get_access_status(user.user_id)
+    return BillingAccessResponse(**access.to_dict())
+
+
+@app.post("/api/billing/create-subscription", response_model=CreateSubscriptionResponse)
+async def billing_create_subscription(request: Request):
+    user = await require_supabase_user(request)
+    existing_access = await get_access_status(user.user_id)
+    if existing_access.has_unlimited_reports or is_unlimited_subscription_status(existing_access.subscription_status):
+        return JSONResponse(status_code=409, content={"detail": "Subscription is already active."})
+    if (
+        existing_access.razorpay_subscription_id
+        and is_reusable_checkout_status(existing_access.subscription_status)
+    ):
+        return CreateSubscriptionResponse(
+            key_id=get_razorpay_key_id(),
+            subscription_id=existing_access.razorpay_subscription_id,
+            subscription_status=existing_access.subscription_status,
+            access=BillingAccessResponse(**existing_access.to_dict()),
+        )
+    subscription = await create_razorpay_subscription(user)
+    access = await get_access_status(user.user_id)
+    return CreateSubscriptionResponse(
+        key_id=get_razorpay_key_id(),
+        subscription_id=subscription["id"],
+        subscription_status=subscription["status"],
+        access=BillingAccessResponse(**access.to_dict()),
+    )
+
+
+@app.post("/api/billing/verify-subscription-payment", response_model=VerifySubscriptionPaymentResponse)
+async def billing_verify_subscription_payment(
+    request: Request,
+    payload: VerifySubscriptionPaymentRequest,
+):
+    user = await require_supabase_user(request)
+    payment_id = payload.razorpay_payment_id.strip()
+    subscription_id = payload.razorpay_subscription_id.strip()
+    signature = payload.razorpay_signature.strip()
+    existing_access = await get_access_status(user.user_id)
+    if existing_access.razorpay_subscription_id != subscription_id:
+        return JSONResponse(status_code=400, content={"detail": "Unknown Razorpay subscription."})
+    verify_checkout_signature(
+        payment_id=payment_id,
+        subscription_id=subscription_id,
+        signature=signature,
+    )
+    subscription = await fetch_razorpay_subscription(subscription_id)
+    if not subscription_matches_configured_plan(subscription):
+        return JSONResponse(status_code=400, content={"detail": "Unknown Razorpay subscription."})
+    notes = subscription.get("notes") if isinstance(subscription.get("notes"), dict) else {}
+    subscription_user_id = notes.get("user_id")
+    if subscription_user_id and subscription_user_id != user.user_id:
+        return JSONResponse(status_code=403, content={"detail": "Subscription does not belong to this user."})
+    status = normalize_subscription_status(subscription.get("status"))
+    if status is None:
+        return JSONResponse(status_code=502, content={"detail": "Invalid Razorpay subscription response."})
+    access = await apply_subscription_status(
+        user_id=user.user_id,
+        subscription_id=subscription_id,
+        customer_id=subscription.get("customer_id") if isinstance(subscription.get("customer_id"), str) else None,
+        status=status,
+        current_period_end=subscription.get("current_end"),
+    )
+    return VerifySubscriptionPaymentResponse(success=True, access=BillingAccessResponse(**access.to_dict()))
+
+
+@app.post("/api/billing/razorpay-webhook")
+async def billing_razorpay_webhook(request: Request):
+    raw_body = await request.body()
+    signature = request.headers.get("x-razorpay-signature", "")
+    verify_webhook_signature(raw_body, signature)
+
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except ValueError:
+        return JSONResponse(status_code=400, content={"detail": "Invalid webhook payload."})
+
+    event_id = request.headers.get("x-razorpay-event-id", "")
+    event_name = str(payload.get("event") or "")
+    if event_id:
+        is_new_event = await claim_webhook_event(event_id, event_name)
+        if not is_new_event:
+            return {"ok": True, "duplicate": True}
+
+    subscription_event = extract_subscription_event(payload)
+    if subscription_event:
+        await apply_subscription_status(
+            user_id=subscription_event["user_id"],
+            subscription_id=subscription_event["subscription_id"],
+            customer_id=subscription_event["customer_id"],
+            status=subscription_event["status"],
+            current_period_end=subscription_event["current_period_end"],
+        )
+    return {"ok": True}
+
+
 @app.get("/api/admin/overview", response_model=AdminOverviewResponse)
 async def admin_overview(
     request: Request,
@@ -2478,6 +2630,7 @@ async def analyze(
     raw_filename = (file.filename or "").strip()
     filename_lower = raw_filename.lower()
     file_type = Path(raw_filename).suffix.lower().lstrip(".") or None
+    credit_consumed = False
 
     def record_outcome(response: Optional[AnalysisResponse], status: str, error_message: Optional[str] = None) -> None:
         holdings_count = response.summary.holdings_count if response and response.summary else None
@@ -2493,6 +2646,20 @@ async def analyze(
             total_market_value=None,
             error_message=error_message,
         )
+
+    async def reserve_report_access() -> None:
+        nonlocal credit_consumed
+        reservation = await reserve_analysis_credit(auth_user.user_id)
+        credit_consumed = reservation.credit_consumed
+
+    async def refund_report_access_if_needed() -> None:
+        nonlocal credit_consumed
+        if not credit_consumed:
+            return
+        try:
+            await refund_analysis_credit(auth_user.user_id)
+        finally:
+            credit_consumed = False
 
     try:
         content, read_error = await _read_upload_limited(file)
@@ -2513,12 +2680,16 @@ async def analyze(
             return response
 
         if filename_lower.endswith(".pdf"):
+            await reserve_report_access()
             parse_result = await _parse_pdf_upload(content, password=password)
             if not parse_result["success"]:
+                await refund_report_access_if_needed()
                 response = AnalysisResponse(success=False, error=parse_result["error"])
                 record_outcome(response, "parse_error", parse_result["error"])
                 return response
             response = await map_casparser_to_analysis(parse_result["data"])
+            if not response.success:
+                await refund_report_access_if_needed()
             record_outcome(response, "success" if response.success else "analysis_error", response.error)
             return response
 
@@ -2535,7 +2706,10 @@ async def analyze(
                     response = AnalysisResponse(success=False, error=shape_error)
                     record_outcome(response, "validation_error", shape_error)
                     return response
+                await reserve_report_access()
                 response = await map_casparser_to_analysis(json_data)
+                if not response.success:
+                    await refund_report_access_if_needed()
                 record_outcome(response, "success" if response.success else "analysis_error", response.error)
                 return response
             if isinstance(json_data, list):
@@ -2549,7 +2723,11 @@ async def analyze(
         response = AnalysisResponse(success=False, error="Unsupported file type. Please upload a PDF or JSON.")
         record_outcome(response, "validation_error", response.error)
         return response
+    except HTTPException:
+        await refund_report_access_if_needed()
+        raise
     except Exception as e:
+        await refund_report_access_if_needed()
         log_debug(f"[{request_id}] analyze error: {type(e).__name__}: {e}")
         error_message = f"Internal server error. Request ID: {request_id}"
         response = AnalysisResponse(success=False, error=error_message)
@@ -2720,6 +2898,16 @@ async def admin_page():
 
 @app.get("/admin/{path:path}")
 async def admin_page_nested(path: str):
+    return _serve_spa()
+
+
+@app.get("/pricing")
+async def pricing_page():
+    return _serve_spa()
+
+
+@app.get("/pricing/{path:path}")
+async def pricing_page_nested(path: str):
     return _serve_spa()
 
 
