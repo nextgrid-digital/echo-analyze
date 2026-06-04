@@ -41,34 +41,6 @@ def _sanitize_text(value: Optional[str]) -> Optional[str]:
     return text[:160]
 
 
-def _sanitize_file_name(file_name: Optional[str]) -> Optional[str]:
-    if file_name is None:
-        return None
-
-    normalized = Path(str(file_name)).name.strip()
-    if not normalized:
-        return None
-
-    path_obj = Path(normalized)
-    suffix = "".join(path_obj.suffixes[-1:])[:16]
-    stem = normalized[: -len(suffix)] if suffix and normalized.endswith(suffix) else normalized
-
-    sanitized_stem = _sanitize_text(stem)
-    sanitized = f"{sanitized_stem or 'file'}{suffix}" if suffix else sanitized_stem
-    if sanitized is None:
-        return None
-
-    if len(sanitized) <= 120:
-        return sanitized
-
-    stem, suffix = os.path.splitext(sanitized)
-    suffix = suffix[:16]
-    max_stem_len = max(0, 120 - len(suffix) - 1)
-    if not suffix or max_stem_len <= 0:
-        return sanitized[:120]
-    return f"{stem[:max_stem_len]}~{suffix}"
-
-
 def _sanitize_metadata(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(k): _sanitize_metadata(v) for k, v in value.items()}
@@ -108,6 +80,17 @@ def _connect() -> sqlite3.Connection:
     return connection
 
 
+def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(row["name"] == column for row in rows)
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column_sql: str) -> None:
+    column_name = column_sql.split(None, 1)[0]
+    if not _column_exists(conn, table, column_name):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column_sql}")
+
+
 def _pseudonymize_existing_identifiers(conn: sqlite3.Connection) -> None:
     try:
         rows = conn.execute("SELECT id, user_id, session_id FROM analysis_runs").fetchall()
@@ -125,6 +108,10 @@ def _pseudonymize_existing_identifiers(conn: sqlite3.Connection) -> None:
             user_id = _pseudonymize_identifier(row["user_id"], "usr")
             if user_id != row["user_id"]:
                 conn.execute("UPDATE audit_logs SET user_id = ? WHERE id = ?", (user_id, row["id"]))
+        if _column_exists(conn, "analysis_runs", "file_name"):
+            conn.execute("UPDATE analysis_runs SET file_name = NULL")
+        if _column_exists(conn, "analysis_runs", "total_market_value"):
+            conn.execute("UPDATE analysis_runs SET total_market_value = NULL")
     except Exception:
         return
 
@@ -139,8 +126,8 @@ def init_analytics_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 request_id TEXT NOT NULL,
                 user_id TEXT NOT NULL,
+                username TEXT NOT NULL DEFAULT 'Unknown user',
                 session_id TEXT,
-                file_name TEXT,
                 file_type TEXT,
                 status TEXT NOT NULL,
                 duration_ms INTEGER,
@@ -156,6 +143,7 @@ def init_analytics_db() -> None:
             CREATE TABLE IF NOT EXISTS audit_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT,
+                username TEXT,
                 route TEXT NOT NULL,
                 action TEXT NOT NULL,
                 status TEXT NOT NULL,
@@ -165,6 +153,21 @@ def init_analytics_db() -> None:
             )
             """
         )
+        for column_sql in (
+            "username TEXT NOT NULL DEFAULT 'Unknown user'",
+            "session_id TEXT",
+            "file_type TEXT",
+            "duration_ms INTEGER",
+            "holdings_count INTEGER",
+            "total_market_value REAL",
+            "error_message TEXT",
+        ):
+            _ensure_column(conn, "analysis_runs", column_sql)
+        for column_sql in (
+            "username TEXT",
+            "metadata_json TEXT",
+        ):
+            _ensure_column(conn, "audit_logs", column_sql)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_analysis_runs_created_at ON analysis_runs(created_at DESC)"
         )
@@ -186,6 +189,7 @@ def init_analytics_db() -> None:
 def record_audit_log(
     *,
     user_id: Optional[str],
+    username: Optional[str] = None,
     route: str,
     action: str,
     status: str,
@@ -193,6 +197,7 @@ def record_audit_log(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
     safe_user_id = _pseudonymize_identifier(user_id, "usr")
+    safe_username = _sanitize_text(username) or "Unknown user"
     safe_message = _sanitize_text(message) or "Event recorded."
     safe_metadata = _sanitize_metadata(metadata or {})
 
@@ -203,16 +208,18 @@ def record_audit_log(
             """
             INSERT INTO audit_logs (
                 user_id,
+                username,
                 route,
                 action,
                 status,
                 message,
                 metadata_json,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 safe_user_id,
+                safe_username,
                 route,
                 action,
                 status,
@@ -233,8 +240,8 @@ def record_analysis_run(
     *,
     request_id: str,
     user_id: str,
+    username: Optional[str],
     session_id: Optional[str],
-    file_name: Optional[str],
     file_type: Optional[str],
     status: str,
     duration_ms: Optional[int],
@@ -244,8 +251,8 @@ def record_analysis_run(
 ) -> None:
     created_at = _utc_now_iso()
     safe_user_id = _pseudonymize_identifier(user_id, "usr") or "usr_unknown"
+    safe_username = _sanitize_text(username) or "Unknown user"
     safe_session_id = _pseudonymize_identifier(session_id, "ses")
-    safe_file_name = _sanitize_file_name(file_name)
     safe_error_message = _sanitize_text(error_message)
     conn: Optional[sqlite3.Connection] = None
     try:
@@ -255,8 +262,8 @@ def record_analysis_run(
             INSERT INTO analysis_runs (
                 request_id,
                 user_id,
+                username,
                 session_id,
-                file_name,
                 file_type,
                 status,
                 duration_ms,
@@ -269,13 +276,13 @@ def record_analysis_run(
             (
                 request_id,
                 safe_user_id,
+                safe_username,
                 safe_session_id,
-                safe_file_name,
                 file_type,
                 status,
                 duration_ms,
                 holdings_count,
-                total_market_value,
+                None,
                 safe_error_message,
                 created_at,
             ),
@@ -289,26 +296,38 @@ def record_analysis_run(
 
     record_audit_log(
         user_id=safe_user_id,
+        username=safe_username,
         route="/api/analyze",
         action="analysis_completed" if status == "success" else "analysis_failed",
         status=status,
         message=safe_error_message or f"Analysis {status}.",
         metadata={
             "request_id": request_id,
-            "file_name": safe_file_name,
             "file_type": file_type,
             "duration_ms": duration_ms,
             "holdings_count": holdings_count,
-            "total_market_value": total_market_value,
         },
     )
 
 
-def get_admin_overview(*, registered_users: Optional[int] = None) -> Dict[str, Any]:
+LOG_WINDOW_DAYS = {
+    "24h": 1,
+    "7d": 7,
+    "30d": 30,
+}
+
+
+def get_admin_overview(*, registered_users: Optional[int] = None, log_window: str = "24h") -> Dict[str, Any]:
+    window_key = log_window if log_window in LOG_WINDOW_DAYS else "24h"
+    window_days = LOG_WINDOW_DAYS[window_key]
+    window_since = (datetime.now(timezone.utc) - timedelta(days=window_days)).replace(microsecond=0).isoformat()
+
     defaults = {
         "metrics": {
             "registered_users": registered_users,
+            "total_users": registered_users,
             "tracked_users": 0,
+            "active_users": 0,
             "active_users_7d": 0,
             "total_analyses": 0,
             "successful_analyses": 0,
@@ -319,8 +338,10 @@ def get_admin_overview(*, registered_users: Optional[int] = None) -> Dict[str, A
             "slowest_duration_ms": None,
             "last_analysis_at": None,
         },
+        "log_window": window_key,
         "recent_analyses": [],
         "recent_logs": [],
+        "top_users": [],
     }
 
     conn: Optional[sqlite3.Connection] = None
@@ -341,28 +362,34 @@ def get_admin_overview(*, registered_users: Optional[int] = None) -> Dict[str, A
             """
         ).fetchone()
 
-        active_since = (datetime.now(timezone.utc) - timedelta(days=7)).replace(microsecond=0).isoformat()
+        active_7d_since = (datetime.now(timezone.utc) - timedelta(days=7)).replace(microsecond=0).isoformat()
         active_users_row = conn.execute(
             """
             SELECT COUNT(DISTINCT user_id) AS active_users_7d
             FROM analysis_runs
             WHERE created_at >= ?
             """,
-            (active_since,),
+            (active_7d_since,),
+        ).fetchone()
+
+        window_active_users_row = conn.execute(
+            """
+            SELECT COUNT(DISTINCT user_id) AS active_users
+            FROM analysis_runs
+            WHERE created_at >= ?
+            """,
+            (window_since,),
         ).fetchone()
 
         recent_analyses_rows = conn.execute(
             """
             SELECT
                 request_id,
-                user_id,
-                session_id,
-                file_name,
+                username,
                 file_type,
                 status,
                 duration_ms,
                 holdings_count,
-                total_market_value,
                 error_message,
                 created_at
             FROM analysis_runs
@@ -374,7 +401,7 @@ def get_admin_overview(*, registered_users: Optional[int] = None) -> Dict[str, A
         recent_logs_rows = conn.execute(
             """
             SELECT
-                user_id,
+                username,
                 route,
                 action,
                 status,
@@ -382,8 +409,23 @@ def get_admin_overview(*, registered_users: Optional[int] = None) -> Dict[str, A
                 metadata_json,
                 created_at
             FROM audit_logs
+            WHERE created_at >= ?
             ORDER BY created_at DESC
             LIMIT 20
+            """,
+            (window_since,),
+        ).fetchall()
+
+        top_users_rows = conn.execute(
+            """
+            SELECT
+                username,
+                COUNT(*) AS report_count,
+                MAX(created_at) AS last_analysis_at
+            FROM analysis_runs
+            GROUP BY user_id, username
+            ORDER BY report_count DESC, last_analysis_at DESC
+            LIMIT 10
             """
         ).fetchall()
     except Exception:
@@ -410,7 +452,7 @@ def get_admin_overview(*, registered_users: Optional[int] = None) -> Dict[str, A
                 metadata = {}
         recent_logs.append(
             {
-                "user_id": row["user_id"],
+                "username": row["username"] or "Unknown user",
                 "route": row["route"],
                 "action": row["action"],
                 "status": row["status"],
@@ -423,7 +465,9 @@ def get_admin_overview(*, registered_users: Optional[int] = None) -> Dict[str, A
     return {
         "metrics": {
             "registered_users": registered_users,
+            "total_users": registered_users if registered_users is not None else int(metrics_row["tracked_users"] or 0),
             "tracked_users": int(metrics_row["tracked_users"] or 0),
+            "active_users": int(window_active_users_row["active_users"] or 0),
             "active_users_7d": int(active_users_row["active_users_7d"] or 0),
             "total_analyses": total_analyses,
             "successful_analyses": successful_analyses,
@@ -434,8 +478,10 @@ def get_admin_overview(*, registered_users: Optional[int] = None) -> Dict[str, A
             "slowest_duration_ms": metrics_row["slowest_duration_ms"],
             "last_analysis_at": metrics_row["last_analysis_at"],
         },
+        "log_window": window_key,
         "recent_analyses": [dict(row) for row in recent_analyses_rows],
         "recent_logs": recent_logs,
+        "top_users": [dict(row) for row in top_users_rows],
     }
 
 

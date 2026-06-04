@@ -11,24 +11,45 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from time import monotonic, perf_counter
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple, get_args
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.Code.analytics import get_admin_overview, record_analysis_run, record_audit_log
+from app.Code.billing import (
+    apply_subscription_status,
+    claim_webhook_event,
+    create_razorpay_subscription,
+    extract_subscription_event,
+    fetch_razorpay_subscription,
+    get_access_status,
+    get_razorpay_key_id,
+    is_reusable_checkout_status,
+    is_unlimited_subscription_status,
+    normalize_subscription_status,
+    refund_analysis_credit,
+    reserve_analysis_credit,
+    subscription_matches_configured_plan,
+    verify_checkout_signature,
+    verify_webhook_signature,
+)
+from app.Code.supabase_auth import (
+    get_supabase_registered_user_count,
+    _is_allowed_supabase_url,
+    require_supabase_user,
+)
 from app.cas_parser import convert_to_excel, parse_with_casparser
 from app.holdings import get_holdings_for_schemes, save_amfi_cache_async
 from app.overlap import compute_overlap_matrix
 from app.utils import calculate_xirr, fetch_live_nav, fetch_nav_history, save_cache_async
 
 app = FastAPI()
-
-ANALYTICS_USER_ID = "anonymous"
 
 LOG_FILE = "data/backend_debug.log"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -55,10 +76,14 @@ PDF_PARSE_STARTUP_ERROR = "PDF parsing could not start. Please try again later."
 PDF_PARSE_TIMEOUT_ERROR = "PDF parsing timed out. Please try again with a smaller file."
 PDF_PARSE_GENERIC_ERROR = "Unable to parse the provided PDF file."
 DEBUG_LOG_ENABLED = os.environ.get("ENABLE_DEBUG_LOGS", "").strip().lower() in {"1", "true", "yes"}
-ADMIN_ACCESS_ENABLED = os.environ.get("ADMIN_ACCESS_ENABLED", "").strip().lower() in {"1", "true", "yes"}
 SENSITIVE_API_PATHS = {
     "/api/analyze",
     "/api/parse_pdf",
+    "/api/auth/me",
+    "/api/billing/access",
+    "/api/billing/create-subscription",
+    "/api/billing/verify-subscription-payment",
+    "/api/billing/razorpay-webhook",
     "/api/admin/overview",
 }
 
@@ -105,7 +130,7 @@ app.add_middleware(
     allow_origins=_get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Accept"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 
@@ -115,6 +140,8 @@ def _should_disable_cache(path: str) -> bool:
     if path == "/" or path == "/dashboard" or path.startswith("/dashboard/"):
         return True
     if path == "/admin" or path.startswith("/admin/"):
+        return True
+    if path == "/pricing" or path.startswith("/pricing/"):
         return True
     return False
 
@@ -327,14 +354,28 @@ def _get_pdf_parse_executor() -> str:
 
 
 def _build_content_security_policy() -> str:
+    connect_sources = ["'self'", "https://*.supabase.co"]
+    for env_key in ("SUPABASE_URL", "APP_SUPABASE_URL"):
+        raw_url = os.environ.get(env_key, "").strip()
+        if not raw_url:
+            continue
+        try:
+            parsed = httpx.URL(raw_url)
+        except httpx.InvalidURL:
+            continue
+        if _is_allowed_supabase_url(raw_url) and parsed.scheme in {"https", "http"} and parsed.host:
+            source = f"{parsed.scheme}://{parsed.host}"
+            if source not in connect_sources:
+                connect_sources.append(source)
+
     return (
         "default-src 'self'; "
-        "script-src 'self'; "
+        "script-src 'self' https://checkout.razorpay.com; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob: https:; "
         "font-src 'self' data:; "
-        "connect-src 'self'; "
-        "frame-src 'none'; "
+        f"connect-src {' '.join(connect_sources)}; "
+        "frame-src https://api.razorpay.com https://checkout.razorpay.com; "
         "form-action 'self'; "
         "worker-src 'self' blob:; "
         "object-src 'none'; "
@@ -348,9 +389,18 @@ def _parse_pdf_upload_direct(content: bytes, password: str) -> Dict[str, Any]:
         result = parse_with_casparser(io.BytesIO(content), password=password)
         if not isinstance(result, dict):
             result = {"success": False, "error": PDF_PARSE_GENERIC_ERROR}
-    except BaseException:
+    except Exception:
         result = {"success": False, "error": PDF_PARSE_GENERIC_ERROR}
     return result
+
+
+def _validate_parsed_cas_payload(data: Any) -> Optional[str]:
+    if not isinstance(data, dict):
+        return "Parsed CAS data is malformed."
+    shape_error = _validate_cas_json_shape(data)
+    if shape_error:
+        return shape_error
+    return None
 
 
 def _send_pdf_parse_result(result_sink: Any, result: Dict[str, Any]) -> None:
@@ -880,6 +930,15 @@ def _nav_from_prepared_history(
     return _benchmark_nav_for_date(date_str, hist, keys, days)
 
 
+async def _fetch_nav_history_for_required_dates(code: str, required_dates: Optional[Set[date]]) -> dict:
+    try:
+        return await fetch_nav_history(code, required_dates=required_dates)
+    except TypeError as exc:
+        if "required_dates" not in str(exc) and "unexpected keyword" not in str(exc):
+            raise
+        return await fetch_nav_history(code)
+
+
 def _units_at_cutoff(
     units_now: float,
     unit_events: List[Tuple[datetime, float]],
@@ -1314,9 +1373,85 @@ class AnalysisResponse(BaseModel):
     error: Optional[str] = None
 
 
+def _annotation_allows_none(annotation: Any) -> bool:
+    if annotation is Any:
+        return True
+    return type(None) in get_args(annotation) or annotation is type(None)
+
+
+def _sanitize_nonfinite_json_values(value: Any, annotation: Any = None) -> Any:
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value
+        return None if _annotation_allows_none(annotation) else 0.0
+
+    if isinstance(value, BaseModel):
+        model_fields = getattr(type(value), "model_fields", None) or getattr(value, "__fields__", {})
+        for field_name, field_info in model_fields.items():
+            field_annotation = getattr(field_info, "annotation", None)
+            sanitized = _sanitize_nonfinite_json_values(
+                getattr(value, field_name),
+                field_annotation,
+            )
+            setattr(value, field_name, sanitized)
+        return value
+
+    if isinstance(value, list):
+        return [_sanitize_nonfinite_json_values(item) for item in value]
+
+    if isinstance(value, tuple):
+        return tuple(_sanitize_nonfinite_json_values(item) for item in value)
+
+    if isinstance(value, dict):
+        return {key: _sanitize_nonfinite_json_values(item) for key, item in value.items()}
+
+    return value
+
+
+def _safe_analysis_response(response: AnalysisResponse) -> AnalysisResponse:
+    return _sanitize_nonfinite_json_values(response)
+
+
+class AuthSessionResponse(BaseModel):
+    user_id: str
+    username: str
+    is_admin: bool
+
+
+class BillingAccessResponse(BaseModel):
+    can_analyze: bool
+    has_unlimited_reports: bool
+    cas_report_limit: int
+    cas_reports_used: int
+    remaining_free_reports: int
+    subscription_status: str
+    razorpay_subscription_id: Optional[str] = None
+    current_period_end: Optional[str] = None
+
+
+class CreateSubscriptionResponse(BaseModel):
+    key_id: str
+    subscription_id: str
+    subscription_status: str
+    access: BillingAccessResponse
+
+
+class VerifySubscriptionPaymentRequest(BaseModel):
+    razorpay_payment_id: str
+    razorpay_subscription_id: str
+    razorpay_signature: str
+
+
+class VerifySubscriptionPaymentResponse(BaseModel):
+    success: bool
+    access: BillingAccessResponse
+
+
 class AdminAnalyticsMetrics(BaseModel):
     registered_users: Optional[int] = None
+    total_users: Optional[int] = None
     tracked_users: int
+    active_users: int
     active_users_7d: int
     total_analyses: int
     successful_analyses: int
@@ -1330,20 +1465,17 @@ class AdminAnalyticsMetrics(BaseModel):
 
 class AdminAnalysisRun(BaseModel):
     request_id: str
-    user_id: str
-    session_id: Optional[str] = None
-    file_name: Optional[str] = None
+    username: str
     file_type: Optional[str] = None
     status: str
     duration_ms: Optional[int] = None
     holdings_count: Optional[int] = None
-    total_market_value: Optional[float] = None
     error_message: Optional[str] = None
     created_at: str
 
 
 class AdminLogEntry(BaseModel):
-    user_id: Optional[str] = None
+    username: Optional[str] = None
     route: str
     action: str
     status: str
@@ -1352,10 +1484,18 @@ class AdminLogEntry(BaseModel):
     created_at: str
 
 
+class AdminTopUser(BaseModel):
+    username: str
+    report_count: int
+    last_analysis_at: Optional[str] = None
+
+
 class AdminOverviewResponse(BaseModel):
     metrics: AdminAnalyticsMetrics
+    log_window: Literal["24h", "7d", "30d"] = "24h"
     recent_analyses: List[AdminAnalysisRun] = Field(default_factory=list)
     recent_logs: List[AdminLogEntry] = Field(default_factory=list)
+    top_users: List[AdminTopUser] = Field(default_factory=list)
 
 async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     if not isinstance(cas_data, dict):
@@ -1448,6 +1588,16 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
     all_amfis = set()
     benchmark_codes_needed = set()
+    history_dates_by_code: Dict[str, Set[date]] = {}
+
+    def add_history_date(code: str, value: Any) -> None:
+        if not code:
+            return
+        parsed = _parse_iso_date(value)
+        if parsed:
+            history_dates_by_code.setdefault(code, set()).add(parsed.date())
+
+    history_anchor_dates = [analysis_now_dt, one_year_cutoff_dt, three_year_cutoff_dt]
     for folio_data in folios:
         if not isinstance(folio_data, dict):
             continue
@@ -1460,13 +1610,31 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             amfi = _normalize_amfi_code(scheme.get("amfi"))
             if amfi:
                 all_amfis.add(amfi)
+                for anchor_dt in history_anchor_dates:
+                    add_history_date(amfi, anchor_dt)
             name = _safe_text(scheme.get("scheme"), "Unknown Scheme")
             scheme_type = _safe_text(scheme.get("type"), "OTHERS")
             sub_cat = get_sub_category(name, scheme_type)
             cat, _ = _infer_category(name, scheme_type, sub_cat)
             comps = _resolve_benchmark_components(name, scheme_type, sub_cat, cat)
+            transaction_dates: List[datetime] = []
+            transactions = scheme.get("transactions", [])
+            if isinstance(transactions, list):
+                for txn in transactions:
+                    if not isinstance(txn, dict):
+                        continue
+                    txn_dt = _parse_iso_date(txn.get("date"))
+                    if not txn_dt:
+                        continue
+                    transaction_dates.append(txn_dt)
+                    if amfi:
+                        add_history_date(amfi, txn_dt)
             for comp in comps:
                 benchmark_codes_needed.add(comp.code)
+                for anchor_dt in history_anchor_dates:
+                    add_history_date(comp.code, anchor_dt)
+                for txn_dt in transaction_dates:
+                    add_history_date(comp.code, txn_dt)
 
     nav_map: Dict[str, float] = {}
     benchmark_histories_prepared: Dict[str, Tuple[Dict[str, float], List[str], List[date], float]] = {}
@@ -1478,8 +1646,14 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
         live_nav_results, benchmark_history_results, scheme_history_results = await asyncio.gather(
             asyncio.gather(*[fetch_live_nav(code) for code in amfi_codes], return_exceptions=True),
-            asyncio.gather(*[fetch_nav_history(code) for code in benchmark_codes], return_exceptions=True),
-            asyncio.gather(*[fetch_nav_history(code) for code in amfi_codes], return_exceptions=True),
+            asyncio.gather(
+                *[_fetch_nav_history_for_required_dates(code, history_dates_by_code.get(code)) for code in benchmark_codes],
+                return_exceptions=True,
+            ),
+            asyncio.gather(
+                *[_fetch_nav_history_for_required_dates(code, history_dates_by_code.get(code)) for code in amfi_codes],
+                return_exceptions=True,
+            ),
         )
 
         for code, result in zip(amfi_codes, live_nav_results):
@@ -2305,30 +2479,142 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             overlap_available_funds=overlap_available_funds,
         ),
     )
-    return AnalysisResponse(success=True, holdings=holdings, summary=summary)
+    return _safe_analysis_response(AnalysisResponse(success=True, holdings=holdings, summary=summary))
 
 
 def parse_cas_data(_data):
     return AnalysisResponse(success=False, error="Legacy list format not supported in new analyzer")
 
 
-@app.get("/api/admin/overview", response_model=AdminOverviewResponse)
-async def admin_overview():
-    if not ADMIN_ACCESS_ENABLED:
-        raise HTTPException(status_code=404, detail="Admin access is temporarily disabled.")
+@app.get("/api/auth/me", response_model=AuthSessionResponse)
+async def auth_me(request: Request):
+    user = await require_supabase_user(request)
+    return AuthSessionResponse(user_id=user.user_id, username=user.username, is_admin=user.is_admin)
 
+
+@app.get("/api/billing/access", response_model=BillingAccessResponse)
+async def billing_access(request: Request):
+    user = await require_supabase_user(request)
+    access = await get_access_status(user.user_id)
+    return BillingAccessResponse(**access.to_dict())
+
+
+@app.post("/api/billing/create-subscription", response_model=CreateSubscriptionResponse)
+async def billing_create_subscription(request: Request):
+    user = await require_supabase_user(request)
+    existing_access = await get_access_status(user.user_id)
+    if existing_access.has_unlimited_reports or is_unlimited_subscription_status(existing_access.subscription_status):
+        return JSONResponse(status_code=409, content={"detail": "Subscription is already active."})
+    if (
+        existing_access.razorpay_subscription_id
+        and is_reusable_checkout_status(existing_access.subscription_status)
+    ):
+        return CreateSubscriptionResponse(
+            key_id=get_razorpay_key_id(),
+            subscription_id=existing_access.razorpay_subscription_id,
+            subscription_status=existing_access.subscription_status,
+            access=BillingAccessResponse(**existing_access.to_dict()),
+        )
+    subscription = await create_razorpay_subscription(user)
+    access = await get_access_status(user.user_id)
+    return CreateSubscriptionResponse(
+        key_id=get_razorpay_key_id(),
+        subscription_id=subscription["id"],
+        subscription_status=subscription["status"],
+        access=BillingAccessResponse(**access.to_dict()),
+    )
+
+
+@app.post("/api/billing/verify-subscription-payment", response_model=VerifySubscriptionPaymentResponse)
+async def billing_verify_subscription_payment(
+    request: Request,
+    payload: VerifySubscriptionPaymentRequest,
+):
+    user = await require_supabase_user(request)
+    payment_id = payload.razorpay_payment_id.strip()
+    subscription_id = payload.razorpay_subscription_id.strip()
+    signature = payload.razorpay_signature.strip()
+    existing_access = await get_access_status(user.user_id)
+    if existing_access.razorpay_subscription_id != subscription_id:
+        return JSONResponse(status_code=400, content={"detail": "Unknown Razorpay subscription."})
+    verify_checkout_signature(
+        payment_id=payment_id,
+        subscription_id=subscription_id,
+        signature=signature,
+    )
+    subscription = await fetch_razorpay_subscription(subscription_id)
+    if not subscription_matches_configured_plan(subscription):
+        return JSONResponse(status_code=400, content={"detail": "Unknown Razorpay subscription."})
+    notes = subscription.get("notes") if isinstance(subscription.get("notes"), dict) else {}
+    subscription_user_id = notes.get("user_id")
+    if subscription_user_id and subscription_user_id != user.user_id:
+        return JSONResponse(status_code=403, content={"detail": "Subscription does not belong to this user."})
+    status = normalize_subscription_status(subscription.get("status"))
+    if status is None:
+        return JSONResponse(status_code=502, content={"detail": "Invalid Razorpay subscription response."})
+    access = await apply_subscription_status(
+        user_id=user.user_id,
+        subscription_id=subscription_id,
+        customer_id=subscription.get("customer_id") if isinstance(subscription.get("customer_id"), str) else None,
+        status=status,
+        current_period_end=subscription.get("current_end"),
+    )
+    return VerifySubscriptionPaymentResponse(success=True, access=BillingAccessResponse(**access.to_dict()))
+
+
+@app.post("/api/billing/razorpay-webhook")
+async def billing_razorpay_webhook(request: Request):
+    raw_body = await request.body()
+    signature = request.headers.get("x-razorpay-signature", "")
+    verify_webhook_signature(raw_body, signature)
+
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except ValueError:
+        return JSONResponse(status_code=400, content={"detail": "Invalid webhook payload."})
+
+    event_id = request.headers.get("x-razorpay-event-id", "")
+    event_name = str(payload.get("event") or "")
+    if event_id:
+        is_new_event = await claim_webhook_event(event_id, event_name)
+        if not is_new_event:
+            return {"ok": True, "duplicate": True}
+
+    subscription_event = extract_subscription_event(payload)
+    if subscription_event:
+        await apply_subscription_status(
+            user_id=subscription_event["user_id"],
+            subscription_id=subscription_event["subscription_id"],
+            customer_id=subscription_event["customer_id"],
+            status=subscription_event["status"],
+            current_period_end=subscription_event["current_period_end"],
+        )
+    return {"ok": True}
+
+
+@app.get("/api/admin/overview", response_model=AdminOverviewResponse)
+async def admin_overview(
+    request: Request,
+    log_window: Literal["24h", "7d", "30d"] = Query("24h"),
+):
+    user = await require_supabase_user(request, require_admin=True)
     record_audit_log(
-        user_id=ANALYTICS_USER_ID,
+        user_id=user.user_id,
+        username=user.username,
         route="/api/admin/overview",
         action="admin_overview_viewed",
         status="success",
         message="Admin overview fetched.",
+        metadata={"log_window": log_window},
     )
-    overview = get_admin_overview(registered_users=None)
+    registered_users = await get_supabase_registered_user_count()
+    overview = get_admin_overview(registered_users=registered_users, log_window=log_window)
     return AdminOverviewResponse(
         metrics=AdminAnalyticsMetrics(**overview["metrics"]),
+        log_window=overview["log_window"],
         recent_analyses=[AdminAnalysisRun(**item) for item in overview["recent_analyses"]],
         recent_logs=[AdminLogEntry(**item) for item in overview["recent_logs"]],
+        top_users=[AdminTopUser(**item) for item in overview["top_users"]],
     )
 
 
@@ -2338,27 +2624,42 @@ async def analyze(
     file: UploadFile = File(...),
     password: str = Form(""),
 ):
+    auth_user = await require_supabase_user(request)
     request_id = uuid.uuid4().hex[:10]
     started_at = perf_counter()
     raw_filename = (file.filename or "").strip()
     filename_lower = raw_filename.lower()
     file_type = Path(raw_filename).suffix.lower().lstrip(".") or None
+    credit_consumed = False
 
     def record_outcome(response: Optional[AnalysisResponse], status: str, error_message: Optional[str] = None) -> None:
         holdings_count = response.summary.holdings_count if response and response.summary else None
-        total_market_value = response.summary.total_market_value if response and response.summary else None
         record_analysis_run(
             request_id=request_id,
-            user_id=ANALYTICS_USER_ID,
+            user_id=auth_user.user_id,
+            username=auth_user.username,
             session_id=None,
-            file_name=raw_filename or None,
             file_type=file_type,
             status=status,
             duration_ms=int((perf_counter() - started_at) * 1000),
             holdings_count=holdings_count,
-            total_market_value=total_market_value,
+            total_market_value=None,
             error_message=error_message,
         )
+
+    async def reserve_report_access() -> None:
+        nonlocal credit_consumed
+        reservation = await reserve_analysis_credit(auth_user.user_id)
+        credit_consumed = reservation.credit_consumed
+
+    async def refund_report_access_if_needed() -> None:
+        nonlocal credit_consumed
+        if not credit_consumed:
+            return
+        try:
+            await refund_analysis_credit(auth_user.user_id)
+        finally:
+            credit_consumed = False
 
     try:
         content, read_error = await _read_upload_limited(file)
@@ -2379,12 +2680,16 @@ async def analyze(
             return response
 
         if filename_lower.endswith(".pdf"):
+            await reserve_report_access()
             parse_result = await _parse_pdf_upload(content, password=password)
             if not parse_result["success"]:
+                await refund_report_access_if_needed()
                 response = AnalysisResponse(success=False, error=parse_result["error"])
                 record_outcome(response, "parse_error", parse_result["error"])
                 return response
             response = await map_casparser_to_analysis(parse_result["data"])
+            if not response.success:
+                await refund_report_access_if_needed()
             record_outcome(response, "success" if response.success else "analysis_error", response.error)
             return response
 
@@ -2401,7 +2706,10 @@ async def analyze(
                     response = AnalysisResponse(success=False, error=shape_error)
                     record_outcome(response, "validation_error", shape_error)
                     return response
+                await reserve_report_access()
                 response = await map_casparser_to_analysis(json_data)
+                if not response.success:
+                    await refund_report_access_if_needed()
                 record_outcome(response, "success" if response.success else "analysis_error", response.error)
                 return response
             if isinstance(json_data, list):
@@ -2415,7 +2723,11 @@ async def analyze(
         response = AnalysisResponse(success=False, error="Unsupported file type. Please upload a PDF or JSON.")
         record_outcome(response, "validation_error", response.error)
         return response
+    except HTTPException:
+        await refund_report_access_if_needed()
+        raise
     except Exception as e:
+        await refund_report_access_if_needed()
         log_debug(f"[{request_id}] analyze error: {type(e).__name__}: {e}")
         error_message = f"Internal server error. Request ID: {request_id}"
         response = AnalysisResponse(success=False, error=error_message)
@@ -2430,13 +2742,15 @@ async def parse_pdf(
     password: str = Form(""),
     output_format: str = Form("json"),
 ):
+    auth_user = await require_supabase_user(request)
     request_id = uuid.uuid4().hex[:10]
     normalized_output_format = output_format.strip().lower()
     try:
         if normalized_output_format not in ALLOWED_PARSE_OUTPUT_FORMATS:
             message = "Unsupported output format. Use 'json' or 'excel'."
             record_audit_log(
-                user_id=ANALYTICS_USER_ID,
+                user_id=auth_user.user_id,
+                username=auth_user.username,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="validation_error",
@@ -2447,7 +2761,8 @@ async def parse_pdf(
         content, read_error = await _read_upload_limited(file)
         if read_error:
             record_audit_log(
-                user_id=ANALYTICS_USER_ID,
+                user_id=auth_user.user_id,
+                username=auth_user.username,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="validation_error",
@@ -2457,7 +2772,8 @@ async def parse_pdf(
         if content is None:
             message = "Unable to read uploaded file."
             record_audit_log(
-                user_id=ANALYTICS_USER_ID,
+                user_id=auth_user.user_id,
+                username=auth_user.username,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="validation_error",
@@ -2468,7 +2784,8 @@ async def parse_pdf(
         validation_error = _validate_upload(file, content)
         if validation_error:
             record_audit_log(
-                user_id=ANALYTICS_USER_ID,
+                user_id=auth_user.user_id,
+                username=auth_user.username,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="validation_error",
@@ -2477,7 +2794,8 @@ async def parse_pdf(
             return JSONResponse(status_code=400, content={"error": validation_error})
         if not (file.filename or "").lower().endswith(".pdf"):
             record_audit_log(
-                user_id=ANALYTICS_USER_ID,
+                user_id=auth_user.user_id,
+                username=auth_user.username,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="validation_error",
@@ -2488,7 +2806,8 @@ async def parse_pdf(
         result = await _parse_pdf_upload(content, password=password)
         if not result["success"]:
             record_audit_log(
-                user_id=ANALYTICS_USER_ID,
+                user_id=auth_user.user_id,
+                username=auth_user.username,
                 route=request.url.path,
                 action="parse_pdf_failed",
                 status="parse_error",
@@ -2496,34 +2815,50 @@ async def parse_pdf(
             )
             return JSONResponse(status_code=400, content={"error": result["error"]})
 
+        parsed_data = result.get("data")
+        parsed_shape_error = _validate_parsed_cas_payload(parsed_data)
+        if parsed_shape_error:
+            record_audit_log(
+                user_id=auth_user.user_id,
+                username=auth_user.username,
+                route=request.url.path,
+                action="parse_pdf_failed",
+                status="parse_error",
+                message=parsed_shape_error,
+            )
+            return JSONResponse(status_code=400, content={"error": parsed_shape_error})
+
         if normalized_output_format == "excel":
             record_audit_log(
-                user_id=ANALYTICS_USER_ID,
+                user_id=auth_user.user_id,
+                username=auth_user.username,
                 route=request.url.path,
                 action="parse_pdf_succeeded",
                 status="success",
                 message="Parsed CAS PDF to Excel.",
                 metadata={"output_format": "excel"},
             )
-            excel_buffer = convert_to_excel(result["data"])
+            excel_buffer = convert_to_excel(parsed_data)
             return StreamingResponse(
                 excel_buffer,
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 headers={"Content-Disposition": "attachment; filename=portfolio.xlsx"},
             )
         record_audit_log(
-            user_id=ANALYTICS_USER_ID,
+            user_id=auth_user.user_id,
+            username=auth_user.username,
             route=request.url.path,
             action="parse_pdf_succeeded",
             status="success",
             message="Parsed CAS PDF to JSON.",
             metadata={"output_format": "json"},
         )
-        return JSONResponse(content=result["data"])
+        return JSONResponse(content=jsonable_encoder(parsed_data))
     except Exception as e:
         log_debug(f"[{request_id}] parse_pdf error: {type(e).__name__}: {e}")
         record_audit_log(
-            user_id=ANALYTICS_USER_ID,
+            user_id=auth_user.user_id,
+            username=auth_user.username,
             route=request.url.path,
             action="parse_pdf_failed",
             status="internal_error",
@@ -2558,15 +2893,21 @@ async def dashboard_page_nested(path: str):
 
 @app.get("/admin")
 async def admin_page():
-    if not ADMIN_ACCESS_ENABLED:
-        raise HTTPException(status_code=404, detail="Admin access is temporarily disabled.")
     return _serve_spa()
 
 
 @app.get("/admin/{path:path}")
 async def admin_page_nested(path: str):
-    if not ADMIN_ACCESS_ENABLED:
-        raise HTTPException(status_code=404, detail="Admin access is temporarily disabled.")
+    return _serve_spa()
+
+
+@app.get("/pricing")
+async def pricing_page():
+    return _serve_spa()
+
+
+@app.get("/pricing/{path:path}")
+async def pricing_page_nested(path: str):
     return _serve_spa()
 
 

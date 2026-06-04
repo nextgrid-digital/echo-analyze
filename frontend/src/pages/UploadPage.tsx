@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { analyzePortfolio } from "@/api/analyze"
+import { AuthPanel } from "@/auth/AuthPage"
+import { useAuth } from "@/auth/useAuth"
 import { AdminAccessToolbar } from "@/components/AdminAccessToolbar"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { storeLatestAnalysis } from "@/lib/analysisSession"
 import type { AnalysisResponse } from "@/types/api"
-import { ArrowRight, Upload } from "lucide-react"
+import { ArrowRight, CreditCard, Lock, Upload } from "lucide-react"
+
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 export function UploadPage() {
   const navigate = useNavigate()
+  const { user, billingAccess, refreshBillingAccess } = useAuth()
   const [password, setPassword] = useState("")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
@@ -21,6 +26,32 @@ export function UploadPage() {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResponse | null>(null)
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const isBillingLoading = Boolean(user && !billingAccess)
+  const isQuotaLocked = Boolean(user && billingAccess && !billingAccess.can_analyze)
+  const isLocked = !user || isBillingLoading || isQuotaLocked
+
+  const selectFile = (file: File) => {
+    const lowerName = file.name.toLowerCase()
+    const isSupported = lowerName.endsWith(".pdf") || lowerName.endsWith(".json")
+    if (!isSupported) {
+      setSelectedFile(null)
+      setPassword("")
+      setError("Please select a PDF or JSON file.")
+      return
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setSelectedFile(null)
+      setPassword("")
+      setError("File is too large. Maximum supported size is 25 MB.")
+      return
+    }
+
+    setSelectedFile(file)
+    if (!lowerName.endsWith(".pdf")) {
+      setPassword("")
+    }
+    setError(null)
+  }
 
   useEffect(() => {
     return () => {
@@ -33,12 +64,18 @@ export function UploadPage() {
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    if (isLocked) {
+      return
+    }
     setIsDragging(true)
   }
 
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    if (isLocked) {
+      return
+    }
     setIsDragging(false)
   }
 
@@ -46,28 +83,39 @@ export function UploadPage() {
     e.preventDefault()
     e.stopPropagation()
     setIsDragging(false)
+    if (isLocked) {
+      return
+    }
 
     const files = e.dataTransfer.files
     if (files && files.length > 0) {
-      const file = files[0]
-      if (file.name.toLowerCase().endsWith(".pdf") || file.name.toLowerCase().endsWith(".json")) {
-        setSelectedFile(file)
-        setError(null)
-      } else {
-        setError("Please select a PDF or JSON file.")
-      }
+      selectFile(files[0])
     }
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isLocked) {
+      return
+    }
+
     const file = e.target.files?.[0]
     if (file) {
-      setSelectedFile(file)
-      setError(null)
+      selectFile(file)
     }
   }
 
   const handleAnalyze = async () => {
+    if (isLocked) {
+      if (!user) {
+        setError("Sign in or create an account to analyze CAS reports.")
+      } else if (isQuotaLocked) {
+        setError("You have used your free CAS report. Subscribe for unlimited analysis.")
+      } else {
+        setError("Checking your report access. Please try again in a moment.")
+      }
+      return
+    }
+
     if (!selectedFile) {
       setError("Please select a CAS PDF or JSON file.")
       return
@@ -115,6 +163,7 @@ export function UploadPage() {
       setAnalysisResult(result)
       storeLatestAnalysis(result)
       setAnalysisComplete(true)
+      void refreshBillingAccess()
       setLoading(false)
     } catch (err) {
       if (progressIntervalRef.current) {
@@ -129,10 +178,12 @@ export function UploadPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 py-8 sm:py-12">
-      <div className="w-full max-w-3xl mx-auto">
-        <div className="mb-8 flex justify-end">
+      <div className="w-full max-w-6xl mx-auto">
+        {user && (
+          <div className="mb-8 flex justify-end">
           <AdminAccessToolbar />
-        </div>
+          </div>
+        )}
 
         <header className="text-center mb-12 sm:mb-16">
           <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-foreground mb-4 tracking-tight">
@@ -147,91 +198,151 @@ export function UploadPage() {
         </header>
 
         <div
-          className={`relative border-2 border-dashed rounded-none p-12 sm:p-16 mb-8 bg-card transition-all duration-200 cursor-pointer ${
-            isDragging
-              ? "border-primary bg-primary/5 scale-[1.01]"
-              : "border-border hover:border-primary/50"
+          className={`grid gap-6 ${
+            user ? "mx-auto max-w-3xl" : "lg:grid-cols-[minmax(0,400px)_minmax(0,1fr)] lg:items-start"
           }`}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
         >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,.json"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
+          {!user && <AuthPanel />}
 
-          <div className="flex flex-col items-center justify-center text-center">
-            <div className="mb-6">
-              <Upload className="w-16 h-16 text-muted-foreground" />
-            </div>
-            <p className="text-lg sm:text-xl font-medium text-foreground mb-2">
-              Upload CAS PDF or JSON to view insights
-            </p>
-            <p className="text-sm text-muted-foreground mb-4">or drag and drop</p>
-            {selectedFile && (
-              <p className="text-sm text-primary font-semibold mt-4">
-                Selected: {selectedFile.name}
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground mt-2">(Max. File size: 25 MB)</p>
-          </div>
-        </div>
-
-        {selectedFile && selectedFile.name.toLowerCase().endsWith(".pdf") && (
-          <div className="mb-6">
-            <Input
-              type="password"
-              placeholder="Enter PDF password if needed (usually your PAN)"
-              className="w-full rounded-none border-border bg-card"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <p className="mt-2 text-xs text-muted-foreground">
-              Leave blank if your PDF is not password-protected.
-            </p>
-          </div>
-        )}
-
-        {loading && progress > 0 && (
-          <div className="mb-8">
-            <div className="w-full h-1 bg-muted rounded-none overflow-hidden">
-              <div
-                className="h-full bg-primary transition-all duration-300"
-                style={{ width: `${progress}%` }}
+          <section aria-disabled={isLocked}>
+            <div
+              className={`relative border-2 border-dashed rounded-none p-12 sm:p-16 mb-8 bg-card transition-all duration-200 ${
+                isLocked
+                  ? "cursor-not-allowed border-border opacity-75"
+                  : isDragging
+                    ? "cursor-pointer border-primary bg-primary/5 scale-[1.01]"
+                    : "cursor-pointer border-border hover:border-primary/50"
+              }`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => {
+                if (!isLocked) {
+                  fileInputRef.current?.click()
+                }
+              }}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.json"
+                onChange={handleFileSelect}
+                className="hidden"
+                disabled={isLocked || loading}
               />
+
+              <div className="flex min-h-[220px] flex-col items-center justify-center text-center">
+                <div className="mb-6">
+                  {isLocked ? (
+                    isQuotaLocked ? (
+                      <CreditCard className="w-16 h-16 text-muted-foreground" />
+                    ) : (
+                      <Lock className="w-16 h-16 text-muted-foreground" />
+                    )
+                  ) : (
+                    <Upload className="w-16 h-16 text-muted-foreground" />
+                  )}
+                </div>
+                <p className="text-lg sm:text-xl font-medium text-foreground mb-2">
+                  {!user
+                    ? "Sign in to unlock CAS analysis"
+                    : isQuotaLocked
+                      ? "Free CAS report used"
+                      : isBillingLoading
+                        ? "Checking report access"
+                        : "Upload CAS PDF or JSON to view insights"}
+                </p>
+                <p className="text-sm text-muted-foreground mb-4">
+                  {!user
+                    ? "Create an account or sign in before selecting a report."
+                    : isQuotaLocked
+                      ? "Upgrade to unlock unlimited reports."
+                      : isBillingLoading
+                        ? "Your quota and subscription status are loading."
+                        : "or drag and drop"}
+                </p>
+                {isQuotaLocked && (
+                  <Button asChild variant="outline" className="mt-2">
+                    <Link to="/pricing">View pricing</Link>
+                  </Button>
+                )}
+                {!isLocked && selectedFile && (
+                  <p className="text-sm text-primary font-semibold mt-4">
+                    Selected: {selectedFile.name}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground mt-2">(Max. File size: 25 MB)</p>
+              </div>
             </div>
-          </div>
-        )}
 
-        {error && (
-          <Alert variant="destructive" className="mb-6">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
+            {!isLocked && selectedFile && selectedFile.name.toLowerCase().endsWith(".pdf") && (
+              <div className="mb-6">
+                <Input
+                  type="password"
+                  placeholder="Enter PDF password if needed (usually your PAN)"
+                  className="w-full rounded-none border-border bg-card"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Leave blank if your PDF is not password-protected.
+                </p>
+              </div>
+            )}
 
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          {analysisComplete && analysisResult ? (
-            <Button
-              onClick={() => navigate("/dashboard")}
-              className="bg-primary text-primary-foreground hover:bg-primary/90 min-h-[48px] px-8 rounded-none flex items-center gap-2 transition-all duration-200 hover:shadow-md active:scale-[0.98]"
-            >
-              View Portfolio
-              <ArrowRight className="w-5 h-5" />
-            </Button>
-          ) : (
-            <Button
-              onClick={handleAnalyze}
-              disabled={loading || !selectedFile}
-              className="bg-primary text-primary-foreground hover:bg-primary/90 min-h-[48px] px-8 rounded-none disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:shadow-md active:scale-[0.98]"
-            >
-              {loading ? "Processing..." : "Analyze Portfolio"}
-            </Button>
-          )}
+            {loading && progress > 0 && (
+              <div className="mb-8">
+                <div className="w-full h-1 bg-muted rounded-none overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all duration-300"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <Alert variant="destructive" className="mb-6">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              {user && billingAccess && !billingAccess.has_unlimited_reports && !isQuotaLocked && (
+                <Button asChild variant="outline" className="min-h-[48px] px-8">
+                  <Link to="/pricing">
+                    <CreditCard className="w-5 h-5" />
+                    Upgrade
+                  </Link>
+                </Button>
+              )}
+              {analysisComplete && analysisResult ? (
+                <Button
+                  onClick={() => navigate("/dashboard")}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 min-h-[48px] px-8 rounded-none flex items-center gap-2 transition-all duration-200 hover:shadow-md active:scale-[0.98]"
+                >
+                  View Portfolio
+                  <ArrowRight className="w-5 h-5" />
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleAnalyze}
+                  disabled={loading || !selectedFile || isLocked}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 min-h-[48px] px-8 rounded-none disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:shadow-md active:scale-[0.98]"
+                >
+                  {!user
+                    ? "Sign in to analyze"
+                    : isQuotaLocked
+                      ? "Subscribe to analyze"
+                      : isBillingLoading
+                        ? "Checking access..."
+                        : loading
+                          ? "Processing..."
+                          : "Analyze Portfolio"}
+                </Button>
+              )}
+            </div>
+          </section>
         </div>
       </div>
     </div>

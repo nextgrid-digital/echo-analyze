@@ -1,9 +1,14 @@
 import asyncio
 import base64
 import csv
+import hashlib
+import hmac
 import io
 import json
+import math
 import os
+import re
+import sqlite3
 import socket
 import tempfile
 import time
@@ -18,7 +23,9 @@ from openpyxl import load_workbook
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+import app.Code.analytics as analytics_module
 import app.Code.holdings as holdings_module
+import app.Code.utils as utils_module
 from casparser.enums import CASFileType, FileType, TransactionType
 from casparser.parsers.utils import cas2csv, cas2csv_summary
 from casparser.types import (
@@ -30,21 +37,38 @@ from casparser.types import (
     StatementPeriod,
     TransactionData,
 )
-from app.Code.analytics import _pseudonymize_identifier, _sanitize_file_name, _sanitize_text
-from app.Code.cas_parser import convert_to_excel, parse_with_casparser
+from app.Code.analytics import (
+    _pseudonymize_identifier,
+    _sanitize_text,
+    get_admin_overview,
+    init_analytics_db,
+    record_analysis_run,
+)
+from app.Code.cas_parser import convert_to_excel, parse_with_casparser, recursive_to_dict
 from app.Code.env_loader import load_local_env
+from app.Code.billing import (
+    AccessStatus,
+    _parse_access_status,
+    _parse_credit_reservation,
+    apply_subscription_status,
+    extract_subscription_event,
+    verify_checkout_signature,
+    verify_webhook_signature,
+)
 from app.Code.pdfminer_hardening import (
     ORIGINAL_CMAP_LOADER_ATTR,
     harden_pdfminer_cmap_loading,
 )
 from app.Code.main import (
     _benchmark_nav_for_date,
+    _build_content_security_policy,
     _current_holding_entry_date,
     _get_pdf_parse_executor,
     _get_pdf_parse_timeout_seconds,
     _normalize_amfi_code,
     _parse_amount,
     _parse_iso_date,
+    _parse_pdf_upload_direct,
     _parse_pdf_upload_in_subprocess,
     _parse_pdf_upload,
     _prepare_benchmark_history,
@@ -54,8 +78,25 @@ from app.Code.main import (
     app,
     map_casparser_to_analysis,
     MAX_CAS_TRANSACTIONS,
+    AnalysisResponse,
+    Holding,
+    _safe_analysis_response,
 )
-from app.Code.utils import calculate_xirr, fetch_live_nav, fetch_nav_history
+from app.Code.supabase_auth import _get_supabase_url, _is_admin_user, _is_allowed_supabase_url
+from app.Code.utils import calculate_xirr, fetch_live_nav, fetch_nav_history, _parse_amfi_nav_history_text_for_code
+
+
+class _FakeSupabaseUser:
+    user_id = "user_test"
+    username = "test-user"
+    email = "test@example.com"
+    app_metadata = {"role": "admin"}
+    user_metadata = {"username": "test-user"}
+    is_admin = True
+
+
+async def _fake_require_supabase_user(*args, **kwargs):
+    return _FakeSupabaseUser()
 
 
 class _FakeResponse:
@@ -131,6 +172,34 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(isinstance(summary.warnings, list))
         self.assertIsNotNone(summary.tax)
         self.assertEqual(summary.tax.equity_ltcg_rate_pct, 12.5)
+
+    def test_analysis_response_sanitizes_non_json_float_values(self):
+        response = AnalysisResponse(
+            success=True,
+            holdings=[
+                Holding(
+                    fund_family="Test AMC",
+                    folio="1/1",
+                    scheme_name="Test Fund",
+                    amfi="100001",
+                    units=math.nan,
+                    nav=math.inf,
+                    market_value=1000.0,
+                    cost_value=900.0,
+                    category="Equity",
+                    sub_category="Large-Cap",
+                    xirr=math.inf,
+                    benchmark_xirr=math.nan,
+                )
+            ],
+        )
+
+        safe_response = _safe_analysis_response(response)
+
+        self.assertEqual(safe_response.holdings[0].units, 0.0)
+        self.assertEqual(safe_response.holdings[0].nav, 0.0)
+        self.assertIsNone(safe_response.holdings[0].xirr)
+        self.assertIsNone(safe_response.holdings[0].benchmark_xirr)
 
     async def test_taxable_gains_apply_ltcg_exemption(self):
         cas_data = {
@@ -976,7 +1045,16 @@ class TestErrorSanitization(unittest.TestCase):
     def test_analyze_returns_sanitized_internal_error(self):
         client = TestClient(app)
         files = {"file": ("sample.json", b'{"folios": []}', "application/json")}
-        with patch("app.Code.main.map_casparser_to_analysis", side_effect=RuntimeError("boom secret details")):
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main.reserve_analysis_credit",
+            new=AsyncMock(return_value=type("Reservation", (), {"credit_consumed": True})()),
+        ), patch(
+            "app.Code.main.refund_analysis_credit",
+            new=AsyncMock(),
+        ), patch(
+            "app.Code.main.map_casparser_to_analysis",
+            side_effect=RuntimeError("boom secret details"),
+        ):
             response = client.post("/api/analyze", files=files, data={"password": ""})
         body = response.json()
         self.assertIn("Request ID", body.get("error", ""))
@@ -985,7 +1063,8 @@ class TestErrorSanitization(unittest.TestCase):
     def test_upload_signature_validation_rejects_invalid_pdf_bytes(self):
         client = TestClient(app)
         files = {"file": ("statement.pdf", b"not-a-real-pdf", "application/pdf")}
-        response = client.post("/api/analyze", files=files, data={"password": ""})
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user):
+            response = client.post("/api/analyze", files=files, data={"password": ""})
         body = response.json()
         self.assertFalse(body.get("success", True))
         self.assertIn("invalid or corrupted", body.get("error", "").lower())
@@ -1006,7 +1085,8 @@ class TestErrorSanitization(unittest.TestCase):
     def test_analyze_rejects_invalid_cas_json_shape(self):
         client = TestClient(app)
         files = {"file": ("sample.json", b'{"folios":["oops"]}', "application/json")}
-        response = client.post("/api/analyze", files=files, data={"password": ""})
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user):
+            response = client.post("/api/analyze", files=files, data={"password": ""})
         body = response.json()
         self.assertFalse(body.get("success", True))
         self.assertIn("invalid cas json format", body.get("error", "").lower())
@@ -1033,7 +1113,8 @@ class TestErrorSanitization(unittest.TestCase):
             ]
         }
         files = {"file": ("sample.json", json.dumps(payload).encode("utf-8"), "application/json")}
-        response = client.post("/api/analyze", files=files, data={"password": ""})
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user):
+            response = client.post("/api/analyze", files=files, data={"password": ""})
 
         body = response.json()
         self.assertFalse(body.get("success", True))
@@ -1078,6 +1159,87 @@ class TestErrorSanitization(unittest.TestCase):
             self.assertEqual(asyncio.run(fetch_live_nav("100001/../../evil")), 0.0)
             self.assertEqual(asyncio.run(fetch_nav_history("100001/../../evil")), {})
 
+    def test_amfi_history_parser_extracts_target_scheme_rows(self):
+        text = (
+            "Scheme Code;Scheme Name;ISIN Div Payout/ISIN Growth;ISIN Div Reinvestment;"
+            "Net Asset Value;Repurchase Price;Sale Price;Date\n"
+            "Open Ended Schemes ( Equity Scheme )\n"
+            "Axis Mutual Fund\n"
+            "152731;Axis Nifty 500 Index Fund - Direct Plan - Growth Option;INF846K019W9;-;"
+            "10.2500;;;01-Jan-2024\n"
+            "120716;UTI Nifty 50 Index Fund - Growth Option- Direct;INF789F01XA0;-;"
+            "164.8682;;;29-May-2026\n"
+            "not-a-code;Bad Row;;;;;;01-Jan-2024\n"
+        )
+
+        history = _parse_amfi_nav_history_text_for_code(text, "152731")
+
+        self.assertEqual(history, {"01-01-2024": 10.25})
+
+    def test_nav_history_falls_back_to_official_amfi_history_export(self):
+        class TextResponse:
+            def __init__(self, status_code, text="", payload=None):
+                self.status_code = status_code
+                self.text = text
+                self._payload = payload or {}
+
+            def json(self):
+                return self._payload
+
+        class FakeClient:
+            def __init__(self):
+                self.calls = []
+
+            async def get(self, url, **kwargs):
+                self.calls.append((url, kwargs))
+                if "api.mfapi.in" in url:
+                    return TextResponse(502, payload={})
+                if url == utils_module.NAV_ALL_URL:
+                    return TextResponse(
+                        200,
+                        "Open Ended Schemes(Equity Scheme)\n"
+                        "Axis Mutual Fund\n"
+                        "152731;INF846K019W9;-;Axis Nifty 500 Index Fund - Direct Plan - Growth Option;"
+                        "11.0000;29-May-2026\n",
+                    )
+                if url == utils_module.AMFI_FUND_LIST_URL:
+                    return TextResponse(200, '{"mfId":"53","mfName":"Axis Mutual Fund"}')
+                if url == utils_module.NAV_HISTORY_URL:
+                    return TextResponse(
+                        200,
+                        "Scheme Code;Scheme Name;ISIN Div Payout/ISIN Growth;ISIN Div Reinvestment;"
+                        "Net Asset Value;Repurchase Price;Sale Price;Date\n"
+                        "152731;Axis Nifty 500 Index Fund - Direct Plan - Growth Option;INF846K019W9;-;"
+                        "10.0000;;;01-Jan-2024\n",
+                    )
+                return TextResponse(404)
+
+        async def fake_get_client():
+            return fake_client
+
+        fake_client = FakeClient()
+        utils_module._history_cache.clear()
+        utils_module._history_cache_years.clear()
+        utils_module._history_full_cache.clear()
+        utils_module._history_primary_failed_codes.clear()
+        utils_module._fetch_locks.clear()
+        utils_module._navall_map.clear()
+        utils_module._navall_scheme_amc_map.clear()
+        utils_module._navall_history_date_map.clear()
+        utils_module._navall_cache_date = None
+        utils_module._amfi_fund_ids.clear()
+        utils_module._amfi_history_chunk_cache.clear()
+        utils_module._amfi_history_chunk_locks.clear()
+
+        with patch("app.Code.utils._get_client", new=fake_get_client):
+            history = asyncio.run(fetch_nav_history("152731", required_dates=[date(2024, 1, 1)]))
+
+        self.assertEqual(history["01-01-2024"], 10.0)
+        self.assertEqual(history["29-05-2026"], 11.0)
+        history_calls = [kwargs for url, kwargs in fake_client.calls if url == utils_module.NAV_HISTORY_URL]
+        self.assertTrue(history_calls)
+        self.assertEqual(history_calls[0]["params"].get("mf"), "53")
+
     def test_parse_amount_rejects_non_finite_values(self):
         self.assertIsNone(_parse_amount("NaN"))
         self.assertIsNone(_parse_amount("Infinity"))
@@ -1092,35 +1254,85 @@ class TestErrorSanitization(unittest.TestCase):
         client = TestClient(app)
         with patch("app.Code.main.MAX_UPLOAD_BYTES", 10):
             files = {"file": ("sample.json", b'{"folios": []}', "application/json")}
-            response = client.post("/api/analyze", files=files, data={"password": ""})
+            with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user):
+                response = client.post("/api/analyze", files=files, data={"password": ""})
         body = response.json()
         self.assertFalse(body.get("success", True))
         self.assertIn("too large", body.get("error", "").lower())
 
-    def test_spa_routes_return_index_html_locally_with_admin_hidden(self):
+    def test_parse_pdf_json_serializes_parser_decimal_and_date_values(self):
+        client = TestClient(app)
+        parser_payload = {
+            "folios": [
+                {
+                    "amount": Decimal("100.50"),
+                    "date": date(2024, 1, 2),
+                    "type": TransactionType.PURCHASE,
+                }
+            ]
+        }
+
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main._parse_pdf_upload",
+            new=AsyncMock(return_value={"success": True, "data": parser_payload}),
+        ):
+            response = client.post(
+                "/api/parse_pdf",
+                files={"file": ("statement.pdf", b"%PDF-1.7\n", "application/pdf")},
+                data={"password": "", "output_format": "json"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["folios"][0]["amount"], 100.5)
+        self.assertEqual(body["folios"][0]["date"], "2024-01-02")
+        self.assertEqual(body["folios"][0]["type"], TransactionType.PURCHASE.value)
+
+    def test_parse_pdf_rejects_malformed_parser_payload_before_export(self):
+        client = TestClient(app)
+        malformed_payload = {"folios": "not-a-list"}
+
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main._parse_pdf_upload",
+            new=AsyncMock(return_value={"success": True, "data": malformed_payload}),
+        ):
+            response = client.post(
+                "/api/parse_pdf",
+                files={"file": ("statement.pdf", b"%PDF-1.7\n", "application/pdf")},
+                data={"password": "", "output_format": "excel"},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        self.assertIn("invalid cas json format", body.get("error", "").lower())
+        self.assertNotIn("request id", body.get("error", "").lower())
+
+    def test_spa_routes_return_index_html_locally_with_admin_api_protected(self):
         client = TestClient(app)
 
         admin_response = client.get("/admin")
         dashboard_response = client.get("/dashboard")
 
-        self.assertEqual(admin_response.status_code, 404)
+        self.assertEqual(admin_response.status_code, 200)
         self.assertEqual(dashboard_response.status_code, 200)
+        self.assertIn("<!doctype html>", admin_response.text.lower())
         self.assertIn("<!doctype html>", dashboard_response.text.lower())
         self.assertEqual(admin_response.headers.get("cache-control"), "no-store, max-age=0")
         self.assertEqual(dashboard_response.headers.get("cache-control"), "no-store, max-age=0")
 
         admin_api_response = client.get("/api/admin/overview")
-        self.assertEqual(admin_api_response.status_code, 404)
+        self.assertEqual(admin_api_response.status_code, 401)
         self.assertEqual(admin_api_response.headers.get("cache-control"), "no-store, max-age=0")
 
     def test_analyze_disables_client_and_proxy_caching(self):
         client = TestClient(app)
 
-        response = client.post(
-            "/api/analyze",
-            files={"file": ("sample.json", b"{}", "application/json")},
-            data={"password": ""},
-        )
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user):
+            response = client.post(
+                "/api/analyze",
+                files={"file": ("sample.json", b"{}", "application/json")},
+                data={"password": ""},
+            )
 
         self.assertEqual(response.headers.get("cache-control"), "no-store, max-age=0")
         self.assertEqual(response.headers.get("pragma"), "no-cache")
@@ -1129,8 +1341,24 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertEqual(response.headers.get("x-frame-options"), "DENY")
         csp = response.headers.get("content-security-policy", "")
         self.assertIn("default-src 'self'", csp)
+        self.assertIn("https://*.supabase.co", csp)
+        self.assertNotIn("https://*.supabase.com", csp)
         self.assertIn("object-src 'none'", csp)
         self.assertIn("frame-ancestors 'none'", csp)
+
+    def test_csp_rejects_non_supabase_remote_connect_sources(self):
+        with patch.dict(
+            os.environ,
+            {
+                "SUPABASE_URL": "https://example.com",
+                "APP_SUPABASE_URL": "https://project.supabase.co",
+            },
+            clear=False,
+        ):
+            csp = _build_content_security_policy()
+
+        self.assertNotIn("https://example.com", csp)
+        self.assertIn("https://project.supabase.co", csp)
 
     def test_vercel_spa_routes_are_served_by_fastapi_for_security_headers(self):
         vercel_config = json.loads(Path("vercel.json").read_text(encoding="utf-8"))
@@ -1155,15 +1383,456 @@ class TestAnalyticsPrivacyHelpers(unittest.TestCase):
         self.assertRegex(first or "", r"^usr_[0-9a-f]{16}$")
         self.assertNotIn("user_123", first or "")
 
-    def test_sanitize_file_name_redacts_path_and_sensitive_tokens(self):
-        sanitized = _sanitize_file_name(r"C:\\fakepath\\rahul-ABCDE1234F-john@example.com.pdf")
-
-        self.assertEqual(sanitized, "rahul-[REDACTED_PAN]-[REDACTED_EMAIL].pdf")
-
     def test_sanitize_text_redacts_phone_and_normalizes_whitespace(self):
         sanitized = _sanitize_text(" Call me at +91 98765 43210 \nthanks ")
 
         self.assertEqual(sanitized, "Call me at [REDACTED_PHONE] thanks")
+
+    def test_analysis_telemetry_does_not_persist_or_return_portfolio_value(self):
+        original_db_path = analytics_module.DB_PATH
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                analytics_module.DB_PATH = Path(tmp_dir) / "analytics.db"
+                init_analytics_db()
+
+                record_analysis_run(
+                    request_id="req_privacy",
+                    user_id="user_123",
+                    username="privacy-test",
+                    session_id=None,
+                    file_type="json",
+                    status="success",
+                    duration_ms=123,
+                    holdings_count=4,
+                    total_market_value=9876543.21,
+                )
+
+                overview = get_admin_overview()
+                self.assertEqual(len(overview["recent_analyses"]), 1)
+                self.assertNotIn("total_market_value", overview["recent_analyses"][0])
+                self.assertNotIn("total_market_value", overview["recent_logs"][0]["metadata"])
+
+                conn = sqlite3.connect(analytics_module.DB_PATH)
+                try:
+                    stored_value = conn.execute(
+                        "SELECT total_market_value FROM analysis_runs WHERE request_id = ?",
+                        ("req_privacy",),
+                    ).fetchone()[0]
+                finally:
+                    conn.close()
+                self.assertIsNone(stored_value)
+        finally:
+            analytics_module.DB_PATH = original_db_path
+
+    def test_init_analytics_db_migrates_legacy_optional_columns(self):
+        original_db_path = analytics_module.DB_PATH
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                analytics_module.DB_PATH = Path(tmp_dir) / "legacy_analytics.db"
+                conn = sqlite3.connect(analytics_module.DB_PATH)
+                try:
+                    conn.execute(
+                        """
+                        CREATE TABLE analysis_runs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            request_id TEXT NOT NULL,
+                            user_id TEXT NOT NULL,
+                            status TEXT NOT NULL,
+                            created_at TEXT NOT NULL
+                        )
+                        """
+                    )
+                    conn.execute(
+                        """
+                        CREATE TABLE audit_logs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            user_id TEXT,
+                            route TEXT NOT NULL,
+                            action TEXT NOT NULL,
+                            status TEXT NOT NULL,
+                            message TEXT NOT NULL,
+                            created_at TEXT NOT NULL
+                        )
+                        """
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+
+                init_analytics_db()
+                record_analysis_run(
+                    request_id="req_legacy",
+                    user_id="user_legacy",
+                    username="legacy-user",
+                    session_id=None,
+                    file_type="json",
+                    status="success",
+                    duration_ms=42,
+                    holdings_count=2,
+                    total_market_value=1000.0,
+                )
+
+                overview = get_admin_overview()
+                self.assertEqual(len(overview["recent_analyses"]), 1)
+                self.assertEqual(overview["recent_analyses"][0]["request_id"], "req_legacy")
+                self.assertEqual(overview["recent_analyses"][0]["holdings_count"], 2)
+                self.assertEqual(overview["recent_logs"][0]["metadata"]["request_id"], "req_legacy")
+        finally:
+            analytics_module.DB_PATH = original_db_path
+
+
+class TestSupabaseAuthorization(unittest.TestCase):
+    def test_supabase_url_allows_supabase_cloud_https_and_loopback_only(self):
+        self.assertTrue(_is_allowed_supabase_url("https://project.supabase.co"))
+        self.assertTrue(_is_allowed_supabase_url("https://project.supabase.co/"))
+        self.assertTrue(_is_allowed_supabase_url("http://127.0.0.1:54321"))
+        self.assertTrue(_is_allowed_supabase_url("http://localhost:54321"))
+        self.assertTrue(_is_allowed_supabase_url("https://localhost:54321"))
+        self.assertFalse(_is_allowed_supabase_url("https://example.com"))
+        self.assertFalse(_is_allowed_supabase_url("https://project.supabase.co.evil.com"))
+        self.assertFalse(_is_allowed_supabase_url("http://example.com"))
+        self.assertFalse(_is_allowed_supabase_url("file:///tmp/auth"))
+
+        with patch.dict(os.environ, {"SUPABASE_URL": "https://example.com"}, clear=False):
+            self.assertEqual(_get_supabase_url(), "")
+
+    def test_admin_check_ignores_user_mutable_metadata_roles(self):
+        user = {
+            "id": "user_123",
+            "email": "user@example.com",
+            "app_metadata": {},
+            "user_metadata": {
+                "role": "admin",
+                "roles": ["admin"],
+                "user_role": "admin",
+                "user_roles": "admin",
+            },
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "SUPABASE_ADMIN_ROLE": "admin",
+                "SUPABASE_ADMIN_USER_IDS": "",
+                "SUPABASE_ADMIN_EMAILS": "",
+            },
+            clear=False,
+        ):
+            self.assertFalse(_is_admin_user(user))
+
+    def test_admin_check_accepts_trusted_app_metadata_role(self):
+        user = {
+            "id": "user_123",
+            "email": "user@example.com",
+            "app_metadata": {"role": "admin"},
+            "user_metadata": {},
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "SUPABASE_ADMIN_ROLE": "admin",
+                "SUPABASE_ADMIN_USER_IDS": "",
+                "SUPABASE_ADMIN_EMAILS": "",
+            },
+            clear=False,
+        ):
+            self.assertTrue(_is_admin_user(user))
+
+    def test_admin_check_requires_explicit_true_is_admin_claim(self):
+        base_user = {
+            "id": "user_123",
+            "email": "user@example.com",
+            "user_metadata": {},
+        }
+
+        false_values = [False, "false", "0", "no", "off", "", 0, 2, 0.0, 2.0]
+        true_values = [True, "true", "1", "yes", 1, 1.0]
+
+        with patch.dict(
+            os.environ,
+            {
+                "SUPABASE_ADMIN_ROLE": "admin",
+                "SUPABASE_ADMIN_USER_IDS": "",
+                "SUPABASE_ADMIN_EMAILS": "",
+            },
+            clear=False,
+        ):
+            for value in false_values:
+                with self.subTest(value=value):
+                    user = {**base_user, "app_metadata": {"is_admin": value}}
+                    self.assertFalse(_is_admin_user(user))
+
+            for value in true_values:
+                with self.subTest(value=value):
+                    user = {**base_user, "app_metadata": {"is_admin": value}}
+                    self.assertTrue(_is_admin_user(user))
+
+
+class TestBillingSecurity(unittest.TestCase):
+    def test_billing_access_and_reservation_parsing_fail_closed(self):
+        access = _parse_access_status({})
+        self.assertFalse(access.can_analyze)
+        self.assertEqual(access.cas_report_limit, 0)
+        self.assertEqual(access.remaining_free_reports, 0)
+
+        reservation = _parse_credit_reservation([])
+        self.assertFalse(reservation.allowed)
+        self.assertFalse(reservation.credit_consumed)
+
+        reservation = _parse_credit_reservation(
+            {
+                "allowed": False,
+                "can_analyze": True,
+                "has_unlimited_reports": False,
+                "cas_report_limit": 1,
+                "cas_reports_used": 0,
+                "remaining_free_reports": 1,
+                "subscription_status": "free",
+            }
+        )
+        self.assertFalse(reservation.allowed)
+
+    def test_razorpay_checkout_signature_validates_ids_and_signature(self):
+        with patch.dict(os.environ, {"RAZORPAY_KEY_SECRET": "test_secret"}, clear=False):
+            signature = hmac.new(
+                b"test_secret",
+                b"pay_test123|sub_test123",
+                hashlib.sha256,
+            ).hexdigest()
+            verify_checkout_signature(
+                payment_id="pay_test123",
+                subscription_id="sub_test123",
+                signature=signature,
+            )
+
+            with self.assertRaises(HTTPException) as invalid_id:
+                verify_checkout_signature(
+                    payment_id="pay_test123",
+                    subscription_id="sub_test123/../../other",
+                    signature=signature,
+                )
+            self.assertEqual(invalid_id.exception.status_code, 400)
+
+            with self.assertRaises(HTTPException) as invalid_signature:
+                verify_checkout_signature(
+                    payment_id="pay_test123",
+                    subscription_id="sub_test123",
+                    signature="not-a-hex-signature",
+                )
+            self.assertEqual(invalid_signature.exception.status_code, 400)
+
+    def test_apply_subscription_status_rejects_invalid_state_before_rpc(self):
+        async def never_called(*args, **kwargs):
+            raise AssertionError("Supabase RPC should not be called")
+
+        with patch("app.Code.billing._supabase_rpc", new=never_called):
+            with self.assertRaises(HTTPException) as bad_id:
+                asyncio.run(
+                    apply_subscription_status(
+                        user_id="user_test",
+                        subscription_id="sub_test123/../../other",
+                        customer_id=None,
+                        status="active",
+                        current_period_end=None,
+                    )
+                )
+            self.assertEqual(bad_id.exception.status_code, 400)
+
+            with self.assertRaises(HTTPException) as bad_status:
+                asyncio.run(
+                    apply_subscription_status(
+                        user_id="user_test",
+                        subscription_id="sub_test123",
+                        customer_id=None,
+                        status="trialing",
+                        current_period_end=None,
+                    )
+                )
+            self.assertEqual(bad_status.exception.status_code, 400)
+
+    def test_razorpay_webhook_signature_uses_exact_raw_body(self):
+        raw_body = b'{"event":"subscription.activated","payload":{}}'
+        with patch.dict(os.environ, {"RAZORPAY_WEBHOOK_SECRET": "webhook_secret"}, clear=False):
+            signature = hmac.new(b"webhook_secret", raw_body, hashlib.sha256).hexdigest()
+            verify_webhook_signature(raw_body, signature)
+
+            with self.assertRaises(HTTPException) as mismatched_body:
+                verify_webhook_signature(raw_body + b"\n", signature)
+            self.assertEqual(mismatched_body.exception.status_code, 400)
+
+    def test_subscription_webhook_event_requires_configured_plan(self):
+        payload = {
+            "payload": {
+                "subscription": {
+                    "entity": {
+                        "id": "sub_test123",
+                        "plan_id": "plan_good123",
+                        "status": "active",
+                        "customer_id": "cust_test123",
+                        "current_end": 1893456000,
+                        "notes": {"user_id": "user_test"},
+                    }
+                }
+            }
+        }
+
+        with patch.dict(os.environ, {"RAZORPAY_PLAN_ID": "plan_good123"}, clear=False):
+            event = extract_subscription_event(payload)
+        self.assertIsNotNone(event)
+        self.assertEqual(event["subscription_id"], "sub_test123")
+        self.assertEqual(event["status"], "active")
+        self.assertEqual(event["user_id"], "user_test")
+
+        with patch.dict(os.environ, {"RAZORPAY_PLAN_ID": "plan_other123"}, clear=False):
+            self.assertIsNone(extract_subscription_event(payload))
+
+        bad_status_payload = json.loads(json.dumps(payload))
+        bad_status_payload["payload"]["subscription"]["entity"]["status"] = "trialing"
+        with patch.dict(os.environ, {"RAZORPAY_PLAN_ID": "plan_good123"}, clear=False):
+            self.assertIsNone(extract_subscription_event(bad_status_payload))
+
+    def test_supabase_billing_migration_restricts_profile_writes_and_rpc_execute(self):
+        hardening_sql = Path(
+            "supabase/migrations/20260604000000_harden_profile_billing_permissions.sql"
+        ).read_text(encoding="utf-8")
+        normalized_sql = re.sub(r"\s+", " ", hardening_sql.lower())
+
+        self.assertIn("revoke update on table public.profiles from anon, authenticated", normalized_sql)
+        self.assertIn("grant update (username) on table public.profiles to authenticated", normalized_sql)
+
+        privileged_functions = [
+            "public.echo_get_access_status(uuid)",
+            "public.echo_consume_report_credit(uuid)",
+            "public.echo_refund_report_credit(uuid)",
+            "public.echo_apply_razorpay_subscription_event(uuid, text, text, text, timestamptz)",
+            "public.echo_claim_razorpay_webhook_event(text, text)",
+        ]
+        for function_signature in privileged_functions:
+            with self.subTest(function_signature=function_signature):
+                self.assertIn(
+                    f"revoke execute on function {function_signature} from public, anon, authenticated",
+                    normalized_sql,
+                )
+                self.assertIn(
+                    f"grant execute on function {function_signature} to service_role",
+                    normalized_sql,
+                )
+
+    def test_create_subscription_refuses_when_access_is_already_unlimited(self):
+        client = TestClient(app)
+        active_access = AccessStatus(
+            can_analyze=True,
+            has_unlimited_reports=True,
+            cas_report_limit=1,
+            cas_reports_used=1,
+            remaining_free_reports=0,
+            subscription_status="active",
+            razorpay_subscription_id="sub_test123",
+            current_period_end=None,
+        )
+
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main.get_access_status",
+            new=AsyncMock(return_value=active_access),
+        ), patch(
+            "app.Code.main.create_razorpay_subscription",
+            new=AsyncMock(side_effect=AssertionError("Razorpay should not be called")),
+        ):
+            response = client.post("/api/billing/create-subscription")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("already active", response.json().get("detail", "").lower())
+
+    def test_verify_subscription_rejects_wrong_plan_before_applying_access(self):
+        client = TestClient(app)
+        access = AccessStatus(
+            can_analyze=False,
+            has_unlimited_reports=False,
+            cas_report_limit=1,
+            cas_reports_used=1,
+            remaining_free_reports=0,
+            subscription_status="created",
+            razorpay_subscription_id="sub_test123",
+            current_period_end=None,
+        )
+        signature = hmac.new(
+            b"test_secret",
+            b"pay_test123|sub_test123",
+            hashlib.sha256,
+        ).hexdigest()
+
+        apply_mock = AsyncMock()
+        with patch.dict(
+            os.environ,
+            {"RAZORPAY_KEY_SECRET": "test_secret", "RAZORPAY_PLAN_ID": "plan_good123"},
+            clear=False,
+        ), patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main.get_access_status",
+            new=AsyncMock(return_value=access),
+        ), patch(
+            "app.Code.main.fetch_razorpay_subscription",
+            new=AsyncMock(return_value={"id": "sub_test123", "status": "active", "plan_id": "plan_bad123"}),
+        ), patch(
+            "app.Code.main.apply_subscription_status",
+            new=apply_mock,
+        ):
+            response = client.post(
+                "/api/billing/verify-subscription-payment",
+                json={
+                    "razorpay_payment_id": "pay_test123",
+                    "razorpay_subscription_id": "sub_test123",
+                    "razorpay_signature": signature,
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        apply_mock.assert_not_called()
+
+    def test_verify_subscription_rejects_missing_status_before_applying_access(self):
+        client = TestClient(app)
+        access = AccessStatus(
+            can_analyze=False,
+            has_unlimited_reports=False,
+            cas_report_limit=1,
+            cas_reports_used=1,
+            remaining_free_reports=0,
+            subscription_status="created",
+            razorpay_subscription_id="sub_test123",
+            current_period_end=None,
+        )
+        signature = hmac.new(
+            b"test_secret",
+            b"pay_test123|sub_test123",
+            hashlib.sha256,
+        ).hexdigest()
+
+        apply_mock = AsyncMock()
+        with patch.dict(
+            os.environ,
+            {"RAZORPAY_KEY_SECRET": "test_secret", "RAZORPAY_PLAN_ID": "plan_good123"},
+            clear=False,
+        ), patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main.get_access_status",
+            new=AsyncMock(return_value=access),
+        ), patch(
+            "app.Code.main.fetch_razorpay_subscription",
+            new=AsyncMock(return_value={"id": "sub_test123", "plan_id": "plan_good123"}),
+        ), patch(
+            "app.Code.main.apply_subscription_status",
+            new=apply_mock,
+        ):
+            response = client.post(
+                "/api/billing/verify-subscription-payment",
+                json={
+                    "razorpay_payment_id": "pay_test123",
+                    "razorpay_subscription_id": "sub_test123",
+                    "razorpay_signature": signature,
+                },
+            )
+
+        self.assertEqual(response.status_code, 502)
+        apply_mock.assert_not_called()
 
 
 class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
@@ -1213,7 +1882,7 @@ class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
         result = _parse_pdf_upload_in_subprocess(
             b"%PDF-1.4\n",
             "",
-            2.0,
+            5.0,
             worker_target=_successful_pdf_parse_worker,
         )
 
@@ -1374,6 +2043,28 @@ class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["success"])
         named_tmp.assert_not_called()
 
+    def test_pdf_parse_direct_does_not_swallow_base_exceptions(self):
+        class FatalParserExit(BaseException):
+            pass
+
+        with patch("app.Code.main.parse_with_casparser", side_effect=FatalParserExit):
+            with self.assertRaises(FatalParserExit):
+                _parse_pdf_upload_direct(b"%PDF-1.4\n", "")
+
+    def test_recursive_to_dict_serializes_json_unsafe_parser_values(self):
+        converted = recursive_to_dict(
+            {
+                "amount": Decimal("100.50"),
+                "date": date(2024, 1, 2),
+                "type": TransactionType.PURCHASE,
+            }
+        )
+
+        json.dumps(converted)
+        self.assertEqual(converted["amount"], "100.50")
+        self.assertEqual(converted["date"], "2024-01-02")
+        self.assertEqual(converted["type"], TransactionType.PURCHASE.value)
+
     async def test_groww_index_failure_does_not_disable_future_retries(self):
         old_loaded = holdings_module._groww_index_loaded
         old_by_code = holdings_module._groww_index_by_code
@@ -1475,6 +2166,25 @@ class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sheet["K2"].value, "'@TYPE")
         self.assertEqual(sheet["F3"].value, "' \t=cmd")
         self.assertEqual(sheet["K3"].value, "'\t@TYPE")
+
+    def test_convert_to_excel_skips_malformed_rows_without_crashing(self):
+        workbook_bytes = convert_to_excel(
+            {
+                "folios": [
+                    "bad folio",
+                    {
+                        "schemes": [
+                            "bad scheme",
+                            {"transactions": ["bad transaction"]},
+                        ],
+                    },
+                ]
+            }
+        )
+        workbook = load_workbook(workbook_bytes)
+        sheet = workbook.active
+
+        self.assertEqual(sheet["A2"].value, "No transactions found")
 
     def test_vendored_casparser_csv_exports_escape_formula_like_cells(self):
         cas_data = CASData(

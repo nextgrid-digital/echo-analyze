@@ -1,17 +1,23 @@
 import { Link } from "react-router-dom"
+import { useAuth } from "@/auth/useAuth"
 import { Button } from "@/components/ui/button"
 
-const ADMIN_ACCESS_ENABLED = import.meta.env.APP_ENABLE_ADMIN_ACCESS === "true"
-
 export function AdminAccessToolbar() {
-  if (!ADMIN_ACCESS_ENABLED) {
-    return null
-  }
+  const { isAdmin, signOut, username } = useAuth()
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-3">
+      <span className="text-sm text-muted-foreground">{username}</span>
+      {isAdmin && (
+        <Button asChild type="button" variant="outline">
+          <Link to="/admin">Admin</Link>
+        </Button>
+      )}
       <Button asChild type="button" variant="outline">
-        <Link to="/admin">Admin</Link>
+        <Link to="/pricing">Pricing</Link>
+      </Button>
+      <Button type="button" variant="outline" onClick={() => void signOut()}>
+        Sign out
       </Button>
     </div>
   )

@@ -11,11 +11,14 @@ A FastAPI-based application for analyzing mutual fund portfolios from CAS (Conso
 - Asset allocation and concentration metrics
 - Fixed income analysis
 - Performance tracking
-- Optional admin page with tracked users, run timings, and recent activity logs
+- Supabase-backed authentication
+- One free CAS report per user, with Razorpay subscription unlock for unlimited analysis
+- Admin page for Supabase admin users with log windows, user counts, and top users by report volume
 
 ## Documentation
 - Repo operating guide: `AGENT.md`
 - Frontend notes: `frontend/Docs/README.md`
+- Supabase setup: `supabase/README.md`
 ## Quickstart (Windows)
 
 ### Option 1: Using the Batch Script (Easiest)
@@ -68,14 +71,26 @@ This will:
 
 - Backend: copy `.env.example` to `.env` and fill in:
   - `ENABLE_DEBUG_LOGS` (keep `false` unless you are temporarily debugging locally)
-  - `ADMIN_ACCESS_ENABLED` (optional; defaults to disabled unless set to `true`)
+  - `SUPABASE_URL`
+  - `SUPABASE_ANON_KEY`
+  - `SUPABASE_SERVICE_ROLE_KEY` (backend only; required for report quotas/subscriptions and total Supabase user counts)
+  - `SUPABASE_ADMIN_ROLE` (defaults to `admin`)
+  - `SUPABASE_ADMIN_USER_IDS` or `SUPABASE_ADMIN_EMAILS` (optional allowlists)
   - `PDF_PARSE_EXECUTOR` (optional; defaults to `auto`; on Vercel, `auto` uses thread parsing to avoid child-process hangs)
   - `PDF_PARSE_TIMEOUT_SECONDS` (optional; defaults to `120`, capped between `1` and `240`)
+  - `RAZORPAY_KEY_ID`
+  - `RAZORPAY_KEY_SECRET`
+  - `RAZORPAY_PLAN_ID` (create a Razorpay Subscription Plan for Rs 1 while testing)
+  - `RAZORPAY_WEBHOOK_SECRET`
+  - `RAZORPAY_SUBSCRIPTION_TOTAL_COUNT` (defaults to `120`, Razorpay's 10-year maximum for monthly plans)
 - Frontend-only Vite dev also supports `frontend/.env.local` with:
-  - `APP_ENABLE_ADMIN_ACCESS` (optional; set to `true` only when admin access should be visible)
+  - `APP_SUPABASE_URL`
+  - `APP_SUPABASE_ANON_KEY`
+  - `APP_SUPABASE_ADMIN_ROLE` (defaults to `admin`)
 
-Admin access is disabled by default. Set both backend `ADMIN_ACCESS_ENABLED=true` and frontend
-`APP_ENABLE_ADMIN_ACCESS=true` when you intentionally want `/admin` available.
+Admin access is granted only to Supabase users with `app_metadata.role = "admin"` by default.
+The backend also supports explicit admin allowlists via `SUPABASE_ADMIN_USER_IDS` and
+`SUPABASE_ADMIN_EMAILS`. Never expose `SUPABASE_SERVICE_ROLE_KEY` in frontend env files.
 
 ### 2. Run the app
 
@@ -92,17 +107,44 @@ Admin access is disabled by default. Set both backend `ADMIN_ACCESS_ENABLED=true
    npm run build
    ```
 
-### 3. How analytics works
+### 3. How auth and analytics work
 
-- Each analysis run is stored in a lightweight SQLite analytics database.
-- When admin access is enabled, `/admin` can show user counts, timings, and recent logs.
+- The React app signs users in with Supabase Auth and sends the Supabase access token to FastAPI.
+- FastAPI verifies the token with Supabase before allowing analysis, PDF parsing, or admin APIs.
+- FastAPI checks `public.profiles` before CAS analysis. New users get `cas_report_limit = 1` and `cas_reports_used = 0`.
+- A successful free analysis consumes one report credit. Failed parsing or failed analysis refunds the reserved credit.
+- Razorpay subscription checkout is available at `/pricing`. A subscription in `authenticated` or `active` status unlocks unlimited CAS analysis for that Supabase user.
+- Browser clients can update only their profile username; report quotas, subscription columns, and billing RPCs are locked to the backend service role.
+- Each analysis run stores summary analytics only. CAS files, parsed CAS reports, and uploaded filenames are not stored.
+- The admin page shows usernames, report counts, active/total users, and logs filtered by recent 24 hours, 7 days, or 1 month.
+
+To manually reset a user's free report quota in the Supabase SQL editor:
+
+```sql
+update public.profiles
+set cas_reports_used = 0
+where id = 'USER_UUID_HERE';
+```
+
+To manually grant unlimited access during testing:
+
+```sql
+update public.profiles
+set subscription_status = 'active'
+where id = 'USER_UUID_HERE';
+```
 
 ## API Endpoints
 
 - `GET /` - Portfolio Overview UI (home page)
-- `POST /api/analyze` - Analyze CAS file (PDF or JSON)
-- `POST /api/parse_pdf` - Parse CAS PDF to JSON/Excel
-- `GET /api/admin/overview` - Admin analytics summary, disabled unless admin access is enabled
+- `GET /api/auth/me` - Return the authenticated Supabase user context
+- `GET /api/billing/access` - Return report quota and subscription access for the authenticated user
+- `POST /api/billing/create-subscription` - Create a Razorpay subscription for the authenticated user
+- `POST /api/billing/verify-subscription-payment` - Verify Razorpay Checkout subscription payment signature
+- `POST /api/billing/razorpay-webhook` - Receive Razorpay subscription webhooks
+- `POST /api/analyze` - Analyze CAS file (PDF or JSON), requires Supabase auth
+- `POST /api/parse_pdf` - Parse CAS PDF to JSON/Excel, requires Supabase auth
+- `GET /api/admin/overview` - Admin analytics summary, requires Supabase admin access
 - `GET /api/health` - Health check endpoint
 
 ## Project Structure
@@ -133,7 +175,7 @@ echo-analyze/
   npm run build
   ```
 - `vercel.json` routes `/api/*` to FastAPI and sends SPA paths (like `/dashboard`) to `static/index.html`.
-- `/admin` is routed through FastAPI so the backend admin-access flag can hide or unlock it.
+- `/admin` is routed through FastAPI; admin data is protected by the backend Supabase admin check.
 - The default analytics store is file-based. On Vercel, that falls back to `/tmp`, which is ephemeral. For production-grade admin analytics, point `ANALYTICS_DB_PATH` to persistent storage or swap the SQLite helper for a hosted database.
 
 ## Dependencies

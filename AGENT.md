@@ -2,9 +2,9 @@
 
 ## Overview
 
-Echo Analyze is a Mutual Fund CAS analysis app with optional admin analytics.
+Echo Analyze is a Supabase-authenticated Mutual Fund CAS analysis app with admin analytics.
 
-- Backend: FastAPI parses CAS PDFs/JSON, computes portfolio analytics, stores lightweight admin telemetry, and serves the built SPA.
+- Backend: FastAPI parses CAS PDFs/JSON, computes portfolio analytics, stores privacy-preserving admin telemetry, and serves the built SPA.
 - Frontend: React/Vite renders the upload flow, dashboard, admin console, CSV exports, and PDF/image captures.
 - Deployment: Vercel routes `/api/*` to `app/Code/main.py` and serves committed static assets from `static/`.
 
@@ -15,12 +15,14 @@ Echo Analyze is a Mutual Fund CAS analysis app with optional admin analytics.
 - Backend package initializer: `app/Code/__init__.py` loads local `.env` values for development.
 - Frontend source: `frontend/src/`
 - Built frontend assets: `static/`
+- Supabase setup artifacts: `supabase/`
 
 Important: top-level modules under `app/` are compatibility shims that re-export `app/Code/*`. Change backend logic in `app/Code/`.
 
 ## Backend Map
 
 - `app/Code/main.py`: FastAPI routes, upload validation, response models, security headers, parser timeout wrapper, and portfolio analysis pipeline.
+- `app/Code/supabase_auth.py`: Supabase session verification, username extraction, admin checks, and optional Auth admin user counts.
 - `app/Code/analytics.py`: SQLite-backed admin metrics and sanitized audit/analysis logs.
 - `app/Code/cas_parser.py`: CAS PDF parsing adapter plus Excel export helpers.
 - `app/Code/utils.py`: NAV/history fetchers, cache persistence, and XIRR solver.
@@ -32,6 +34,9 @@ Important: top-level modules under `app/` are compatibility shims that re-export
 - `frontend/src/pages/UploadPage.tsx`: upload and analyze flow.
 - `frontend/src/pages/DashboardPage.tsx`: dashboard route, session restoration, notices modal, and PDF export.
 - `frontend/src/pages/AdminPage.tsx`: admin analytics console.
+- `frontend/src/auth/`: Supabase sign-in/sign-up state and auth gate.
+- `frontend/src/api/client.ts`: authenticated same-origin API fetch helper.
+- `frontend/src/lib/supabase.ts`: Supabase browser client, access-token helper, username/admin metadata helpers.
 - `frontend/src/lib/analysisSession.ts`: session-scoped dashboard restoration.
 - `frontend/src/lib/csv.ts`: CSV and spreadsheet formula escaping.
 - `frontend/src/components/dashboard/`: dashboard cards, sections, charts, and exports.
@@ -58,8 +63,7 @@ Frontend checks:
 ```powershell
 cd frontend
 npm run lint
-npm exec tsc -- -p tsconfig.app.json --noEmit
-npm exec tsc -- -p tsconfig.node.json --noEmit
+npm run typecheck
 npm test -- --run
 npm audit --audit-level=moderate
 npm run build
@@ -78,12 +82,15 @@ run_local.bat
 
 ## Security Posture
 
-- Admin routes are disabled by default. Set backend `ADMIN_ACCESS_ENABLED=true` and frontend `APP_ENABLE_ADMIN_ACCESS=true` only when intentionally exposing `/admin`.
-- `/api/analyze`, `/api/parse_pdf`, `/api/admin/overview`, `/dashboard*`, `/admin*`, and `/` return no-store cache headers.
+- Protected API routes verify the Supabase bearer token with Supabase Auth before processing requests.
+- Admin API access requires a Supabase admin user. By default this means trusted `app_metadata.role = "admin"` or `app_metadata.is_admin = true`; user-editable `user_metadata` must never grant admin access. Backend allowlists can also be configured with `SUPABASE_ADMIN_USER_IDS` or `SUPABASE_ADMIN_EMAILS`.
+- Frontend API calls attach Supabase bearer tokens only to same-origin requests. Do not broaden `apiFetch` to send tokens to arbitrary external URLs.
+- `/api/analyze`, `/api/parse_pdf`, `/api/auth/me`, `/api/admin/overview`, `/dashboard*`, `/admin*`, and `/` return no-store cache headers.
 - Uploads are limited to 25 MB, allowed extensions/content types are checked, PDF magic bytes are validated, and JSON shape is validated before analysis.
 - CAS PDF parsing runs in a killable subprocess locally when available, with `PDF_PARSE_TIMEOUT_SECONDS` capped between 1 and 240 seconds and defaulting to 120. `PDF_PARSE_EXECUTOR=auto` uses thread parsing on Vercel to avoid hosted child-process hangs.
 - CAS parser imports resolve to the repo-local `casparser/` package. Keep `app/Code/pdfminer_hardening.py` as defense-in-depth around CMap loading.
-- Logs and analytics sanitize file names, PAN-like tokens, emails, phone numbers, and control characters.
+- Logs and analytics sanitize usernames, messages, PAN-like tokens, emails, phone numbers, and control characters.
+- CAS files, parsed CAS reports, uploaded filenames, and per-report portfolio market values must not be stored in admin telemetry. Admin views should show usernames only, not email addresses or raw Supabase IDs.
 - CSV and Excel exports escape spreadsheet formula prefixes, including leading whitespace/tab variants.
 - Dashboard analysis handoff is in memory only; do not persist full CAS analysis data in Web Storage or browser history state.
 - Responses include a restrictive Content Security Policy in addition to `nosniff`, `DENY` framing, and referrer-policy headers.
@@ -99,6 +106,9 @@ run_local.bat
 - Runtime caches and SQLite analytics live in `data/` by default and are ignored by git.
 - Debug logging writes to `data/backend_debug.log` only when `ENABLE_DEBUG_LOGS=true`.
 - `ANALYTICS_DB_PATH` can move the admin SQLite database; Vercel defaults to ephemeral `/tmp`.
+- Supabase backend env: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, optional `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ADMIN_ROLE`, `SUPABASE_ADMIN_USER_IDS`, and `SUPABASE_ADMIN_EMAILS`.
+- Supabase frontend env: `APP_SUPABASE_URL`, `APP_SUPABASE_ANON_KEY`, and optional `APP_SUPABASE_ADMIN_ROLE`. Never put service-role credentials in `frontend/`.
+- Supabase migrations/admin helper SQL live in `supabase/`; keep Supabase-side schema changes there.
 - CORS origins come from `CORS_ALLOW_ORIGINS`; `*` is intentionally filtered out because credentials are enabled.
 - Optional holdings API endpoint comes from `HOLDINGS_API_URL`.
 
@@ -106,6 +116,6 @@ run_local.bat
 
 - Rebuild `static/` from `frontend/` after frontend or frontend dependency changes intended for deployment.
 - Keep backend Pydantic models and frontend TypeScript types in sync when response fields change.
-- Add focused tests for admin access, upload validation, parser resilience, and export escaping when touching those areas.
+- Add focused tests for admin access, same-origin token handling, telemetry privacy, upload validation, parser resilience, and export escaping when touching those areas.
 - Treat benchmark and holdings data as best-effort. Methodology and data-quality warnings are part of the API/UI contract.
 - If dependency audits flag `pdfminer-six`, prefer upgrading the direct pin and running parser regressions before changing the vendored parser.
