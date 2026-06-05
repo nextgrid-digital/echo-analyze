@@ -30,9 +30,11 @@ from app.Code.billing import (
     fetch_razorpay_subscription,
     get_access_status,
     get_razorpay_key_id,
+    has_webhook_event,
     is_reusable_checkout_status,
     is_unlimited_subscription_status,
     normalize_subscription_status,
+    normalize_razorpay_event_id,
     refund_analysis_credit,
     reserve_analysis_credit,
     subscription_matches_configured_plan,
@@ -54,6 +56,7 @@ app = FastAPI()
 LOG_FILE = "data/backend_debug.log"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
+MAX_WEBHOOK_BODY_BYTES = 256 * 1024
 MAX_CAS_FOLIOS = 100
 MAX_CAS_SCHEMES = 500
 MAX_CAS_TRANSACTIONS = 20_000
@@ -69,6 +72,9 @@ ALLOWED_CONTENT_TYPES = {
 ALLOWED_PARSE_OUTPUT_FORMATS = {"json", "excel"}
 PDF_MAGIC_PREFIX = b"%PDF-"
 AMFI_CODE_PATTERN = re.compile(r"^\d{1,12}$")
+CURRENCY_TOKEN_PATTERN = re.compile(
+    r"(?i)(?:\u20b9|(?<![A-Za-z])rs\.?(?![A-Za-z])|(?<![A-Za-z])inr(?![A-Za-z]))"
+)
 DEFAULT_PDF_PARSE_TIMEOUT_SECONDS = 120.0
 MAX_PDF_PARSE_TIMEOUT_SECONDS = 240.0
 PDF_PARSE_WORKER_JOIN_GRACE_SECONDS = 2.0
@@ -264,8 +270,14 @@ def _parse_amount(value) -> Optional[float]:
             cleaned = value.strip()
             if not cleaned:
                 return None
-            cleaned = cleaned.replace(",", "")
-            cleaned = re.sub(r"(?i)\b(?:rs|inr)\b|[₹]", "", cleaned).strip()
+            is_parenthesized_negative = cleaned.startswith("(") and cleaned.endswith(")")
+            if is_parenthesized_negative:
+                cleaned = cleaned[1:-1].strip()
+            cleaned = cleaned.replace("\u00a0", " ")
+            cleaned = CURRENCY_TOKEN_PATTERN.sub("", cleaned)
+            cleaned = cleaned.replace(",", "").strip()
+            if is_parenthesized_negative and cleaned and not cleaned.startswith(("-", "+")):
+                cleaned = f"-{cleaned}"
             if not re.fullmatch(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", cleaned):
                 return None
             parsed = float(cleaned)
@@ -354,7 +366,12 @@ def _get_pdf_parse_executor() -> str:
 
 
 def _build_content_security_policy() -> str:
-    connect_sources = ["'self'", "https://*.supabase.co"]
+    connect_sources = [
+        "'self'",
+        "https://*.supabase.co",
+        "https://api.razorpay.com",
+        "https://checkout.razorpay.com",
+    ]
     for env_key in ("SUPABASE_URL", "APP_SUPABASE_URL"):
         raw_url = os.environ.get(env_key, "").strip()
         if not raw_url:
@@ -364,7 +381,12 @@ def _build_content_security_policy() -> str:
         except httpx.InvalidURL:
             continue
         if _is_allowed_supabase_url(raw_url) and parsed.scheme in {"https", "http"} and parsed.host:
-            source = f"{parsed.scheme}://{parsed.host}"
+            host = parsed.host
+            if ":" in host and not host.startswith("["):
+                host = f"[{host}]"
+            source = f"{parsed.scheme}://{host}"
+            if parsed.port is not None:
+                source = f"{source}:{parsed.port}"
             if source not in connect_sources:
                 connect_sources.append(source)
 
@@ -586,6 +608,30 @@ async def _read_upload_limited(file: UploadFile) -> Tuple[Optional[bytes], Optio
         total_read += len(chunk)
         if total_read > MAX_UPLOAD_BYTES:
             return None, "File is too large. Maximum supported size is 25 MB."
+        chunks.append(chunk)
+
+    return b"".join(chunks), None
+
+
+async def _read_request_body_limited(
+    request: Request,
+    *,
+    max_bytes: int,
+    too_large_message: str,
+) -> Tuple[Optional[bytes], Optional[str]]:
+    content_length = request.headers.get("content-length", "").strip()
+    if content_length.isdigit() and int(content_length) > max_bytes:
+        return None, too_large_message
+
+    total_read = 0
+    chunks: List[bytes] = []
+
+    async for chunk in request.stream():
+        if not chunk:
+            continue
+        total_read += len(chunk)
+        if total_read > max_bytes:
+            return None, too_large_message
         chunks.append(chunk)
 
     return b"".join(chunks), None
@@ -1437,9 +1483,9 @@ class CreateSubscriptionResponse(BaseModel):
 
 
 class VerifySubscriptionPaymentRequest(BaseModel):
-    razorpay_payment_id: str
-    razorpay_subscription_id: str
-    razorpay_signature: str
+    razorpay_payment_id: str = Field(..., min_length=1, max_length=64)
+    razorpay_subscription_id: str = Field(..., min_length=1, max_length=64)
+    razorpay_signature: str = Field(..., min_length=64, max_length=64)
 
 
 class VerifySubscriptionPaymentResponse(BaseModel):
@@ -2564,7 +2610,15 @@ async def billing_verify_subscription_payment(
 
 @app.post("/api/billing/razorpay-webhook")
 async def billing_razorpay_webhook(request: Request):
-    raw_body = await request.body()
+    raw_body, body_error = await _read_request_body_limited(
+        request,
+        max_bytes=MAX_WEBHOOK_BODY_BYTES,
+        too_large_message="Webhook payload is too large.",
+    )
+    if body_error:
+        return JSONResponse(status_code=413, content={"detail": body_error})
+    if raw_body is None:
+        return JSONResponse(status_code=400, content={"detail": "Invalid webhook payload."})
     signature = request.headers.get("x-razorpay-signature", "")
     verify_webhook_signature(raw_body, signature)
 
@@ -2573,12 +2627,10 @@ async def billing_razorpay_webhook(request: Request):
     except ValueError:
         return JSONResponse(status_code=400, content={"detail": "Invalid webhook payload."})
 
-    event_id = request.headers.get("x-razorpay-event-id", "")
+    event_id = normalize_razorpay_event_id(request.headers.get("x-razorpay-event-id", ""))
     event_name = str(payload.get("event") or "")
-    if event_id:
-        is_new_event = await claim_webhook_event(event_id, event_name)
-        if not is_new_event:
-            return {"ok": True, "duplicate": True}
+    if event_id and await has_webhook_event(event_id):
+        return {"ok": True, "duplicate": True}
 
     subscription_event = extract_subscription_event(payload)
     if subscription_event:
@@ -2589,6 +2641,8 @@ async def billing_razorpay_webhook(request: Request):
             status=subscription_event["status"],
             current_period_end=subscription_event["current_period_end"],
         )
+    if event_id:
+        await claim_webhook_event(event_id, event_name)
     return {"ok": True}
 
 
@@ -2745,6 +2799,22 @@ async def parse_pdf(
     auth_user = await require_supabase_user(request)
     request_id = uuid.uuid4().hex[:10]
     normalized_output_format = output_format.strip().lower()
+    credit_consumed = False
+
+    async def reserve_report_access() -> None:
+        nonlocal credit_consumed
+        reservation = await reserve_analysis_credit(auth_user.user_id)
+        credit_consumed = reservation.credit_consumed
+
+    async def refund_report_access_if_needed() -> None:
+        nonlocal credit_consumed
+        if not credit_consumed:
+            return
+        try:
+            await refund_analysis_credit(auth_user.user_id)
+        finally:
+            credit_consumed = False
+
     try:
         if normalized_output_format not in ALLOWED_PARSE_OUTPUT_FORMATS:
             message = "Unsupported output format. Use 'json' or 'excel'."
@@ -2803,8 +2873,10 @@ async def parse_pdf(
             )
             return JSONResponse(status_code=400, content={"error": "Only PDF files are supported for this endpoint."})
 
+        await reserve_report_access()
         result = await _parse_pdf_upload(content, password=password)
         if not result["success"]:
+            await refund_report_access_if_needed()
             record_audit_log(
                 user_id=auth_user.user_id,
                 username=auth_user.username,
@@ -2818,6 +2890,7 @@ async def parse_pdf(
         parsed_data = result.get("data")
         parsed_shape_error = _validate_parsed_cas_payload(parsed_data)
         if parsed_shape_error:
+            await refund_report_access_if_needed()
             record_audit_log(
                 user_id=auth_user.user_id,
                 username=auth_user.username,
@@ -2854,7 +2927,11 @@ async def parse_pdf(
             metadata={"output_format": "json"},
         )
         return JSONResponse(content=jsonable_encoder(parsed_data))
+    except HTTPException:
+        await refund_report_access_if_needed()
+        raise
     except Exception as e:
+        await refund_report_access_if_needed()
         log_debug(f"[{request_id}] parse_pdf error: {type(e).__name__}: {e}")
         record_audit_log(
             user_id=auth_user.user_id,

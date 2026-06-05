@@ -280,12 +280,29 @@ begin
 
     update public.profiles
     set
-        subscription_status = coalesce(nullif(new_subscription_status, ''), public.profiles.subscription_status),
+        subscription_status = case
+            when public.profiles.subscription_status in ('authenticated', 'active')
+                and coalesce(nullif(new_subscription_status, ''), public.profiles.subscription_status) in ('created', 'pending')
+                then public.profiles.subscription_status
+            else coalesce(nullif(new_subscription_status, ''), public.profiles.subscription_status)
+        end,
         razorpay_subscription_id = coalesce(nullif(new_subscription_id, ''), public.profiles.razorpay_subscription_id),
         razorpay_customer_id = coalesce(nullif(new_customer_id, ''), public.profiles.razorpay_customer_id),
-        razorpay_subscription_current_end = new_current_period_end,
+        razorpay_subscription_current_end = case
+            when public.profiles.subscription_status in ('authenticated', 'active')
+                and coalesce(nullif(new_subscription_status, ''), public.profiles.subscription_status) in ('created', 'pending')
+                then public.profiles.razorpay_subscription_current_end
+            else coalesce(new_current_period_end, public.profiles.razorpay_subscription_current_end)
+        end,
         subscribed_at = case
-            when coalesce(nullif(new_subscription_status, ''), public.profiles.subscription_status) in ('authenticated', 'active')
+            when (
+                case
+                    when public.profiles.subscription_status in ('authenticated', 'active')
+                        and coalesce(nullif(new_subscription_status, ''), public.profiles.subscription_status) in ('created', 'pending')
+                        then public.profiles.subscription_status
+                    else coalesce(nullif(new_subscription_status, ''), public.profiles.subscription_status)
+                end
+            ) in ('authenticated', 'active')
                 then coalesce(public.profiles.subscribed_at, timezone('utc', now()))
             else public.profiles.subscribed_at
         end,
@@ -296,6 +313,28 @@ begin
     return query
     select *
     from public.echo_get_access_status(resolved_user_id);
+end;
+$$;
+
+create or replace function public.echo_has_razorpay_webhook_event(event_id text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    normalized_event_id text;
+begin
+    normalized_event_id := trim(event_id);
+    if coalesce(normalized_event_id, '') = '' then
+        return false;
+    end if;
+
+    return exists (
+        select 1
+        from public.razorpay_webhook_events
+        where razorpay_webhook_events.event_id = normalized_event_id
+    );
 end;
 $$;
 
@@ -329,10 +368,12 @@ revoke execute on function public.echo_get_access_status(uuid) from public, anon
 revoke execute on function public.echo_consume_report_credit(uuid) from public, anon, authenticated;
 revoke execute on function public.echo_refund_report_credit(uuid) from public, anon, authenticated;
 revoke execute on function public.echo_apply_razorpay_subscription_event(uuid, text, text, text, timestamptz) from public, anon, authenticated;
+revoke execute on function public.echo_has_razorpay_webhook_event(text) from public, anon, authenticated;
 revoke execute on function public.echo_claim_razorpay_webhook_event(text, text) from public, anon, authenticated;
 
 grant execute on function public.echo_get_access_status(uuid) to service_role;
 grant execute on function public.echo_consume_report_credit(uuid) to service_role;
 grant execute on function public.echo_refund_report_credit(uuid) to service_role;
 grant execute on function public.echo_apply_razorpay_subscription_event(uuid, text, text, text, timestamptz) to service_role;
+grant execute on function public.echo_has_razorpay_webhook_event(text) to service_role;
 grant execute on function public.echo_claim_razorpay_webhook_event(text, text) to service_role;

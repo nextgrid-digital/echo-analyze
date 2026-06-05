@@ -16,6 +16,7 @@ import unittest
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Optional
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -45,12 +46,14 @@ from app.Code.analytics import (
     record_analysis_run,
 )
 from app.Code.cas_parser import convert_to_excel, parse_with_casparser, recursive_to_dict
-from app.Code.env_loader import load_local_env
+from app.Code.env_loader import _should_set_env, load_local_env
 from app.Code.billing import (
     AccessStatus,
+    CreditReservation,
     _parse_access_status,
     _parse_credit_reservation,
     apply_subscription_status,
+    create_razorpay_subscription,
     extract_subscription_event,
     verify_checkout_signature,
     verify_webhook_signature,
@@ -82,7 +85,7 @@ from app.Code.main import (
     Holding,
     _safe_analysis_response,
 )
-from app.Code.supabase_auth import _get_supabase_url, _is_admin_user, _is_allowed_supabase_url
+from app.Code.supabase_auth import _get_supabase_url, _is_admin_user, _is_allowed_supabase_url, _sanitize_username
 from app.Code.utils import calculate_xirr, fetch_live_nav, fetch_nav_history, _parse_amfi_nav_history_text_for_code
 
 
@@ -93,6 +96,39 @@ class _FakeSupabaseUser:
     app_metadata = {"role": "admin"}
     user_metadata = {"username": "test-user"}
     is_admin = True
+
+
+def _test_access_status(
+    *,
+    can_analyze: bool = True,
+    has_unlimited_reports: bool = False,
+    cas_report_limit: int = 1,
+    cas_reports_used: int = 0,
+    remaining_free_reports: int = 1,
+    subscription_status: str = "free",
+    razorpay_subscription_id: Optional[str] = None,
+):
+    return AccessStatus(
+        can_analyze=can_analyze,
+        has_unlimited_reports=has_unlimited_reports,
+        cas_report_limit=cas_report_limit,
+        cas_reports_used=cas_reports_used,
+        remaining_free_reports=remaining_free_reports,
+        subscription_status=subscription_status,
+        razorpay_subscription_id=razorpay_subscription_id,
+        current_period_end=None,
+    )
+
+
+def _test_credit_reservation(*, credit_consumed: bool = True) -> CreditReservation:
+    return CreditReservation(
+        allowed=True,
+        credit_consumed=credit_consumed,
+        access=_test_access_status(
+            cas_reports_used=1 if credit_consumed else 0,
+            remaining_free_reports=0 if credit_consumed else 1,
+        ),
+    )
 
 
 async def _fake_require_supabase_user(*args, **kwargs):
@@ -1042,6 +1078,52 @@ class TestErrorSanitization(unittest.TestCase):
             else:
                 os.environ[preserved_key] = original_preserved
 
+    def test_public_frontend_env_override_is_limited_to_known_public_prefixes(self):
+        with patch.dict(
+            os.environ,
+            {
+                "APP_SUPABASE_URL": "https://old.supabase.co",
+                "APP_SECRET_VALUE": "server-secret",
+            },
+            clear=False,
+        ):
+            self.assertTrue(
+                _should_set_env(
+                    "APP_SUPABASE_URL",
+                    override=False,
+                    override_public_frontend=True,
+                )
+            )
+            self.assertFalse(
+                _should_set_env(
+                    "APP_SECRET_VALUE",
+                    override=False,
+                    override_public_frontend=True,
+                )
+            )
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(
+                _should_set_env(
+                    "APP_SECRET_VALUE",
+                    override=False,
+                    override_public_frontend=True,
+                )
+            )
+            self.assertFalse(
+                _should_set_env(
+                    "SUPABASE_SERVICE_ROLE_KEY",
+                    override=True,
+                    override_public_frontend=True,
+                )
+            )
+            self.assertTrue(
+                _should_set_env(
+                    "APP_SUPABASE_ANON_KEY",
+                    override=False,
+                    override_public_frontend=True,
+                )
+            )
+
     def test_analyze_returns_sanitized_internal_error(self):
         client = TestClient(app)
         files = {"file": ("sample.json", b'{"folios": []}', "application/json")}
@@ -1120,6 +1202,12 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertFalse(body.get("success", True))
         self.assertIn("finite number", body.get("error", "").lower())
         self.assertNotIn("request id", body.get("error", "").lower())
+
+    def test_parse_amount_accepts_common_inr_currency_formats(self):
+        self.assertEqual(_parse_amount("Rs. 1,23,456.78"), 123456.78)
+        self.assertEqual(_parse_amount("INR 2,500"), 2500.0)
+        self.assertEqual(_parse_amount("\u20b93,000.50"), 3000.50)
+        self.assertEqual(_parse_amount("(Rs. 1,000.25)"), -1000.25)
 
     def test_cas_shape_limits_reject_transaction_floods(self):
         payload = {
@@ -1272,7 +1360,15 @@ class TestErrorSanitization(unittest.TestCase):
             ]
         }
 
+        reserve_mock = AsyncMock(return_value=_test_credit_reservation())
+        refund_mock = AsyncMock()
         with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main.reserve_analysis_credit",
+            new=reserve_mock,
+        ), patch(
+            "app.Code.main.refund_analysis_credit",
+            new=refund_mock,
+        ), patch(
             "app.Code.main._parse_pdf_upload",
             new=AsyncMock(return_value={"success": True, "data": parser_payload}),
         ):
@@ -1287,12 +1383,22 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertEqual(body["folios"][0]["amount"], 100.5)
         self.assertEqual(body["folios"][0]["date"], "2024-01-02")
         self.assertEqual(body["folios"][0]["type"], TransactionType.PURCHASE.value)
+        reserve_mock.assert_awaited_once_with("user_test")
+        refund_mock.assert_not_awaited()
 
     def test_parse_pdf_rejects_malformed_parser_payload_before_export(self):
         client = TestClient(app)
         malformed_payload = {"folios": "not-a-list"}
 
+        reserve_mock = AsyncMock(return_value=_test_credit_reservation())
+        refund_mock = AsyncMock()
         with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main.reserve_analysis_credit",
+            new=reserve_mock,
+        ), patch(
+            "app.Code.main.refund_analysis_credit",
+            new=refund_mock,
+        ), patch(
             "app.Code.main._parse_pdf_upload",
             new=AsyncMock(return_value={"success": True, "data": malformed_payload}),
         ):
@@ -1306,19 +1412,70 @@ class TestErrorSanitization(unittest.TestCase):
         body = response.json()
         self.assertIn("invalid cas json format", body.get("error", "").lower())
         self.assertNotIn("request id", body.get("error", "").lower())
+        reserve_mock.assert_awaited_once_with("user_test")
+        refund_mock.assert_awaited_once_with("user_test")
+
+    def test_parse_pdf_requires_report_credit_before_processing(self):
+        client = TestClient(app)
+        parse_mock = AsyncMock(return_value={"success": True, "data": {"folios": []}})
+
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main.reserve_analysis_credit",
+            new=AsyncMock(side_effect=HTTPException(status_code=402, detail="Report limit reached.")),
+        ), patch(
+            "app.Code.main._parse_pdf_upload",
+            new=parse_mock,
+        ):
+            response = client.post(
+                "/api/parse_pdf",
+                files={"file": ("statement.pdf", b"%PDF-1.7\n", "application/pdf")},
+                data={"password": "", "output_format": "json"},
+            )
+
+        self.assertEqual(response.status_code, 402)
+        self.assertEqual(response.json().get("detail"), "Report limit reached.")
+        parse_mock.assert_not_awaited()
+
+    def test_parse_pdf_refunds_report_credit_on_parse_failure(self):
+        client = TestClient(app)
+        refund_mock = AsyncMock()
+
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main.reserve_analysis_credit",
+            new=AsyncMock(return_value=_test_credit_reservation()),
+        ), patch(
+            "app.Code.main.refund_analysis_credit",
+            new=refund_mock,
+        ), patch(
+            "app.Code.main._parse_pdf_upload",
+            new=AsyncMock(return_value={"success": False, "error": "Incorrect password."}),
+        ):
+            response = client.post(
+                "/api/parse_pdf",
+                files={"file": ("statement.pdf", b"%PDF-1.7\n", "application/pdf")},
+                data={"password": "", "output_format": "json"},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("incorrect password", response.json().get("error", "").lower())
+        refund_mock.assert_awaited_once_with("user_test")
 
     def test_spa_routes_return_index_html_locally_with_admin_api_protected(self):
         client = TestClient(app)
 
         admin_response = client.get("/admin")
         dashboard_response = client.get("/dashboard")
+        pricing_response = client.get("/pricing")
 
         self.assertEqual(admin_response.status_code, 200)
         self.assertEqual(dashboard_response.status_code, 200)
+        self.assertEqual(pricing_response.status_code, 200)
         self.assertIn("<!doctype html>", admin_response.text.lower())
         self.assertIn("<!doctype html>", dashboard_response.text.lower())
+        self.assertIn("<!doctype html>", pricing_response.text.lower())
         self.assertEqual(admin_response.headers.get("cache-control"), "no-store, max-age=0")
         self.assertEqual(dashboard_response.headers.get("cache-control"), "no-store, max-age=0")
+        self.assertEqual(pricing_response.headers.get("cache-control"), "no-store, max-age=0")
 
         admin_api_response = client.get("/api/admin/overview")
         self.assertEqual(admin_api_response.status_code, 401)
@@ -1360,11 +1517,35 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertNotIn("https://example.com", csp)
         self.assertIn("https://project.supabase.co", csp)
 
+    def test_csp_preserves_allowed_supabase_ports_and_razorpay_connect_sources(self):
+        with patch.dict(
+            os.environ,
+            {
+                "SUPABASE_URL": "http://127.0.0.1:54321",
+                "APP_SUPABASE_URL": "http://[::1]:54322",
+            },
+            clear=False,
+        ):
+            csp = _build_content_security_policy()
+
+        self.assertIn("http://127.0.0.1:54321", csp)
+        self.assertIn("http://[::1]:54322", csp)
+        self.assertIn("https://api.razorpay.com", csp)
+        self.assertIn("https://checkout.razorpay.com", csp)
+
     def test_vercel_spa_routes_are_served_by_fastapi_for_security_headers(self):
         vercel_config = json.loads(Path("vercel.json").read_text(encoding="utf-8"))
         routes = {route["src"]: route for route in vercel_config["routes"]}
 
-        for route in ("/", "/dashboard", "/dashboard/(.*)", "/admin", "/admin/(.*)"):
+        for route in (
+            "/",
+            "/dashboard",
+            "/dashboard/(.*)",
+            "/admin",
+            "/admin/(.*)",
+            "/pricing",
+            "/pricing/(.*)",
+        ):
             self.assertEqual(routes[route]["dest"], "app/Code/main.py")
 
     def test_public_test_endpoint_is_not_exposed(self):
@@ -1568,6 +1749,26 @@ class TestSupabaseAuthorization(unittest.TestCase):
                     user = {**base_user, "app_metadata": {"is_admin": value}}
                     self.assertTrue(_is_admin_user(user))
 
+    def test_username_sanitizer_redacts_common_pii(self):
+        username = _sanitize_username("  Alice ABCDE1234F\nalice@example.com\t+91 98765 43210  ")
+
+        self.assertEqual(
+            username,
+            "Alice [redacted-pan] [redacted-email] [redacted-phone]",
+        )
+
+    def test_username_redaction_migration_updates_existing_profiles(self):
+        migration_sql = Path(
+            "supabase/migrations/20260605000000_harden_username_pii_redaction.sql"
+        ).read_text(encoding="utf-8")
+        normalized_sql = re.sub(r"\s+", " ", migration_sql.lower())
+
+        self.assertIn("create or replace function public.echo_clean_username", normalized_sql)
+        self.assertIn("[redacted-pan]", normalized_sql)
+        self.assertIn("[redacted-email]", normalized_sql)
+        self.assertIn("[redacted-phone]", normalized_sql)
+        self.assertIn("update public.profiles set username = public.echo_clean_username(username, id)", normalized_sql)
+
 
 class TestBillingSecurity(unittest.TestCase):
     def test_billing_access_and_reservation_parsing_fail_closed(self):
@@ -1661,6 +1862,137 @@ class TestBillingSecurity(unittest.TestCase):
                 verify_webhook_signature(raw_body + b"\n", signature)
             self.assertEqual(mismatched_body.exception.status_code, 400)
 
+    def test_razorpay_webhook_rejects_oversized_body_before_signature_work(self):
+        client = TestClient(app)
+        with patch("app.Code.main.MAX_WEBHOOK_BODY_BYTES", 10), patch(
+            "app.Code.main.verify_webhook_signature",
+            side_effect=AssertionError("signature should not be checked for oversized bodies"),
+        ):
+            response = client.post(
+                "/api/billing/razorpay-webhook",
+                content=b"x" * 11,
+                headers={"x-razorpay-signature": "0" * 64},
+            )
+
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("too large", response.json().get("detail", "").lower())
+
+    def test_razorpay_webhook_rejects_invalid_event_id_before_rpc(self):
+        client = TestClient(app)
+        has_event_mock = AsyncMock()
+        apply_mock = AsyncMock()
+        payload = {"event": "subscription.activated", "payload": {}}
+
+        with patch("app.Code.main.verify_webhook_signature"), patch(
+            "app.Code.main.has_webhook_event",
+            new=has_event_mock,
+        ), patch(
+            "app.Code.main.apply_subscription_status",
+            new=apply_mock,
+        ):
+            response = client.post(
+                "/api/billing/razorpay-webhook",
+                content=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "x-razorpay-signature": "0" * 64,
+                    "x-razorpay-event-id": "evt_" + ("x" * 200),
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("event id", response.json().get("detail", "").lower())
+        has_event_mock.assert_not_awaited()
+        apply_mock.assert_not_awaited()
+
+    def test_razorpay_webhook_duplicate_event_skips_subscription_apply(self):
+        client = TestClient(app)
+        apply_mock = AsyncMock()
+        claim_mock = AsyncMock()
+        payload = {
+            "event": "subscription.activated",
+            "payload": {
+                "subscription": {
+                    "entity": {
+                        "id": "sub_test123",
+                        "plan_id": "plan_good123",
+                        "status": "active",
+                        "customer_id": "cust_test123",
+                        "current_end": 1893456000,
+                        "notes": {"user_id": "user_test"},
+                    }
+                }
+            },
+        }
+
+        with patch.dict(os.environ, {"RAZORPAY_PLAN_ID": "plan_good123"}, clear=False), patch(
+            "app.Code.main.verify_webhook_signature",
+        ), patch(
+            "app.Code.main.has_webhook_event",
+            new=AsyncMock(return_value=True),
+        ), patch(
+            "app.Code.main.apply_subscription_status",
+            new=apply_mock,
+        ), patch(
+            "app.Code.main.claim_webhook_event",
+            new=claim_mock,
+        ):
+            response = client.post(
+                "/api/billing/razorpay-webhook",
+                content=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "x-razorpay-signature": "0" * 64,
+                    "x-razorpay-event-id": "evt_test123",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json().get("duplicate"))
+        apply_mock.assert_not_awaited()
+        claim_mock.assert_not_awaited()
+
+    def test_razorpay_webhook_does_not_claim_event_when_subscription_apply_fails(self):
+        client = TestClient(app)
+        claim_mock = AsyncMock()
+        payload = {
+            "event": "subscription.activated",
+            "payload": {
+                "subscription": {
+                    "entity": {
+                        "id": "sub_test123",
+                        "plan_id": "plan_good123",
+                        "status": "active",
+                        "customer_id": "cust_test123",
+                        "current_end": 1893456000,
+                        "notes": {"user_id": "user_test"},
+                    }
+                }
+            },
+        }
+
+        with patch.dict(os.environ, {"RAZORPAY_PLAN_ID": "plan_good123"}, clear=False), patch(
+            "app.Code.main.verify_webhook_signature",
+        ), patch(
+            "app.Code.main.has_webhook_event",
+            new=AsyncMock(return_value=False),
+        ), patch(
+            "app.Code.main.apply_subscription_status",
+            new=AsyncMock(side_effect=HTTPException(status_code=503, detail="Supabase unavailable.")),
+        ), patch(
+            "app.Code.main.claim_webhook_event",
+            new=claim_mock,
+        ):
+            response = client.post(
+                "/api/billing/razorpay-webhook",
+                content=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "x-razorpay-signature": "0" * 64,
+                    "x-razorpay-event-id": "evt_test123",
+                },
+            )
+
+        self.assertEqual(response.status_code, 503)
+        claim_mock.assert_not_awaited()
+
     def test_subscription_webhook_event_requires_configured_plan(self):
         payload = {
             "payload": {
@@ -1719,6 +2051,26 @@ class TestBillingSecurity(unittest.TestCase):
                     normalized_sql,
                 )
 
+    def test_razorpay_webhook_idempotency_migration_creates_backend_only_check(self):
+        migration_sql = Path(
+            "supabase/migrations/20260604001000_harden_razorpay_webhook_idempotency.sql"
+        ).read_text(encoding="utf-8")
+        normalized_sql = re.sub(r"\s+", " ", migration_sql.lower())
+
+        self.assertIn("create or replace function public.echo_has_razorpay_webhook_event(event_id text)", normalized_sql)
+        self.assertIn(
+            "revoke execute on function public.echo_has_razorpay_webhook_event(text) from public, anon, authenticated",
+            normalized_sql,
+        )
+        self.assertIn(
+            "grant execute on function public.echo_has_razorpay_webhook_event(text) to service_role",
+            normalized_sql,
+        )
+        self.assertIn("public.profiles.subscription_status in ('authenticated', 'active')", normalized_sql)
+        self.assertIn("in ('created', 'pending')", normalized_sql)
+        self.assertIn("razorpay_subscription_current_end = case", normalized_sql)
+        self.assertIn("else coalesce(new_current_period_end, public.profiles.razorpay_subscription_current_end)", normalized_sql)
+
     def test_create_subscription_refuses_when_access_is_already_unlimited(self):
         client = TestClient(app)
         active_access = AccessStatus(
@@ -1743,6 +2095,56 @@ class TestBillingSecurity(unittest.TestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertIn("already active", response.json().get("detail", "").lower())
+
+    def test_create_subscription_does_not_send_username_to_razorpay_notes(self):
+        captured_request = {}
+
+        class CapturingRazorpayClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, url, **kwargs):
+                captured_request["url"] = url
+                captured_request["json"] = kwargs.get("json")
+                return _FakeResponse(
+                    200,
+                    {
+                        "id": "sub_test123",
+                        "status": "created",
+                        "plan_id": "plan_good123",
+                        "customer_id": "cust_test123",
+                        "current_end": 1893456000,
+                    },
+                )
+
+        with patch.dict(
+            os.environ,
+            {
+                "RAZORPAY_KEY_ID": "rzp_test_key",
+                "RAZORPAY_KEY_SECRET": "test_secret",
+                "RAZORPAY_PLAN_ID": "plan_good123",
+            },
+            clear=False,
+        ), patch(
+            "app.Code.billing.httpx.AsyncClient",
+            CapturingRazorpayClient,
+        ), patch(
+            "app.Code.billing.apply_subscription_status",
+            new=AsyncMock(return_value=_test_access_status()),
+        ):
+            subscription = asyncio.run(create_razorpay_subscription(_FakeSupabaseUser()))
+
+        self.assertEqual(subscription["id"], "sub_test123")
+        notes = captured_request["json"]["notes"]
+        self.assertEqual(notes["user_id"], "user_test")
+        self.assertEqual(notes["source"], "echo-analyze")
+        self.assertNotIn("username", notes)
 
     def test_verify_subscription_rejects_wrong_plan_before_applying_access(self):
         client = TestClient(app)
@@ -1788,6 +2190,19 @@ class TestBillingSecurity(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         apply_mock.assert_not_called()
+
+    def test_verify_subscription_payment_rejects_oversized_fields(self):
+        client = TestClient(app)
+        response = client.post(
+            "/api/billing/verify-subscription-payment",
+            json={
+                "razorpay_payment_id": "pay_" + ("x" * 80),
+                "razorpay_subscription_id": "sub_test123",
+                "razorpay_signature": "0" * 64,
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
 
     def test_verify_subscription_rejects_missing_status_before_applying_access(self):
         client = TestClient(app)
@@ -2146,6 +2561,15 @@ class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
                                     "nav": 100,
                                     "balance": 10,
                                     "type": "\t@TYPE",
+                                },
+                                {
+                                    "date": "2024-01-03",
+                                    "description": "\nplain",
+                                    "amount": 1000,
+                                    "units": 10,
+                                    "nav": 100,
+                                    "balance": 10,
+                                    "type": "\nTYPE",
                                 }
                             ],
                         }
@@ -2166,6 +2590,8 @@ class TestParserAndHoldingsResilience(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sheet["K2"].value, "'@TYPE")
         self.assertEqual(sheet["F3"].value, "' \t=cmd")
         self.assertEqual(sheet["K3"].value, "'\t@TYPE")
+        self.assertEqual(sheet["F4"].value, "'\nplain")
+        self.assertEqual(sheet["K4"].value, "'\nTYPE")
 
     def test_convert_to_excel_skips_malformed_rows_without_crashing(self):
         workbook_bytes = convert_to_excel(

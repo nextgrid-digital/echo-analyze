@@ -174,8 +174,8 @@ echo-analyze/
   cd frontend
   npm run build
   ```
-- `vercel.json` routes `/api/*` to FastAPI and sends SPA paths (like `/dashboard`) to `static/index.html`.
-- `/admin` is routed through FastAPI; admin data is protected by the backend Supabase admin check.
+- `vercel.json` routes `/api/*` and sensitive SPA paths (`/`, `/dashboard`, `/admin`, `/pricing`) through FastAPI so security/cache headers are applied before serving `static/index.html`.
+- Admin data is protected by the backend Supabase admin check; the frontend route guard is only a UI convenience.
 - The default analytics store is file-based. On Vercel, that falls back to `/tmp`, which is ephemeral. For production-grade admin analytics, point `ANALYTICS_DB_PATH` to persistent storage or swap the SQLite helper for a hosted database.
 
 ## Dependencies

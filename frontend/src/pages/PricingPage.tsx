@@ -12,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { loadRazorpayCheckout } from "@/lib/razorpayCheckout"
 import { ArrowLeft, Check, CreditCard, Infinity as InfinityIcon, ScanLine } from "lucide-react"
 
 declare global {
@@ -37,8 +38,6 @@ interface RazorpayCheckoutResponse {
   razorpay_signature: string
 }
 
-const RAZORPAY_CHECKOUT_SCRIPT = "https://checkout.razorpay.com/v1/checkout.js"
-
 export function PricingPage() {
   const { user, billingAccess, refreshBillingAccess } = useAuth()
   const [isSubscribing, setIsSubscribing] = useState(false)
@@ -47,10 +46,25 @@ export function PricingPage() {
 
   const isUnlimited = billingAccess?.has_unlimited_reports === true
   const remainingReports = billingAccess?.remaining_free_reports ?? 0
+  const canStartSubscription = Boolean(user && billingAccess && !isUnlimited)
 
   const handleSubscribe = async () => {
     setError(null)
     setSuccess(null)
+
+    if (!user) {
+      setError("Sign in before starting checkout.")
+      return
+    }
+    if (!billingAccess) {
+      setError("Checking your report access. Please try again in a moment.")
+      return
+    }
+    if (isUnlimited) {
+      setSuccess("Subscription active. Unlimited CAS analysis is already unlocked.")
+      return
+    }
+
     setIsSubscribing(true)
 
     try {
@@ -175,11 +189,17 @@ export function PricingPage() {
               <Button
                 type="button"
                 className="w-full"
-                disabled={isSubscribing || isUnlimited}
+                disabled={isSubscribing || !canStartSubscription}
                 onClick={() => void handleSubscribe()}
               >
                 <CreditCard className="w-4 h-4" />
-                {isUnlimited ? "Active" : isSubscribing ? "Opening checkout..." : "Subscribe"}
+                {isUnlimited
+                  ? "Active"
+                  : !billingAccess
+                    ? "Checking access..."
+                    : isSubscribing
+                      ? "Opening checkout..."
+                      : "Subscribe"}
               </Button>
             </CardContent>
           </Card>
@@ -196,31 +216,4 @@ function Feature({ children }: { children: string }) {
       <span>{children}</span>
     </div>
   )
-}
-
-function loadRazorpayCheckout() {
-  if (window.Razorpay) {
-    return Promise.resolve()
-  }
-
-  const existingScript = document.querySelector<HTMLScriptElement>(
-    `script[src="${RAZORPAY_CHECKOUT_SCRIPT}"]`
-  )
-  if (existingScript) {
-    return new Promise<void>((resolve, reject) => {
-      existingScript.addEventListener("load", () => resolve(), { once: true })
-      existingScript.addEventListener("error", () => reject(new Error("Checkout failed to load. Please try again.")), {
-        once: true,
-      })
-    })
-  }
-
-  return new Promise<void>((resolve, reject) => {
-    const script = document.createElement("script")
-    script.src = RAZORPAY_CHECKOUT_SCRIPT
-    script.async = true
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error("Checkout failed to load. Please try again."))
-    document.body.appendChild(script)
-  })
 }

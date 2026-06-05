@@ -7,6 +7,7 @@ import { Footer } from "@/components/dashboard/Footer"
 import { WarningRail } from "@/components/dashboard/WarningRail"
 import { Button } from "@/components/ui/button"
 import { clearLatestAnalysis, loadLatestAnalysis } from "@/lib/analysisSession"
+import { buildDashboardPdfFilename } from "@/lib/downloadFilename"
 import { createEmptySummary, createEmptyHoldings } from "@/lib/emptyData"
 import { getDashboardMethodologyWarnings } from "@/lib/portfolioAnalysis"
 import type { AnalysisResponse } from "@/types/api"
@@ -146,7 +147,7 @@ export function DashboardPage() {
         }
       }
 
-      pdf.save(`ECHO_Analysis_${displaySummary.statement_date || "Report"}.pdf`)
+      pdf.save(buildDashboardPdfFilename(displaySummary.statement_date))
     } catch (error) {
       console.error("PDF generation failed:", error)
       // Final fallback to print if library fails

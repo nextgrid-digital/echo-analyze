@@ -27,6 +27,8 @@ supabase db push
 Or copy the SQL from `migrations/20260526000000_auth_profiles_and_admin.sql` into the Supabase SQL editor.
 Then apply `migrations/20260601000000_report_limits_and_razorpay.sql` and
 `migrations/20260604000000_harden_profile_billing_permissions.sql` as well.
+If the Razorpay billing migration was already applied before webhook retry hardening,
+also apply `migrations/20260604001000_harden_razorpay_webhook_idempotency.sql`.
 
 ## Enable Google Sign-In
 
