@@ -34,8 +34,11 @@ export async function apiFetch(
 ): Promise<Response> {
   const accessToken = await getSupabaseAccessToken()
   const headers = new Headers(init.headers)
-  if (accessToken && isSameOriginRequest(input)) {
+  const isSameOrigin = isSameOriginRequest(input)
+  if (accessToken && isSameOrigin) {
     headers.set("Authorization", `Bearer ${accessToken}`)
+  } else if (!isSameOrigin) {
+    headers.delete("Authorization")
   }
 
   return fetch(input, {

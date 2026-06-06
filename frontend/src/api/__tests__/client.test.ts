@@ -33,4 +33,18 @@ describe("apiFetch", () => {
     const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers
     expect(headers.has("Authorization")).toBe(false)
   })
+
+  it("strips caller-supplied authorization from cross-origin calls", async () => {
+    vi.mocked(getSupabaseAccessToken).mockResolvedValue("access-token")
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await apiFetch("https://example.com/api/analyze", {
+      method: "POST",
+      headers: { Authorization: "Bearer accidental-token" },
+    })
+
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers
+    expect(headers.has("Authorization")).toBe(false)
+  })
 })

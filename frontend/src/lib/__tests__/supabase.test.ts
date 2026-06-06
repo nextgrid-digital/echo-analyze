@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { User } from "@supabase/supabase-js"
-import { isSupabaseAdminUser } from "@/lib/supabase"
+import { getUsernameFromUser, isSupabaseAdminUser } from "@/lib/supabase"
 
 function makeUser(metadata: {
   app_metadata?: Record<string, unknown>
@@ -55,6 +55,20 @@ describe("isSupabaseAdminUser", () => {
     for (const value of [true, "true", "1", "yes", 1, 1.0]) {
       expect(isSupabaseAdminUser(makeUser({ app_metadata: { is_admin: value } }))).toBe(true)
     }
+  })
+})
+
+describe("getUsernameFromUser", () => {
+  it("redacts common PII from user metadata display names", () => {
+    const user = makeUser({
+      user_metadata: {
+        username: " Alice ABCDE1234F\nalice@example.com\t+91 98765 43210 ",
+      },
+    })
+
+    expect(getUsernameFromUser(user)).toBe(
+      "Alice [redacted-pan] [redacted-email] [redacted-phone]",
+    )
   })
 })
 

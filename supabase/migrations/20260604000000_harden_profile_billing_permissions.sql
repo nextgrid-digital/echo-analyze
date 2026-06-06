@@ -1,5 +1,4 @@
 -- Defense-in-depth hardening for profile billing state and backend-only RPCs.
--- Apply this even if the earlier auth/billing migrations have already run.
 
 revoke update on table public.profiles from anon, authenticated;
 grant update (username) on table public.profiles to authenticated;

@@ -5,6 +5,10 @@ const supabaseAnonKey = import.meta.env.APP_SUPABASE_ANON_KEY?.trim()
 
 let client: SupabaseClient | null = null
 
+const PAN_PATTERN = /\b[A-Z]{5}[0-9]{4}[A-Z]\b/gi
+const EMAIL_PATTERN = /(?<![A-Za-z0-9_])[A-Za-z0-9][\w.+-]*@[\w.-]+\.[A-Za-z]{2,}(?![A-Za-z0-9_])/gi
+const PHONE_PATTERN = /(?<![\d.])(?:\+?\d[\d\-\s]{8,}\d)(?![\d.])/g
+
 function isLoopbackHost(host: string) {
   const normalized = host.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "")
   return (
@@ -87,7 +91,15 @@ export function getUsernameFromUser(user: User | null | undefined) {
     metadata.full_name
 
   if (typeof username === "string" && username.trim()) {
-    return username.trim()
+    return username
+      .trim()
+      .replace(PAN_PATTERN, "[redacted-pan]")
+      .replace(/[\r\n\t]+/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(EMAIL_PATTERN, "[redacted-email]")
+      .replace(PHONE_PATTERN, "[redacted-phone]")
+      .trim()
+      .slice(0, 80) || `user_${user.id.slice(0, 8)}`
   }
 
   return `user_${user.id.slice(0, 8)}`

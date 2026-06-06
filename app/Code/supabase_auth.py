@@ -87,6 +87,7 @@ def _sanitize_username(value: Optional[str]) -> Optional[str]:
     username = str(value).strip()
     if not username:
         return None
+    username = re.sub(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", "[redacted-pan]", username, flags=re.IGNORECASE)
     username = re.sub(r"[\r\n\t]+", " ", username)
     username = re.sub(r"\s+", " ", username).strip()
     username = re.sub(
@@ -94,6 +95,7 @@ def _sanitize_username(value: Optional[str]) -> Optional[str]:
         "[redacted-email]",
         username,
     )
+    username = re.sub(r"(?<![\d.])(?:\+?\d[\d\-\s]{8,}\d)(?![\d.])", "[redacted-phone]", username)
     return username[:80] or None
 
 

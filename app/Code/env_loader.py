@@ -2,12 +2,22 @@ import os
 from pathlib import Path
 
 
+def _is_public_frontend_env_key(key: str) -> bool:
+    return (
+        key.startswith("APP_SUPABASE_")
+        or key.startswith("VITE_")
+        or key.startswith("NEXT_PUBLIC_")
+    )
+
+
 def _should_set_env(key: str, *, override: bool, override_public_frontend: bool) -> bool:
+    if override_public_frontend and not _is_public_frontend_env_key(key):
+        return False
     if override:
         return True
     if key not in os.environ:
         return True
-    if override_public_frontend and (key.startswith("VITE_") or key.startswith("NEXT_PUBLIC_")):
+    if override_public_frontend and _is_public_frontend_env_key(key):
         return True
     return False
 

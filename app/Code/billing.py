@@ -17,6 +17,7 @@ RAZORPAY_API_BASE = "https://api.razorpay.com/v1"
 RAZORPAY_PAYMENT_ID_PATTERN = re.compile(r"^pay_[A-Za-z0-9]+$")
 RAZORPAY_PLAN_ID_PATTERN = re.compile(r"^plan_[A-Za-z0-9]+$")
 RAZORPAY_SUBSCRIPTION_ID_PATTERN = re.compile(r"^sub_[A-Za-z0-9]+$")
+RAZORPAY_EVENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 KNOWN_SUBSCRIPTION_STATUSES = {
     "free",
     "created",
@@ -241,14 +242,32 @@ async def apply_subscription_status(
 
 
 async def claim_webhook_event(event_id: str, event_name: str) -> bool:
+    normalized_event_id = normalize_razorpay_event_id(event_id)
+    if normalized_event_id is None:
+        return True
     payload = await _supabase_rpc(
         "echo_claim_razorpay_webhook_event",
-        {"event_id": event_id, "event_name": event_name},
+        {"event_id": normalized_event_id, "event_name": event_name},
     )
     if isinstance(payload, bool):
         return payload
     if isinstance(payload, dict):
         return payload.get("echo_claim_razorpay_webhook_event") is True
+    return False
+
+
+async def has_webhook_event(event_id: str) -> bool:
+    normalized_event_id = normalize_razorpay_event_id(event_id)
+    if normalized_event_id is None:
+        return False
+    payload = await _supabase_rpc(
+        "echo_has_razorpay_webhook_event",
+        {"event_id": normalized_event_id},
+    )
+    if isinstance(payload, bool):
+        return payload
+    if isinstance(payload, dict):
+        return payload.get("echo_has_razorpay_webhook_event") is True
     return False
 
 
@@ -258,7 +277,6 @@ async def create_razorpay_subscription(user: SupabaseUser) -> Dict[str, Any]:
         raise HTTPException(status_code=503, detail="Razorpay subscription is not configured.")
     notes = {
         "user_id": user.user_id,
-        "username": user.username,
         "source": "echo-analyze",
     }
     notify_info: Dict[str, str] = {}
@@ -364,6 +382,17 @@ def is_valid_razorpay_plan_id(value: str) -> bool:
 
 def is_valid_razorpay_subscription_id(value: str) -> bool:
     return bool(isinstance(value, str) and RAZORPAY_SUBSCRIPTION_ID_PATTERN.fullmatch(value.strip()))
+
+
+def normalize_razorpay_event_id(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    event_id = str(value).strip()
+    if not event_id:
+        return None
+    if not RAZORPAY_EVENT_ID_PATTERN.fullmatch(event_id):
+        raise HTTPException(status_code=400, detail="Invalid Razorpay webhook event id.")
+    return event_id
 
 
 def subscription_matches_configured_plan(subscription: Dict[str, Any]) -> bool:

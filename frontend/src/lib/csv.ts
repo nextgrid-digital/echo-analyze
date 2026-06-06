@@ -1,4 +1,4 @@
-const DANGEROUS_SPREADSHEET_PREFIX = /^[\t\r]|^\s*[=+\-@]/
+const DANGEROUS_SPREADSHEET_PREFIX = /^[\t\r\n]|^\s*[=+\-@]/
 
 export function sanitizeSpreadsheetCell(value: string): string {
   if (!value) {

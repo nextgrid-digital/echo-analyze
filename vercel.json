@@ -47,6 +47,20 @@
       "continue": true
     },
     {
+      "src": "^/pricing$",
+      "headers": {
+        "Cache-Control": "no-store, max-age=0"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/pricing/(.*)$",
+      "headers": {
+        "Cache-Control": "no-store, max-age=0"
+      },
+      "continue": true
+    },
+    {
       "src": "/api/(.*)",
       "dest": "app/Code/main.py"
     },
@@ -72,6 +86,14 @@
     },
     {
       "src": "/admin/(.*)",
+      "dest": "app/Code/main.py"
+    },
+    {
+      "src": "/pricing",
+      "dest": "app/Code/main.py"
+    },
+    {
+      "src": "/pricing/(.*)",
       "dest": "app/Code/main.py"
     },
     {

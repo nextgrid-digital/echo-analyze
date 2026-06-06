@@ -30,9 +30,11 @@ from app.Code.billing import (
     fetch_razorpay_subscription,
     get_access_status,
     get_razorpay_key_id,
+    has_webhook_event,
     is_reusable_checkout_status,
     is_unlimited_subscription_status,
     normalize_subscription_status,
+    normalize_razorpay_event_id,
     refund_analysis_credit,
     reserve_analysis_credit,
     subscription_matches_configured_plan,
@@ -54,6 +56,7 @@ app = FastAPI()
 LOG_FILE = "data/backend_debug.log"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
+MAX_WEBHOOK_BODY_BYTES = 256 * 1024
 MAX_CAS_FOLIOS = 100
 MAX_CAS_SCHEMES = 500
 MAX_CAS_TRANSACTIONS = 20_000
@@ -69,6 +72,9 @@ ALLOWED_CONTENT_TYPES = {
 ALLOWED_PARSE_OUTPUT_FORMATS = {"json", "excel"}
 PDF_MAGIC_PREFIX = b"%PDF-"
 AMFI_CODE_PATTERN = re.compile(r"^\d{1,12}$")
+CURRENCY_TOKEN_PATTERN = re.compile(
+    r"(?i)(?:\u20b9|(?<![A-Za-z])rs\.?(?![A-Za-z])|(?<![A-Za-z])inr(?![A-Za-z]))"
+)
 DEFAULT_PDF_PARSE_TIMEOUT_SECONDS = 120.0
 MAX_PDF_PARSE_TIMEOUT_SECONDS = 240.0
 PDF_PARSE_WORKER_JOIN_GRACE_SECONDS = 2.0
@@ -264,8 +270,14 @@ def _parse_amount(value) -> Optional[float]:
             cleaned = value.strip()
             if not cleaned:
                 return None
-            cleaned = cleaned.replace(",", "")
-            cleaned = re.sub(r"(?i)\b(?:rs|inr)\b|[₹]", "", cleaned).strip()
+            is_parenthesized_negative = cleaned.startswith("(") and cleaned.endswith(")")
+            if is_parenthesized_negative:
+                cleaned = cleaned[1:-1].strip()
+            cleaned = cleaned.replace("\u00a0", " ")
+            cleaned = CURRENCY_TOKEN_PATTERN.sub("", cleaned)
+            cleaned = cleaned.replace(",", "").strip()
+            if is_parenthesized_negative and cleaned and not cleaned.startswith(("-", "+")):
+                cleaned = f"-{cleaned}"
             if not re.fullmatch(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", cleaned):
                 return None
             parsed = float(cleaned)
@@ -354,7 +366,14 @@ def _get_pdf_parse_executor() -> str:
 
 
 def _build_content_security_policy() -> str:
-    connect_sources = ["'self'", "https://*.supabase.co"]
+    connect_sources = [
+        "'self'",
+        "https://*.supabase.co",
+        "https://api.razorpay.com",
+        "https://checkout.razorpay.com",
+        "https://lumberjack.razorpay.com",
+        "https://lumberjack-metrics.razorpay.com",
+    ]
     for env_key in ("SUPABASE_URL", "APP_SUPABASE_URL"):
         raw_url = os.environ.get(env_key, "").strip()
         if not raw_url:
@@ -364,13 +383,18 @@ def _build_content_security_policy() -> str:
         except httpx.InvalidURL:
             continue
         if _is_allowed_supabase_url(raw_url) and parsed.scheme in {"https", "http"} and parsed.host:
-            source = f"{parsed.scheme}://{parsed.host}"
+            host = parsed.host
+            if ":" in host and not host.startswith("["):
+                host = f"[{host}]"
+            source = f"{parsed.scheme}://{host}"
+            if parsed.port is not None:
+                source = f"{source}:{parsed.port}"
             if source not in connect_sources:
                 connect_sources.append(source)
 
     return (
         "default-src 'self'; "
-        "script-src 'self' https://checkout.razorpay.com; "
+        "script-src 'self' https://checkout.razorpay.com https://checkout-static-next.razorpay.com https://cdn.razorpay.com; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob: https:; "
         "font-src 'self' data:; "
@@ -586,6 +610,30 @@ async def _read_upload_limited(file: UploadFile) -> Tuple[Optional[bytes], Optio
         total_read += len(chunk)
         if total_read > MAX_UPLOAD_BYTES:
             return None, "File is too large. Maximum supported size is 25 MB."
+        chunks.append(chunk)
+
+    return b"".join(chunks), None
+
+
+async def _read_request_body_limited(
+    request: Request,
+    *,
+    max_bytes: int,
+    too_large_message: str,
+) -> Tuple[Optional[bytes], Optional[str]]:
+    content_length = request.headers.get("content-length", "").strip()
+    if content_length.isdigit() and int(content_length) > max_bytes:
+        return None, too_large_message
+
+    total_read = 0
+    chunks: List[bytes] = []
+
+    async for chunk in request.stream():
+        if not chunk:
+            continue
+        total_read += len(chunk)
+        if total_read > max_bytes:
+            return None, too_large_message
         chunks.append(chunk)
 
     return b"".join(chunks), None
@@ -1437,9 +1485,9 @@ class CreateSubscriptionResponse(BaseModel):
 
 
 class VerifySubscriptionPaymentRequest(BaseModel):
-    razorpay_payment_id: str
-    razorpay_subscription_id: str
-    razorpay_signature: str
+    razorpay_payment_id: str = Field(..., min_length=1, max_length=64)
+    razorpay_subscription_id: str = Field(..., min_length=1, max_length=64)
+    razorpay_signature: str = Field(..., min_length=64, max_length=64)
 
 
 class VerifySubscriptionPaymentResponse(BaseModel):
@@ -2499,20 +2547,51 @@ async def billing_access(request: Request):
     return BillingAccessResponse(**access.to_dict())
 
 
+async def _get_reusable_checkout_subscription(user, existing_access):
+    subscription_id = existing_access.razorpay_subscription_id
+    if not subscription_id or not is_reusable_checkout_status(existing_access.subscription_status):
+        return None
+    try:
+        subscription = await fetch_razorpay_subscription(subscription_id)
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            raise
+        return None
+    if not subscription_matches_configured_plan(subscription):
+        return None
+    notes = subscription.get("notes") if isinstance(subscription.get("notes"), dict) else {}
+    subscription_user_id = notes.get("user_id")
+    if subscription_user_id and subscription_user_id != user.user_id:
+        return None
+    status = normalize_subscription_status(subscription.get("status"))
+    if status is None:
+        return None
+    if is_reusable_checkout_status(status):
+        return {"id": subscription_id, "status": status}
+    synced_access = await apply_subscription_status(
+        user_id=user.user_id,
+        subscription_id=subscription_id,
+        customer_id=subscription.get("customer_id") if isinstance(subscription.get("customer_id"), str) else None,
+        status=status,
+        current_period_end=subscription.get("current_end"),
+    )
+    if synced_access.has_unlimited_reports or is_unlimited_subscription_status(synced_access.subscription_status):
+        raise HTTPException(status_code=409, detail="Subscription is already active.")
+    return None
+
+
 @app.post("/api/billing/create-subscription", response_model=CreateSubscriptionResponse)
 async def billing_create_subscription(request: Request):
     user = await require_supabase_user(request)
     existing_access = await get_access_status(user.user_id)
     if existing_access.has_unlimited_reports or is_unlimited_subscription_status(existing_access.subscription_status):
         return JSONResponse(status_code=409, content={"detail": "Subscription is already active."})
-    if (
-        existing_access.razorpay_subscription_id
-        and is_reusable_checkout_status(existing_access.subscription_status)
-    ):
+    existing_subscription = await _get_reusable_checkout_subscription(user, existing_access)
+    if existing_subscription:
         return CreateSubscriptionResponse(
             key_id=get_razorpay_key_id(),
-            subscription_id=existing_access.razorpay_subscription_id,
-            subscription_status=existing_access.subscription_status,
+            subscription_id=existing_subscription["id"],
+            subscription_status=existing_subscription["status"],
             access=BillingAccessResponse(**existing_access.to_dict()),
         )
     subscription = await create_razorpay_subscription(user)
@@ -2564,7 +2643,15 @@ async def billing_verify_subscription_payment(
 
 @app.post("/api/billing/razorpay-webhook")
 async def billing_razorpay_webhook(request: Request):
-    raw_body = await request.body()
+    raw_body, body_error = await _read_request_body_limited(
+        request,
+        max_bytes=MAX_WEBHOOK_BODY_BYTES,
+        too_large_message="Webhook payload is too large.",
+    )
+    if body_error:
+        return JSONResponse(status_code=413, content={"detail": body_error})
+    if raw_body is None:
+        return JSONResponse(status_code=400, content={"detail": "Invalid webhook payload."})
     signature = request.headers.get("x-razorpay-signature", "")
     verify_webhook_signature(raw_body, signature)
 
@@ -2573,12 +2660,10 @@ async def billing_razorpay_webhook(request: Request):
     except ValueError:
         return JSONResponse(status_code=400, content={"detail": "Invalid webhook payload."})
 
-    event_id = request.headers.get("x-razorpay-event-id", "")
+    event_id = normalize_razorpay_event_id(request.headers.get("x-razorpay-event-id", ""))
     event_name = str(payload.get("event") or "")
-    if event_id:
-        is_new_event = await claim_webhook_event(event_id, event_name)
-        if not is_new_event:
-            return {"ok": True, "duplicate": True}
+    if event_id and await has_webhook_event(event_id):
+        return {"ok": True, "duplicate": True}
 
     subscription_event = extract_subscription_event(payload)
     if subscription_event:
@@ -2589,6 +2674,8 @@ async def billing_razorpay_webhook(request: Request):
             status=subscription_event["status"],
             current_period_end=subscription_event["current_period_end"],
         )
+    if event_id:
+        await claim_webhook_event(event_id, event_name)
     return {"ok": True}
 
 
@@ -2745,6 +2832,22 @@ async def parse_pdf(
     auth_user = await require_supabase_user(request)
     request_id = uuid.uuid4().hex[:10]
     normalized_output_format = output_format.strip().lower()
+    credit_consumed = False
+
+    async def reserve_report_access() -> None:
+        nonlocal credit_consumed
+        reservation = await reserve_analysis_credit(auth_user.user_id)
+        credit_consumed = reservation.credit_consumed
+
+    async def refund_report_access_if_needed() -> None:
+        nonlocal credit_consumed
+        if not credit_consumed:
+            return
+        try:
+            await refund_analysis_credit(auth_user.user_id)
+        finally:
+            credit_consumed = False
+
     try:
         if normalized_output_format not in ALLOWED_PARSE_OUTPUT_FORMATS:
             message = "Unsupported output format. Use 'json' or 'excel'."
@@ -2803,8 +2906,10 @@ async def parse_pdf(
             )
             return JSONResponse(status_code=400, content={"error": "Only PDF files are supported for this endpoint."})
 
+        await reserve_report_access()
         result = await _parse_pdf_upload(content, password=password)
         if not result["success"]:
+            await refund_report_access_if_needed()
             record_audit_log(
                 user_id=auth_user.user_id,
                 username=auth_user.username,
@@ -2818,6 +2923,7 @@ async def parse_pdf(
         parsed_data = result.get("data")
         parsed_shape_error = _validate_parsed_cas_payload(parsed_data)
         if parsed_shape_error:
+            await refund_report_access_if_needed()
             record_audit_log(
                 user_id=auth_user.user_id,
                 username=auth_user.username,
@@ -2854,7 +2960,11 @@ async def parse_pdf(
             metadata={"output_format": "json"},
         )
         return JSONResponse(content=jsonable_encoder(parsed_data))
+    except HTTPException:
+        await refund_report_access_if_needed()
+        raise
     except Exception as e:
+        await refund_report_access_if_needed()
         log_debug(f"[{request_id}] parse_pdf error: {type(e).__name__}: {e}")
         record_audit_log(
             user_id=auth_user.user_id,

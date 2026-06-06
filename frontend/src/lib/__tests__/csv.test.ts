@@ -5,6 +5,7 @@ describe("csv helpers", () => {
     expect(sanitizeSpreadsheetCell("=SUM(1,1)")).toBe("'=SUM(1,1)")
     expect(sanitizeSpreadsheetCell("@cmd")).toBe("'@cmd")
     expect(sanitizeSpreadsheetCell("  -danger")).toBe("'  -danger")
+    expect(sanitizeSpreadsheetCell("\nplain")).toBe("'\nplain")
   })
 
   it("escapes quotes after spreadsheet sanitization", () => {

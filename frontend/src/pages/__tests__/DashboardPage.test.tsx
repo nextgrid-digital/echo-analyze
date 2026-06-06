@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { DashboardPage } from "../DashboardPage"
 import { clearLatestAnalysis, storeLatestAnalysis } from "@/lib/analysisSession"
+import { buildDashboardPdfFilename } from "@/lib/downloadFilename"
 import type { AnalysisResponse } from "@/types/api"
 
 vi.mock("@/components/AdminAccessToolbar", () => ({
@@ -105,5 +106,12 @@ describe("DashboardPage", () => {
 
     expect(screen.getByText(/live portfolio valuation/i)).toBeInTheDocument()
     expect(screen.getByText(/statement date: 01-Jan-2026/i)).toBeInTheDocument()
+  })
+
+  it("sanitizes statement dates before using them in PDF filenames", () => {
+    expect(buildDashboardPdfFilename("../../31-Mar-2026:\u0000PAN")).toBe(
+      "ECHO_Analysis_31-Mar-2026 PAN.pdf"
+    )
+    expect(buildDashboardPdfFilename("")).toBe("ECHO_Analysis_Report.pdf")
   })
 })

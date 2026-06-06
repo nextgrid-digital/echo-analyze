@@ -15,7 +15,7 @@ harden_pdfminer_cmap_loading()
 
 from casparser import read_cas_pdf
 
-DANGEROUS_SPREADSHEET_PREFIX = re.compile(r"^[\t\r]|^\s*[=+\-@]")
+DANGEROUS_SPREADSHEET_PREFIX = re.compile(r"^[\t\r\n]|^\s*[=+\-@]")
 
 
 def _excel_safe_cell(value):
