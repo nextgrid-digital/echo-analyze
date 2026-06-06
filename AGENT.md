@@ -102,6 +102,7 @@ run_local.bat
 - Supabase subscription updates preserve `authenticated` or `active` status, plus current period end, when a stale `created` or `pending` event arrives later. Cancellation, paused, expired, and similar terminal or restricted statuses can still downgrade access.
 - `/api/billing/verify-subscription-payment` length-limits Razorpay IDs/signatures before signature and subscription verification.
 - Razorpay subscription creation sends only the stable Supabase user id and source marker in `notes`; do not add username, email, uploaded filenames, CAS content, or portfolio values to Razorpay metadata.
+- Created Razorpay subscriptions are re-fetched before reuse in checkout. If Razorpay has moved the stored subscription to expired/cancelled/active, sync that status first instead of repeatedly returning a stale checkout id.
 - Razorpay checkout script loading is isolated in `frontend/src/lib/razorpayCheckout.ts`; keep retry and timeout behavior there rather than adding ad hoc `<script>` injection in page components.
 - Razorpay live Checkout can block UPI QR/payment creation when the browser origin does not match the website(s) registered in the Razorpay Dashboard. Use test keys for localhost, and keep production/custom/Vercel domains registered with Razorpay before debugging QR rendering code.
 - CAS parser imports resolve to the repo-local `casparser/` package. Keep `app/Code/pdfminer_hardening.py` as defense-in-depth around CMap loading.

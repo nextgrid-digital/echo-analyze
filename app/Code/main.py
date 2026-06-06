@@ -372,6 +372,7 @@ def _build_content_security_policy() -> str:
         "https://api.razorpay.com",
         "https://checkout.razorpay.com",
         "https://lumberjack.razorpay.com",
+        "https://lumberjack-metrics.razorpay.com",
     ]
     for env_key in ("SUPABASE_URL", "APP_SUPABASE_URL"):
         raw_url = os.environ.get(env_key, "").strip()
@@ -2546,20 +2547,51 @@ async def billing_access(request: Request):
     return BillingAccessResponse(**access.to_dict())
 
 
+async def _get_reusable_checkout_subscription(user, existing_access):
+    subscription_id = existing_access.razorpay_subscription_id
+    if not subscription_id or not is_reusable_checkout_status(existing_access.subscription_status):
+        return None
+    try:
+        subscription = await fetch_razorpay_subscription(subscription_id)
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            raise
+        return None
+    if not subscription_matches_configured_plan(subscription):
+        return None
+    notes = subscription.get("notes") if isinstance(subscription.get("notes"), dict) else {}
+    subscription_user_id = notes.get("user_id")
+    if subscription_user_id and subscription_user_id != user.user_id:
+        return None
+    status = normalize_subscription_status(subscription.get("status"))
+    if status is None:
+        return None
+    if is_reusable_checkout_status(status):
+        return {"id": subscription_id, "status": status}
+    synced_access = await apply_subscription_status(
+        user_id=user.user_id,
+        subscription_id=subscription_id,
+        customer_id=subscription.get("customer_id") if isinstance(subscription.get("customer_id"), str) else None,
+        status=status,
+        current_period_end=subscription.get("current_end"),
+    )
+    if synced_access.has_unlimited_reports or is_unlimited_subscription_status(synced_access.subscription_status):
+        raise HTTPException(status_code=409, detail="Subscription is already active.")
+    return None
+
+
 @app.post("/api/billing/create-subscription", response_model=CreateSubscriptionResponse)
 async def billing_create_subscription(request: Request):
     user = await require_supabase_user(request)
     existing_access = await get_access_status(user.user_id)
     if existing_access.has_unlimited_reports or is_unlimited_subscription_status(existing_access.subscription_status):
         return JSONResponse(status_code=409, content={"detail": "Subscription is already active."})
-    if (
-        existing_access.razorpay_subscription_id
-        and is_reusable_checkout_status(existing_access.subscription_status)
-    ):
+    existing_subscription = await _get_reusable_checkout_subscription(user, existing_access)
+    if existing_subscription:
         return CreateSubscriptionResponse(
             key_id=get_razorpay_key_id(),
-            subscription_id=existing_access.razorpay_subscription_id,
-            subscription_status=existing_access.subscription_status,
+            subscription_id=existing_subscription["id"],
+            subscription_status=existing_subscription["status"],
             access=BillingAccessResponse(**existing_access.to_dict()),
         )
     subscription = await create_razorpay_subscription(user)

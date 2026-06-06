@@ -1533,6 +1533,7 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertIn("https://api.razorpay.com", csp)
         self.assertIn("https://checkout.razorpay.com", csp)
         self.assertIn("https://lumberjack.razorpay.com", csp)
+        self.assertIn("https://lumberjack-metrics.razorpay.com", csp)
         self.assertIn("https://checkout-static-next.razorpay.com", csp)
         self.assertIn("https://cdn.razorpay.com", csp)
 
@@ -2098,6 +2099,74 @@ class TestBillingSecurity(unittest.TestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertIn("already active", response.json().get("detail", "").lower())
+
+    def test_create_subscription_replaces_stale_created_checkout_subscription(self):
+        client = TestClient(app)
+        stale_access = _test_access_status(
+            can_analyze=False,
+            cas_reports_used=1,
+            remaining_free_reports=0,
+            subscription_status="created",
+            razorpay_subscription_id="sub_old123",
+        )
+        refreshed_access = _test_access_status(
+            can_analyze=False,
+            cas_reports_used=1,
+            remaining_free_reports=0,
+            subscription_status="created",
+            razorpay_subscription_id="sub_new123",
+        )
+        fetch_subscription = AsyncMock(
+            return_value={
+                "id": "sub_old123",
+                "status": "expired",
+                "plan_id": "plan_good123",
+                "customer_id": "cust_test123",
+                "current_end": None,
+                "notes": {"user_id": "user_test"},
+            }
+        )
+        apply_status = AsyncMock(
+            return_value=_test_access_status(
+                can_analyze=False,
+                cas_reports_used=1,
+                remaining_free_reports=0,
+                subscription_status="expired",
+                razorpay_subscription_id="sub_old123",
+            )
+        )
+        create_subscription = AsyncMock(
+            return_value={
+                "id": "sub_new123",
+                "status": "created",
+                "plan_id": "plan_good123",
+            }
+        )
+
+        with patch.dict(
+            os.environ,
+            {"RAZORPAY_KEY_ID": "rzp_test_key", "RAZORPAY_PLAN_ID": "plan_good123"},
+            clear=False,
+        ), patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.main.get_access_status",
+            new=AsyncMock(side_effect=[stale_access, refreshed_access]),
+        ), patch(
+            "app.Code.main.fetch_razorpay_subscription",
+            new=fetch_subscription,
+        ), patch(
+            "app.Code.main.apply_subscription_status",
+            new=apply_status,
+        ), patch(
+            "app.Code.main.create_razorpay_subscription",
+            new=create_subscription,
+        ):
+            response = client.post("/api/billing/create-subscription")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["subscription_id"], "sub_new123")
+        fetch_subscription.assert_awaited_once_with("sub_old123")
+        apply_status.assert_awaited_once()
+        create_subscription.assert_awaited_once()
 
     def test_create_subscription_does_not_send_username_to_razorpay_notes(self):
         captured_request = {}
