@@ -17,8 +17,13 @@ import { ArrowLeft, Check, CreditCard, Infinity as InfinityIcon, ScanLine } from
 
 declare global {
   interface Window {
-    Razorpay?: new (options: RazorpayOptions) => { open: () => void }
+    Razorpay?: new (options: RazorpayOptions) => RazorpayCheckout
   }
+}
+
+interface RazorpayCheckout {
+  open: () => void
+  on?: (event: "payment.failed", handler: (response: RazorpayPaymentFailedResponse) => void) => void
 }
 
 interface RazorpayOptions {
@@ -36,6 +41,14 @@ interface RazorpayCheckoutResponse {
   razorpay_payment_id: string
   razorpay_subscription_id: string
   razorpay_signature: string
+}
+
+interface RazorpayPaymentFailedResponse {
+  error?: {
+    code?: string
+    description?: string
+    reason?: string
+  }
 }
 
 export function PricingPage() {
@@ -97,6 +110,9 @@ export function PricingPage() {
           modal: {
             ondismiss: () => resolve(),
           },
+        })
+        checkout.on?.("payment.failed", (response) => {
+          reject(new Error(formatRazorpayCheckoutFailure(response)))
         })
         checkout.open()
       })
@@ -207,6 +223,14 @@ export function PricingPage() {
       </div>
     </div>
   )
+}
+
+function formatRazorpayCheckoutFailure(response: RazorpayPaymentFailedResponse) {
+  const description = response.error?.description?.trim()
+  if (description && /website does not match registered website/i.test(description)) {
+    return "Razorpay blocked this payment because this website is not registered in Razorpay. Add the current live domain in Razorpay Dashboard, or use test keys for local development."
+  }
+  return description || "Razorpay payment failed. Please try again."
 }
 
 function Feature({ children }: { children: string }) {

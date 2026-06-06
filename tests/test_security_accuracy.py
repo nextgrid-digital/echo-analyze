@@ -1517,7 +1517,7 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertNotIn("https://example.com", csp)
         self.assertIn("https://project.supabase.co", csp)
 
-    def test_csp_preserves_allowed_supabase_ports_and_razorpay_connect_sources(self):
+    def test_csp_preserves_allowed_supabase_ports_and_razorpay_checkout_sources(self):
         with patch.dict(
             os.environ,
             {
@@ -1532,6 +1532,9 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertIn("http://[::1]:54322", csp)
         self.assertIn("https://api.razorpay.com", csp)
         self.assertIn("https://checkout.razorpay.com", csp)
+        self.assertIn("https://lumberjack.razorpay.com", csp)
+        self.assertIn("https://checkout-static-next.razorpay.com", csp)
+        self.assertIn("https://cdn.razorpay.com", csp)
 
     def test_vercel_spa_routes_are_served_by_fastapi_for_security_headers(self):
         vercel_config = json.loads(Path("vercel.json").read_text(encoding="utf-8"))

@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { PricingPage } from "../PricingPage"
+import { createSubscription } from "@/api/billing"
 import { useAuth } from "@/auth/useAuth"
 import { RAZORPAY_CHECKOUT_SCRIPT, loadRazorpayCheckout } from "@/lib/razorpayCheckout"
 
@@ -93,5 +94,76 @@ describe("PricingPage", () => {
 
     await expect(promise).rejects.toThrow(/timed out/i)
     expect(document.querySelector(`script[src="${RAZORPAY_CHECKOUT_SCRIPT}"]`)).toBeNull()
+  })
+
+  it("surfaces Razorpay registered-website blocks from checkout failures", async () => {
+    const on = vi.fn()
+    const open = vi.fn()
+    const refreshBillingAccess = vi.fn()
+    vi.mocked(useAuth).mockReturnValue({
+      configured: true,
+      loading: false,
+      session: null,
+      user: { id: "user_test", email: "user@example.com" } as ReturnType<typeof useAuth>["user"],
+      username: "test-user",
+      isAdmin: false,
+      billingAccess: {
+        can_analyze: true,
+        has_unlimited_reports: false,
+        cas_report_limit: 1,
+        cas_reports_used: 1,
+        remaining_free_reports: 0,
+        subscription_status: "free",
+        razorpay_subscription_id: null,
+      },
+      refreshBillingAccess,
+      signIn: vi.fn(),
+      signInWithGoogle: vi.fn(),
+      signUp: vi.fn(),
+      signOut: vi.fn(),
+    })
+    vi.mocked(createSubscription).mockResolvedValue({
+      key_id: "rzp_live_test",
+      subscription_id: "sub_test123",
+      subscription_status: "created",
+      access: {
+        can_analyze: true,
+        has_unlimited_reports: false,
+        cas_report_limit: 1,
+        cas_reports_used: 1,
+        remaining_free_reports: 0,
+        subscription_status: "created",
+        razorpay_subscription_id: "sub_test123",
+      },
+    })
+    type RazorpayFailureHandler = (response: { error?: { description?: string } }) => void
+    window.Razorpay = vi.fn(function RazorpayMock() {
+      return {
+        open,
+        on: (event: "payment.failed", handler: RazorpayFailureHandler) => {
+          on(event, handler)
+          handler({
+            error: {
+              description: "Payment blocked as website does not match registered website(s)",
+            },
+          })
+        },
+      }
+    }) as unknown as NonNullable<Window["Razorpay"]>
+
+    render(
+      <MemoryRouter>
+        <PricingPage />
+      </MemoryRouter>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /subscribe/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/website is not registered in razorpay/i)).toBeInTheDocument()
+    })
+    expect(on).toHaveBeenCalledWith("payment.failed", expect.any(Function))
+    expect(open).toHaveBeenCalled()
+    expect(refreshBillingAccess).not.toHaveBeenCalled()
   })
 })

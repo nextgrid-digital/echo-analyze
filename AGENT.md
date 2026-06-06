@@ -103,6 +103,7 @@ run_local.bat
 - `/api/billing/verify-subscription-payment` length-limits Razorpay IDs/signatures before signature and subscription verification.
 - Razorpay subscription creation sends only the stable Supabase user id and source marker in `notes`; do not add username, email, uploaded filenames, CAS content, or portfolio values to Razorpay metadata.
 - Razorpay checkout script loading is isolated in `frontend/src/lib/razorpayCheckout.ts`; keep retry and timeout behavior there rather than adding ad hoc `<script>` injection in page components.
+- Razorpay live Checkout can block UPI QR/payment creation when the browser origin does not match the website(s) registered in the Razorpay Dashboard. Use test keys for localhost, and keep production/custom/Vercel domains registered with Razorpay before debugging QR rendering code.
 - CAS parser imports resolve to the repo-local `casparser/` package. Keep `app/Code/pdfminer_hardening.py` as defense-in-depth around CMap loading.
 - CAS JSON numeric parsing accepts common INR forms such as `Rs. 1,000`, `INR 1,000`, the rupee symbol, non-breaking spaces, and accounting parentheses, then still requires a finite numeric value.
 - Logs and analytics sanitize usernames, messages, PAN-like tokens, emails, phone numbers, and control characters.
@@ -110,7 +111,7 @@ run_local.bat
 - CSV and Excel exports escape spreadsheet formula prefixes, including leading tab/CR/LF cells and leading whitespace before `=`, `+`, `-`, or `@`.
 - Dashboard analysis handoff is in memory only; do not persist full CAS analysis data in Web Storage or browser history state.
 - Generated dashboard PDF filenames are sanitized client-side before `jsPDF.save`; keep filename cleaning in `frontend/src/lib/downloadFilename.ts`.
-- Responses include a restrictive Content Security Policy in addition to `nosniff`, `DENY` framing, and referrer-policy headers. CSP `connect-src` preserves explicit Supabase ports for local development and includes the Razorpay checkout/API origins needed by subscription checkout.
+- Responses include a restrictive Content Security Policy in addition to `nosniff`, `DENY` framing, and referrer-policy headers. CSP `connect-src` preserves explicit Supabase ports for local development and includes Razorpay checkout/API/telemetry origins (`checkout.razorpay.com`, `api.razorpay.com`, and `lumberjack.razorpay.com`); `script-src` must also allow Razorpay's checkout/static/CDN script origins (`checkout.razorpay.com`, `checkout-static-next.razorpay.com`, and `cdn.razorpay.com`) or UPI QR and payment creation can fail inside Checkout.
 
 ## Known Residual Risks
 

@@ -371,6 +371,7 @@ def _build_content_security_policy() -> str:
         "https://*.supabase.co",
         "https://api.razorpay.com",
         "https://checkout.razorpay.com",
+        "https://lumberjack.razorpay.com",
     ]
     for env_key in ("SUPABASE_URL", "APP_SUPABASE_URL"):
         raw_url = os.environ.get(env_key, "").strip()
@@ -392,7 +393,7 @@ def _build_content_security_policy() -> str:
 
     return (
         "default-src 'self'; "
-        "script-src 'self' https://checkout.razorpay.com; "
+        "script-src 'self' https://checkout.razorpay.com https://checkout-static-next.razorpay.com https://cdn.razorpay.com; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob: https:; "
         "font-src 'self' data:; "
