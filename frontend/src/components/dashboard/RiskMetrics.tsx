@@ -76,10 +76,10 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
         {/* Volatility card */}
-        <CompactCard>
+        <CompactCard accent="sky">
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-primary" />
+              <Activity className="w-4 h-4 text-sky-600" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Volatility
               </p>
@@ -106,10 +106,10 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
         </CompactCard>
 
         {/* Sharpe Ratio card */}
-        <CompactCard>
+        <CompactCard accent="emerald">
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-muted-foreground" />
+              <TrendingUp className="w-4 h-4 text-emerald-600" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Sharpe Ratio
               </p>
@@ -136,10 +136,10 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
         </CompactCard>
 
         {/* Beta card */}
-        <CompactCard>
+        <CompactCard accent="violet">
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-muted-foreground" />
+              <BarChart3 className="w-4 h-4 text-violet-600" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Beta
               </p>
@@ -167,10 +167,10 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
         </CompactCard>
 
         {/* Risk Score card */}
-        <CompactCard>
+        <CompactCard accent="amber">
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-muted-foreground" />
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Risk Score
               </p>

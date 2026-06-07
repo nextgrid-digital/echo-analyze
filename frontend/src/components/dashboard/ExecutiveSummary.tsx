@@ -2,8 +2,10 @@ import { memo, useMemo } from "react"
 import { WideCard } from "./cards/WideCard"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import { AlertCircle, CheckCircle2, Info } from "lucide-react"
+import { INSIGHT_TYPE_STYLES } from "@/lib/dashboardTheme"
 import { formatPercent } from "@/lib/format"
 import { getNormalizedEquityAllocationPct } from "@/lib/portfolioAnalysis"
+import { cn } from "@/lib/utils"
 import type { AnalysisSummary } from "@/types/api"
 
 interface ExecutiveSummaryProps {
@@ -82,19 +84,20 @@ function ExecutiveSummaryInner({ summary }: ExecutiveSummaryProps) {
     return insightsList
   }, [summary])
 
-  const getIcon = (type: string) => {
+  const getIcon = (type: keyof typeof INSIGHT_TYPE_STYLES) => {
+    const iconClass = INSIGHT_TYPE_STYLES[type].icon
     switch (type) {
       case "warning":
-        return <AlertCircle className="w-4 h-4 text-amber-500" />
+        return <AlertCircle className={cn("h-4 w-4", iconClass)} />
       case "success":
-        return <CheckCircle2 className="w-4 h-4 text-green-600" />
+        return <CheckCircle2 className={cn("h-4 w-4", iconClass)} />
       default:
-        return <Info className="w-4 h-4 text-blue-500" />
+        return <Info className={cn("h-4 w-4", iconClass)} />
     }
   }
 
   return (
-    <WideCard>
+    <WideCard accent="indigo">
       <div className="relative">
         <div className="absolute top-0 right-0">
           <SectionInfoTooltip
@@ -121,11 +124,19 @@ function ExecutiveSummaryInner({ summary }: ExecutiveSummaryProps) {
             {insights.map((insight, idx) => (
               <div
                 key={idx}
-                className="flex items-start gap-2 p-3 bg-muted/30 border border-border/50"
+                className={cn(
+                  "flex items-start gap-2 border p-3",
+                  INSIGHT_TYPE_STYLES[insight.type].surface
+                )}
               >
                 {getIcon(insight.type)}
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-muted-foreground mb-1">
+                <div className="min-w-0 flex-1">
+                  <p
+                    className={cn(
+                      "mb-1 text-xs",
+                      INSIGHT_TYPE_STYLES[insight.type].label
+                    )}
+                  >
                     {insight.label}
                   </p>
                   <p className="text-sm font-semibold text-foreground">

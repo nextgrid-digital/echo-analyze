@@ -3011,6 +3011,16 @@ async def admin_page_nested(path: str):
     return _serve_spa()
 
 
+@app.get("/upload")
+async def upload_page():
+    return _serve_spa()
+
+
+@app.get("/upload/{path:path}")
+async def upload_page_nested(path: str):
+    return _serve_spa()
+
+
 @app.get("/pricing")
 async def pricing_page():
     return _serve_spa()

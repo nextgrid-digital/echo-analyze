@@ -16,7 +16,7 @@ export function ProgressBarWithLabel({
   max = 100,
   label,
   valueLabel,
-  color = "#059669",
+  color = "#10b981",
   height = "md",
   showValue = true,
   className,
