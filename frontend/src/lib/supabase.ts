@@ -1,5 +1,5 @@
 import { createClient, type Session, type SupabaseClient, type User } from "@supabase/supabase-js"
-import { getEchoPublicConfig } from "@/lib/publicConfig"
+import { ensureEchoPublicConfig, getEchoPublicConfig } from "@/lib/publicConfig"
 
 function resolveSupabaseUrl() {
   const runtime = getEchoPublicConfig().supabaseUrl?.trim()
@@ -13,10 +13,8 @@ function resolveSupabaseAnonKey() {
   return runtime || built || ""
 }
 
-const supabaseUrl = resolveSupabaseUrl()
-const supabaseAnonKey = resolveSupabaseAnonKey()
-
 let client: SupabaseClient | null = null
+let clientCacheKey = ""
 
 const PAN_PATTERN = /\b[A-Z]{5}[0-9]{4}[A-Z]\b/gi
 const EMAIL_PATTERN = /(?<![A-Za-z0-9_])[A-Za-z0-9][\w.+-]*@[\w.-]+\.[A-Za-z]{2,}(?![A-Za-z0-9_])/gi
@@ -54,10 +52,16 @@ function isAllowedSupabaseUrl(value: string | undefined) {
 }
 
 export function isSupabaseConfigured() {
-  return Boolean(isAllowedSupabaseUrl(supabaseUrl) && supabaseAnonKey)
+  return Boolean(isAllowedSupabaseUrl(resolveSupabaseUrl()) && resolveSupabaseAnonKey())
+}
+
+export async function bootstrapSupabaseConfig() {
+  await ensureEchoPublicConfig()
+  return isSupabaseConfigured()
 }
 
 export function getSupabaseAuthHost() {
+  const supabaseUrl = resolveSupabaseUrl()
   if (!supabaseUrl) {
     return "missing Supabase URL"
   }
@@ -70,22 +74,30 @@ export function getSupabaseAuthHost() {
 }
 
 export function getSupabaseClient() {
-  if (!isSupabaseConfigured()) {
+  const supabaseUrl = resolveSupabaseUrl()
+  const supabaseAnonKey = resolveSupabaseAnonKey()
+  if (!isAllowedSupabaseUrl(supabaseUrl) || !supabaseAnonKey) {
     return null
   }
 
-  if (!client) {
-    try {
-      client = createClient(supabaseUrl, supabaseAnonKey, {
-        auth: {
-          persistSession: true,
-          autoRefreshToken: true,
-          detectSessionInUrl: true,
-        },
-      })
-    } catch {
-      return null
-    }
+  const cacheKey = `${supabaseUrl}|${supabaseAnonKey}`
+  if (client && clientCacheKey === cacheKey) {
+    return client
+  }
+
+  try {
+    client = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    })
+    clientCacheKey = cacheKey
+  } catch {
+    client = null
+    clientCacheKey = ""
+    return null
   }
 
   return client

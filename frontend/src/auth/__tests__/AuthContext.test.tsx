@@ -22,6 +22,7 @@ vi.mock("@/api/billing", () => ({
 }))
 
 vi.mock("@/lib/supabase", () => ({
+  bootstrapSupabaseConfig: vi.fn(async () => true),
   getSupabaseAuthHost: vi.fn(() => "project.supabase.co"),
   getSupabaseClient: vi.fn(),
   getUsernameFromUser: vi.fn(() => "metadata-user"),

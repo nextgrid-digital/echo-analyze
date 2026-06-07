@@ -53,12 +53,18 @@ def _is_allowed_supabase_url(value: str) -> bool:
 
 
 def _get_supabase_url() -> str:
-    supabase_url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
-    return supabase_url if _is_allowed_supabase_url(supabase_url) else ""
+    for env_key in ("SUPABASE_URL", "APP_SUPABASE_URL"):
+        supabase_url = os.environ.get(env_key, "").strip().rstrip("/")
+        if _is_allowed_supabase_url(supabase_url):
+            return supabase_url
+    return ""
 
 
 def _get_supabase_anon_key() -> str:
-    return os.environ.get("SUPABASE_ANON_KEY", "").strip()
+    return (
+        os.environ.get("SUPABASE_ANON_KEY", "").strip()
+        or os.environ.get("APP_SUPABASE_ANON_KEY", "").strip()
+    )
 
 
 def get_public_supabase_config() -> Dict[str, str]:
@@ -68,7 +74,11 @@ def get_public_supabase_config() -> Dict[str, str]:
     if not supabase_url or not supabase_anon_key:
         return {}
 
-    admin_role = os.environ.get("SUPABASE_ADMIN_ROLE", "admin").strip().lower() or "admin"
+    admin_role = (
+        os.environ.get("SUPABASE_ADMIN_ROLE", "").strip()
+        or os.environ.get("APP_SUPABASE_ADMIN_ROLE", "").strip()
+        or "admin"
+    ).lower() or "admin"
     return {
         "supabaseUrl": supabase_url,
         "supabaseAnonKey": supabase_anon_key,

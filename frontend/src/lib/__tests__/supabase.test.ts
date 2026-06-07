@@ -75,6 +75,8 @@ describe("getUsernameFromUser", () => {
 describe("isSupabaseConfigured", () => {
   afterEach(() => {
     vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+    delete window.__ECHO_PUBLIC_CONFIG__
     vi.resetModules()
   })
 
@@ -103,6 +105,25 @@ describe("isSupabaseConfigured", () => {
     vi.resetModules()
     vi.stubEnv("APP_SUPABASE_URL", "https://localhost:54321")
     expect(await loadConfiguredState()).toBe(true)
+  })
+
+  it("accepts public config fetched from /api/public-config", async () => {
+    vi.stubEnv("APP_SUPABASE_URL", "")
+    vi.stubEnv("APP_SUPABASE_ANON_KEY", "")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          supabaseUrl: "https://project.supabase.co",
+          supabaseAnonKey: "anon",
+        }),
+      })),
+    )
+
+    const module = await import("@/lib/supabase")
+    expect(await module.bootstrapSupabaseConfig()).toBe(true)
+    expect(await module.isSupabaseConfigured()).toBe(true)
   })
 
   it("accepts runtime public config injected by the backend", async () => {

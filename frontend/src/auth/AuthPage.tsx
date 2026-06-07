@@ -17,7 +17,7 @@ interface AuthPanelProps {
 }
 
 export function AuthPanel({ className }: AuthPanelProps) {
-  const { configured, signIn, signInWithGoogle, signUp } = useAuth()
+  const { configured, loading: authLoading, signIn, signInWithGoogle, signUp } = useAuth()
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -68,7 +68,9 @@ export function AuthPanel({ className }: AuthPanelProps) {
         <CardDescription>ECHO portfolio analyzer</CardDescription>
       </CardHeader>
       <CardContent>
-        {!configured ? (
+        {authLoading && !configured ? (
+          <p className="text-sm text-muted-foreground">Loading sign-in...</p>
+        ) : !configured ? (
           <Alert variant="destructive">
             <AlertDescription>
               Supabase environment variables are missing or invalid.

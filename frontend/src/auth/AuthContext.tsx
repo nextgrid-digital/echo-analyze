@@ -9,6 +9,7 @@ import { apiFetch, readJson } from "@/api/client"
 import { getBillingAccess } from "@/api/billing"
 import { AuthContext, type AuthContextValue } from "@/auth/auth-context"
 import {
+  bootstrapSupabaseConfig,
   getSupabaseAuthHost,
   getSupabaseClient,
   getUsernameFromUser,
@@ -61,12 +62,31 @@ function formatAuthError(error: unknown, fallback: string) {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const configured = isSupabaseConfigured()
-  const [loading, setLoading] = useState(configured)
+  const [configReady, setConfigReady] = useState(isSupabaseConfigured())
+  const configured = configReady && isSupabaseConfigured()
+  const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<Session | null>(null)
   const [serverAuth, setServerAuth] = useState<ServerAuthContext | null>(null)
   const [billingAccess, setBillingAccess] = useState<AuthContextValue["billingAccess"]>(null)
-  const supabase = getSupabaseClient()
+  const supabase = configured ? getSupabaseClient() : null
+
+  useEffect(() => {
+    let isMounted = true
+
+    void bootstrapSupabaseConfig().then((ready) => {
+      if (!isMounted) {
+        return
+      }
+      setConfigReady(ready)
+      if (!ready) {
+        setLoading(false)
+      }
+    })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   useEffect(() => {
     if (!supabase) {
