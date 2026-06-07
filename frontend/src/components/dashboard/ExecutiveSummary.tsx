@@ -97,7 +97,7 @@ function ExecutiveSummaryInner({ summary }: ExecutiveSummaryProps) {
   }
 
   return (
-    <WideCard accent="indigo">
+    <WideCard>
       <div className="relative">
         <div className="absolute top-0 right-0">
           <SectionInfoTooltip

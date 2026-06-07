@@ -228,7 +228,7 @@ export function DashboardPage() {
     >
       <div className="dashboard-toolbar sticky top-0 z-40 mb-8 flex min-h-[44px] flex-col gap-3 border-b border-white/20 bg-white/80 px-4 py-4 backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/85 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
         <div className="pdf-section flex items-center gap-4">
-          <div className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 via-cyan-500 to-blue-600 text-sm font-bold tracking-tight text-white shadow-lg shadow-teal-500/30 sm:flex">
+          <div className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold tracking-tight text-teal-300 ring-1 ring-teal-500/30 sm:flex">
             E
           </div>
           <div>
@@ -254,7 +254,7 @@ export function DashboardPage() {
             variant="default"
             onClick={handleDownloadPDF}
             disabled={isDownloading}
-            className="min-h-[44px] sm:min-h-0 flex items-center gap-2 rounded-xl bg-gradient-to-r from-teal-600 to-blue-600 px-6 py-2 shadow-lg shadow-teal-500/25 hover:from-teal-500 hover:to-blue-500"
+            className="min-h-[44px] sm:min-h-0 flex items-center gap-2 rounded-xl bg-teal-600 px-6 py-2 shadow-sm hover:bg-teal-500"
           >
             {isDownloading ? (
               <div className="flex items-center gap-2">

@@ -105,7 +105,7 @@ function AllocationGapAnalysisInner({ summary }: AllocationGapAnalysisProps) {
         <h3 className="font-semibold text-lg text-foreground mb-6">
           Allocation Gap Analysis
         </h3>
-        <div className="mb-4 border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+        <div className="dashboard-disclaimer mb-4">
           Template guidance: target allocations are model recommendations and should be treated as advisory, not prescriptive.
         </div>
         <div className="overflow-x-auto print-full-table">

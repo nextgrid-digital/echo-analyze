@@ -139,7 +139,7 @@ function AssetAllocationInner({ summary, holdings }: AssetAllocationProps) {
 
   return (
     <div className="mb-6 sm:mb-8">
-      <WideCard accent="violet">
+      <WideCard>
         <div className="relative">
           <div className="absolute top-0 right-0">
             <SectionInfoTooltip

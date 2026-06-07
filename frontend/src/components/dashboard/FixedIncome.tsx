@@ -37,7 +37,7 @@ function FixedIncomeInner({ fixedIncome }: FixedIncomeProps) {
 
   return (
     <div className="mb-6 sm:mb-8">
-      <div className="mb-3 border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+      <div className="dashboard-disclaimer">
         Estimated/partial metrics: fixed-income YTM is shown only when available from source holdings data; otherwise it is marked N/A.
       </div>
       <div className="flex items-center justify-end gap-2 mb-4">

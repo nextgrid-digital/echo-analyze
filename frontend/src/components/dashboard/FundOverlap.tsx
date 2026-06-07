@@ -207,7 +207,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
               onClick={handleDownloadImage}
               variant="outline"
               size="sm"
-              className="flex items-center gap-2 h-9 px-3 text-xs bg-blue-600 text-white hover:bg-blue-700 font-bold shadow-md border-0"
+              className="flex h-9 items-center gap-2 border-0 bg-teal-600 px-3 text-xs font-semibold text-white shadow-sm hover:bg-teal-500"
               title="Download Image"
             >
               <Download className="w-4 h-4" />

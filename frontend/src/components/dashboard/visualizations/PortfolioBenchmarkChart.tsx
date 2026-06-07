@@ -367,7 +367,7 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
         {BENCHMARK_RECONSTRUCTED_NOTICE}
       </div>
       {chartHasPartialCoverage && (
-        <div className="mb-3 border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+        <div className="dashboard-disclaimer">
           {formatBenchmarkCoverageNotice({
             comparableCoveragePct: seriesMeta.comparableCoveragePct,
             excludedHoldings: seriesMeta.excludedHoldings,
@@ -376,7 +376,7 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
         </div>
       )}
       {showFallbackRateWarning && (
-        <div className="mb-3 border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <div className="dashboard-disclaimer">
           {portfolioRateUnavailable && "Portfolio XIRR unavailable/invalid. "}
           {benchmarkRateUnavailable && "Benchmark XIRR unavailable/invalid. "}
           Unavailable aggregate rates are shown as flat reference lines only in the fallback view.
