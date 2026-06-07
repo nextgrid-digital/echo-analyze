@@ -69,7 +69,7 @@ export const INSIGHT_TYPE_STYLES = {
   },
 } as const
 
-export function getSectionPanelClass(_accent: DashboardAccent) {
+export function getSectionPanelClass() {
   return cn(
     "dashboard-section-panel border-slate-200/70 bg-white/90 dark:border-slate-700/80 dark:bg-slate-900/80"
   )

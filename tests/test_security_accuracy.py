@@ -1151,6 +1151,22 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertFalse(body.get("success", True))
         self.assertIn("invalid or corrupted", body.get("error", "").lower())
 
+    def test_upload_request_body_limit_rejects_before_auth(self):
+        client = TestClient(app)
+
+        with patch("app.Code.main.MAX_UPLOAD_REQUEST_BYTES", 32), patch(
+            "app.Code.main.require_supabase_user",
+            side_effect=AssertionError("auth should not run for oversized upload bodies"),
+        ):
+            response = client.post(
+                "/api/analyze",
+                content=b"x" * 33,
+                headers={"content-type": "application/octet-stream"},
+            )
+
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("too large", response.json().get("detail", "").lower())
+
     def test_upload_validation_accepts_content_type_parameters(self):
         json_error = _validate_upload(
             _UploadStub("sample.json", "application/json; charset=utf-8"),
@@ -1537,6 +1553,38 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertIn("https://checkout-static-next.razorpay.com", csp)
         self.assertIn("https://cdn.razorpay.com", csp)
 
+    def test_spa_bootstrap_config_script_nonce_matches_csp(self):
+        client = TestClient(app)
+        with patch.dict(
+            os.environ,
+            {
+                "SUPABASE_URL": "https://project.supabase.co",
+                "SUPABASE_ANON_KEY": "anon-key",
+            },
+            clear=False,
+        ):
+            response = client.get("/")
+
+        nonce_match = re.search(
+            r'<script nonce="([^"]+)">window\.__ECHO_PUBLIC_CONFIG__=',
+            response.text,
+        )
+        self.assertIsNotNone(nonce_match)
+        nonce = nonce_match.group(1)
+        csp = response.headers.get("content-security-policy", "")
+        script_src = re.search(r"script-src ([^;]+)", csp)
+        self.assertIsNotNone(script_src)
+        self.assertIn(f"'nonce-{nonce}'", script_src.group(1))
+        self.assertNotIn("'unsafe-inline'", script_src.group(1))
+
+    def test_public_config_disables_client_and_proxy_caching(self):
+        client = TestClient(app)
+        response = client.get("/api/public-config")
+
+        self.assertEqual(response.headers.get("cache-control"), "no-store, max-age=0")
+        self.assertEqual(response.headers.get("pragma"), "no-cache")
+        self.assertEqual(response.headers.get("expires"), "0")
+
     def test_vercel_spa_routes_are_served_by_fastapi_for_security_headers(self):
         vercel_config = json.loads(Path("vercel.json").read_text(encoding="utf-8"))
         routes = {route["src"]: route for route in vercel_config["routes"]}
@@ -1680,6 +1728,8 @@ class TestSupabaseAuthorization(unittest.TestCase):
 
         with patch.dict(os.environ, {"SUPABASE_URL": "https://example.com"}, clear=False):
             self.assertEqual(_get_supabase_url(), "")
+        with patch.dict(os.environ, {"SUPABASE_URL": "", "APP_SUPABASE_URL": "https://project.supabase.co"}, clear=False):
+            self.assertEqual(_get_supabase_url(), "https://project.supabase.co")
 
     def test_admin_check_ignores_user_mutable_metadata_roles(self):
         user = {

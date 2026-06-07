@@ -72,7 +72,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="executive-summary"
             className={cn(
               "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-2xl p-5 sm:p-7",
-              getSectionPanelClass("emerald")
+              getSectionPanelClass()
             )}
           >
             <DashboardSectionHeader
@@ -125,7 +125,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="risk-performance"
             className={cn(
               "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-2xl p-5 sm:p-7",
-              getSectionPanelClass("sky")
+              getSectionPanelClass()
             )}
           >
             <DashboardSectionHeader
@@ -173,7 +173,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="portfolio-health"
             className={cn(
               "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-2xl p-5 sm:p-7",
-              getSectionPanelClass("violet")
+              getSectionPanelClass()
             )}
           >
             <DashboardSectionHeader
@@ -219,7 +219,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="cost-tax-analysis"
             className={cn(
               "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-2xl p-5 sm:p-7",
-              getSectionPanelClass("amber")
+              getSectionPanelClass()
             )}
           >
             <DashboardSectionHeader
@@ -245,7 +245,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="fixed-income"
             className={cn(
               "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-2xl p-5 sm:p-7",
-              getSectionPanelClass("indigo")
+              getSectionPanelClass()
             )}
           >
             <DashboardSectionHeader
@@ -275,7 +275,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="key-observations"
             className={cn(
               "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-2xl p-5 sm:p-7",
-              getSectionPanelClass("rose")
+              getSectionPanelClass()
             )}
           >
             <DashboardSectionHeader
@@ -292,7 +292,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="detailed-holdings"
             className={cn(
               "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-2xl p-5 sm:p-7",
-              getSectionPanelClass("cyan")
+              getSectionPanelClass()
             )}
           >
             <DashboardSectionHeader
@@ -312,7 +312,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="notes-feedback"
             className={cn(
               "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-2xl p-5 sm:p-7",
-              getSectionPanelClass("fuchsia")
+              getSectionPanelClass()
             )}
           >
             <DashboardSectionHeader

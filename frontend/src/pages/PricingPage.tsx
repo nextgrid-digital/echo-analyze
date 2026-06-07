@@ -325,6 +325,6 @@ function ComparisonCell({
   return value ? (
     <Check className={cn("mx-auto h-4 w-4", highlight ? "text-violet-600" : "text-sky-600")} />
   ) : (
-    <span className="text-muted-foreground">—</span>
+    <span className="text-muted-foreground">-</span>
   )
 }

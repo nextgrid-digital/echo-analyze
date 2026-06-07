@@ -53,10 +53,13 @@ def _is_allowed_supabase_url(value: str) -> bool:
 
 
 def _get_supabase_url() -> str:
-    for env_key in ("SUPABASE_URL", "APP_SUPABASE_URL"):
-        supabase_url = os.environ.get(env_key, "").strip().rstrip("/")
-        if _is_allowed_supabase_url(supabase_url):
-            return supabase_url
+    backend_url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+    if backend_url:
+        return backend_url if _is_allowed_supabase_url(backend_url) else ""
+
+    frontend_url = os.environ.get("APP_SUPABASE_URL", "").strip().rstrip("/")
+    if _is_allowed_supabase_url(frontend_url):
+        return frontend_url
     return ""
 
 

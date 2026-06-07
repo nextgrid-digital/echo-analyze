@@ -5,6 +5,7 @@ import math
 import multiprocessing
 import os
 import re
+import secrets
 import uuid
 from bisect import bisect_right
 from dataclasses import dataclass
@@ -56,6 +57,7 @@ app = FastAPI()
 
 LOG_FILE = "data/backend_debug.log"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_UPLOAD_REQUEST_BYTES = MAX_UPLOAD_BYTES + (1024 * 1024)
 UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
 MAX_WEBHOOK_BODY_BYTES = 256 * 1024
 MAX_CAS_FOLIOS = 100
@@ -92,7 +94,15 @@ SENSITIVE_API_PATHS = {
     "/api/billing/verify-subscription-payment",
     "/api/billing/razorpay-webhook",
     "/api/admin/overview",
+    "/api/public-config",
 }
+UPLOAD_BODY_LIMIT_PATHS = {"/api/analyze", "/api/parse_pdf"}
+
+
+class RequestBodyTooLargeError(Exception):
+    def __init__(self, detail: str) -> None:
+        self.detail = detail
+        super().__init__(detail)
 
 
 def _redact_pii(text: str) -> str:
@@ -153,14 +163,59 @@ def _should_disable_cache(path: str) -> bool:
     return False
 
 
+def _body_limit_for_path(path: str) -> Optional[Tuple[int, str]]:
+    if path in UPLOAD_BODY_LIMIT_PATHS:
+        return (
+            MAX_UPLOAD_REQUEST_BYTES,
+            "Request body is too large. Maximum supported upload is 25 MB.",
+        )
+    return None
+
+
+def _wrap_request_body_with_limit(request: Request, max_bytes: int, detail: str) -> None:
+    receive = request._receive
+    total_read = 0
+
+    async def limited_receive():
+        nonlocal total_read
+        message = await receive()
+        if message.get("type") == "http.request":
+            total_read += len(message.get("body", b""))
+            if total_read > max_bytes:
+                raise RequestBodyTooLargeError(detail)
+        return message
+
+    request._receive = limited_receive
+
+
 @app.middleware("http")
 async def add_response_security_headers(request: Request, call_next):
-    response = await call_next(request)
+    csp_nonce = secrets.token_urlsafe(16)
+    request.state.csp_nonce = csp_nonce
+    body_limit = _body_limit_for_path(request.url.path)
+
+    response: Response
+    if body_limit:
+        max_bytes, too_large_detail = body_limit
+        content_length = request.headers.get("content-length", "").strip()
+        if content_length.isdigit() and int(content_length) > max_bytes:
+            response = JSONResponse(status_code=413, content={"detail": too_large_detail})
+        else:
+            _wrap_request_body_with_limit(request, max_bytes, too_large_detail)
+            try:
+                response = await call_next(request)
+            except RequestBodyTooLargeError as exc:
+                response = JSONResponse(status_code=413, content={"detail": exc.detail})
+    else:
+        response = await call_next(request)
 
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault("Content-Security-Policy", _build_content_security_policy())
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        _build_content_security_policy(script_nonce=csp_nonce),
+    )
 
     if _should_disable_cache(request.url.path):
         response.headers["Cache-Control"] = "no-store, max-age=0"
@@ -366,7 +421,7 @@ def _get_pdf_parse_executor() -> str:
     return "auto"
 
 
-def _build_content_security_policy() -> str:
+def _build_content_security_policy(script_nonce: Optional[str] = None) -> str:
     connect_sources = [
         "'self'",
         "https://*.supabase.co",
@@ -393,9 +448,18 @@ def _build_content_security_policy() -> str:
             if source not in connect_sources:
                 connect_sources.append(source)
 
+    script_sources = [
+        "'self'",
+        "https://checkout.razorpay.com",
+        "https://checkout-static-next.razorpay.com",
+        "https://cdn.razorpay.com",
+    ]
+    if script_nonce:
+        script_sources.append(f"'nonce-{script_nonce}'")
+
     return (
         "default-src 'self'; "
-        "script-src 'self' https://checkout.razorpay.com https://checkout-static-next.razorpay.com https://cdn.razorpay.com; "
+        f"script-src {' '.join(script_sources)}; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob: https:; "
         "font-src 'self' data:; "
@@ -2988,13 +3052,15 @@ async def public_config():
     return get_public_supabase_config()
 
 
-def _serve_spa() -> HTMLResponse:
+def _serve_spa(request: Request) -> HTMLResponse:
     index_path = Path("static/index.html")
     html = index_path.read_text(encoding="utf-8")
     config = get_public_supabase_config()
     if config:
         payload = json.dumps(config, separators=(",", ":")).replace("</", "<\\/")
-        injection = f'<script>window.__ECHO_PUBLIC_CONFIG__={payload}</script>'
+        csp_nonce = getattr(request.state, "csp_nonce", "")
+        nonce_attr = f' nonce="{csp_nonce}"' if csp_nonce else ""
+        injection = f'<script{nonce_attr}>window.__ECHO_PUBLIC_CONFIG__={payload}</script>'
         marker = '<script type="module"'
         if marker in html:
             html = html.replace(marker, f"{injection}\n    {marker}", 1)
@@ -3007,48 +3073,48 @@ def _serve_spa() -> HTMLResponse:
 
 
 @app.get("/")
-async def home():
-    return _serve_spa()
+async def home(request: Request):
+    return _serve_spa(request)
 
 
 @app.get("/dashboard")
-async def dashboard_page():
-    return _serve_spa()
+async def dashboard_page(request: Request):
+    return _serve_spa(request)
 
 
 @app.get("/dashboard/{path:path}")
-async def dashboard_page_nested(path: str):
-    return _serve_spa()
+async def dashboard_page_nested(request: Request, path: str):
+    return _serve_spa(request)
 
 
 @app.get("/admin")
-async def admin_page():
-    return _serve_spa()
+async def admin_page(request: Request):
+    return _serve_spa(request)
 
 
 @app.get("/admin/{path:path}")
-async def admin_page_nested(path: str):
-    return _serve_spa()
+async def admin_page_nested(request: Request, path: str):
+    return _serve_spa(request)
 
 
 @app.get("/upload")
-async def upload_page():
-    return _serve_spa()
+async def upload_page(request: Request):
+    return _serve_spa(request)
 
 
 @app.get("/upload/{path:path}")
-async def upload_page_nested(path: str):
-    return _serve_spa()
+async def upload_page_nested(request: Request, path: str):
+    return _serve_spa(request)
 
 
 @app.get("/pricing")
-async def pricing_page():
-    return _serve_spa()
+async def pricing_page(request: Request):
+    return _serve_spa(request)
 
 
 @app.get("/pricing/{path:path}")
-async def pricing_page_nested(path: str):
-    return _serve_spa()
+async def pricing_page_nested(request: Request, path: str):
+    return _serve_spa(request)
 
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
