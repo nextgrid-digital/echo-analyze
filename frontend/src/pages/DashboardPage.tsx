@@ -3,6 +3,7 @@ import { CircleAlert, X } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { AdminAccessToolbar } from "@/components/AdminAccessToolbar"
 import { Dashboard } from "@/components/dashboard/Dashboard"
+import { DashboardThemeToggle } from "@/components/dashboard/DashboardThemeToggle"
 import { Footer } from "@/components/dashboard/Footer"
 import { WarningRail } from "@/components/dashboard/WarningRail"
 import { Button } from "@/components/ui/button"
@@ -10,12 +11,15 @@ import { clearLatestAnalysis, loadLatestAnalysis } from "@/lib/analysisSession"
 import { buildDashboardPdfFilename } from "@/lib/downloadFilename"
 import { createEmptySummary, createEmptyHoldings } from "@/lib/emptyData"
 import { getDashboardMethodologyWarnings } from "@/lib/portfolioAnalysis"
+import { useDashboardDarkMode } from "@/lib/useDashboardDarkMode"
+import { cn } from "@/lib/utils"
 import type { AnalysisResponse } from "@/types/api"
 
 const MODAL_ANIMATION_MS = 220
 
 export function DashboardPage() {
   const navigate = useNavigate()
+  const { isDark, toggle: toggleDarkMode } = useDashboardDarkMode()
   const [isNoticesModalMounted, setIsNoticesModalMounted] = useState(false)
   const [isNoticesModalVisible, setIsNoticesModalVisible] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
@@ -214,25 +218,36 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="dashboard-page min-h-screen bg-background text-foreground" ref={dashboardRef} id="dashboard-capture-root">
-      <div className="dashboard-toolbar sticky top-0 z-40 mb-8 flex min-h-[44px] flex-col gap-3 border-b border-white/20 bg-white/80 px-4 py-4 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+    <div
+      className={cn(
+        "dashboard-page min-h-screen bg-background text-foreground",
+        isDark && "dark"
+      )}
+      ref={dashboardRef}
+      id="dashboard-capture-root"
+    >
+      <div className="dashboard-toolbar sticky top-0 z-40 mb-8 flex min-h-[44px] flex-col gap-3 border-b border-white/20 bg-white/80 px-4 py-4 backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/85 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
         <div className="pdf-section flex items-center gap-4">
           <div className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 via-cyan-500 to-blue-600 text-sm font-bold tracking-tight text-white shadow-lg shadow-teal-500/30 sm:flex">
             E
           </div>
           <div>
-            <p className="text-sm font-semibold tracking-tight text-slate-900">
-              Portfolio Analysis Report
-            </p>
-            <p className="text-xs text-slate-500">
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+                Portfolio Analysis Report
+              </p>
+              <span className="dashboard-live-dot hidden h-2 w-2 rounded-full sm:inline-block" />
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Statement date:{" "}
-              <span className="font-medium text-slate-700">
+              <span className="font-medium text-slate-700 dark:text-slate-200">
                 {displaySummary.statement_date ?? "N/A"}
               </span>
             </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:gap-4 no-print">
+          <DashboardThemeToggle isDark={isDark} onToggle={toggleDarkMode} />
           <AdminAccessToolbar />
           <Button
             type="button"

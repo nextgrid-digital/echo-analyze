@@ -42,7 +42,7 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
   const difference = data?.difference || 0
 
   return (
-    <div className="bg-background border border-border rounded-none p-2 shadow-sm">
+    <div className="rounded-xl border border-slate-200/80 bg-white/95 p-3 shadow-xl backdrop-blur-sm">
       <p className="text-xs font-semibold text-foreground mb-1.5">
         {data?.date || ""}
       </p>
@@ -89,12 +89,12 @@ function PortfolioBenchmarkAreaChartInner({
       <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
         <defs>
           <linearGradient id={portfolioGradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor={CHART_COLORS[0]} stopOpacity={0.3} />
-            <stop offset="95%" stopColor={CHART_COLORS[0]} stopOpacity={0.05} />
+            <stop offset="5%" stopColor={CHART_COLORS[0]} stopOpacity={0.45} />
+            <stop offset="95%" stopColor={CHART_COLORS[0]} stopOpacity={0.02} />
           </linearGradient>
           <linearGradient id={benchmarkGradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor={CHART_COLORS[1]} stopOpacity={0.2} />
-            <stop offset="95%" stopColor={CHART_COLORS[1]} stopOpacity={0.05} />
+            <stop offset="5%" stopColor={CHART_COLORS[1]} stopOpacity={0.35} />
+            <stop offset="95%" stopColor={CHART_COLORS[1]} stopOpacity={0.02} />
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />

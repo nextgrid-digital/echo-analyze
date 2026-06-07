@@ -284,11 +284,68 @@
   }
 
   .dashboard-page {
+    position: relative;
+    isolation: isolate;
     background:
-      radial-gradient(ellipse 90% 60% at 0% -5%, rgb(20 184 166 / 0.14), transparent 55%),
-      radial-gradient(ellipse 70% 50% at 100% 0%, rgb(59 130 246 / 0.14), transparent 50%),
-      radial-gradient(ellipse 60% 40% at 50% 100%, rgb(139 92 246 / 0.1), transparent 55%),
-      linear-gradient(180deg, #eef2f7 0%, #f4f7fb 12rem, #f8fafc 100%);
+      radial-gradient(ellipse 90% 60% at 0% -5%, rgb(20 184 166 / 0.18), transparent 55%),
+      radial-gradient(ellipse 70% 50% at 100% 0%, rgb(59 130 246 / 0.18), transparent 50%),
+      radial-gradient(ellipse 60% 40% at 50% 100%, rgb(139 92 246 / 0.12), transparent 55%),
+      linear-gradient(180deg, #e8eef5 0%, #f1f5f9 10rem, #f8fafc 100%);
+  }
+
+  .dashboard-page::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.35;
+    background-image: radial-gradient(rgb(15 23 42 / 0.04) 0.6px, transparent 0.6px);
+    background-size: 24px 24px;
+  }
+
+  .dashboard-page::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 50% 30% at 80% 20%, rgb(45 212 191 / 0.08), transparent 50%),
+      radial-gradient(ellipse 40% 25% at 10% 60%, rgb(96 165 250 / 0.08), transparent 50%);
+  }
+
+  .dashboard-page.dark {
+    background:
+      radial-gradient(ellipse 90% 60% at 0% -5%, rgb(20 184 166 / 0.12), transparent 55%),
+      radial-gradient(ellipse 70% 50% at 100% 0%, rgb(59 130 246 / 0.12), transparent 50%),
+      radial-gradient(ellipse 60% 40% at 50% 100%, rgb(139 92 246 / 0.08), transparent 55%),
+      linear-gradient(180deg, #0f172a 0%, #0c1222 10rem, #020617 100%);
+    color: #f8fafc;
+  }
+
+  .dashboard-page.dark::before {
+    opacity: 0.2;
+    background-image: radial-gradient(rgb(148 163 184 / 0.08) 0.6px, transparent 0.6px);
+  }
+
+  .dashboard-page.dark::after {
+    background:
+      radial-gradient(ellipse 50% 30% at 80% 20%, rgb(45 212 191 / 0.06), transparent 50%),
+      radial-gradient(ellipse 40% 25% at 10% 60%, rgb(96 165 250 / 0.06), transparent 50%);
+  }
+
+  .dashboard-page.dark .dashboard-toolbar {
+    box-shadow:
+      0 4px 24px rgb(0 0 0 / 0.35),
+      inset 0 -1px 0 rgb(255 255 255 / 0.06);
+  }
+
+  .dashboard-page.dark .dashboard-section-panel {
+    box-shadow:
+      0 8px 32px rgb(0 0 0 / 0.35),
+      0 1px 0 rgb(255 255 255 / 0.04) inset,
+      0 0 0 1px rgb(255 255 255 / 0.06);
   }
 
   .dashboard-toolbar {
@@ -311,8 +368,28 @@
 
   .dashboard-section-panel {
     box-shadow:
-      0 4px 24px rgb(15 23 42 / 0.05),
-      inset 0 1px 0 rgb(255 255 255 / 0.8);
+      0 8px 32px rgb(15 23 42 / 0.07),
+      0 1px 0 rgb(255 255 255 / 0.9) inset,
+      0 0 0 1px rgb(255 255 255 / 0.5);
+  }
+
+  .text-hero-stat {
+    font-size: 2.25rem;
+    line-height: 1.1;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  @media (min-width: 640px) {
+    .text-hero-stat {
+      font-size: 2.75rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .text-hero-stat {
+      font-size: 3.25rem;
+    }
   }
 
   .dashboard-section-header {
@@ -321,6 +398,22 @@
 
   .dashboard-kpi-card {
     isolation: isolate;
+  }
+
+  .dashboard-live-dot {
+    background: #14b8a6;
+    box-shadow: 0 0 0 0 rgb(20 184 166 / 0.5);
+    animation: dashboard-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes dashboard-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgb(20 184 166 / 0.45);
+    }
+    50% {
+      box-shadow: 0 0 0 6px rgb(20 184 166 / 0);
+    }
   }
 }
 

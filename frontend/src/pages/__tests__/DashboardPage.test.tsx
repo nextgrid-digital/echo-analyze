@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { DashboardPage } from "../DashboardPage"
 import { clearLatestAnalysis, storeLatestAnalysis } from "@/lib/analysisSession"
@@ -89,6 +89,7 @@ const sampleResult: AnalysisResponse = {
 describe("DashboardPage", () => {
   beforeEach(() => {
     clearLatestAnalysis()
+    window.localStorage.clear()
   })
 
   it("restores the latest stored analysis when the dashboard is refreshed", async () => {
@@ -107,6 +108,31 @@ describe("DashboardPage", () => {
     expect(screen.getByText(/portfolio analysis report/i)).toBeInTheDocument()
     expect(screen.getByText(/statement date:/i)).toBeInTheDocument()
     expect(screen.getByText("01-Jan-2026")).toBeInTheDocument()
+  })
+
+  it("toggles dashboard dark mode and persists the preference", async () => {
+    storeLatestAnalysis(sampleResult)
+
+    render(
+      <MemoryRouter initialEntries={["/dashboard"]}>
+        <DashboardPage />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId("mock-dashboard")).toBeInTheDocument()
+    })
+
+    const root = document.getElementById("dashboard-capture-root")
+    const toggle = screen.getByRole("button", { name: /switch to dark mode/i })
+
+    expect(root).not.toHaveClass("dark")
+
+    fireEvent.click(toggle)
+
+    expect(root).toHaveClass("dark")
+    expect(window.localStorage.getItem("echo-dashboard-dark-mode")).toBe("true")
+    expect(screen.getByRole("button", { name: /switch to light mode/i })).toBeInTheDocument()
   })
 
   it("sanitizes statement dates before using them in PDF filenames", () => {

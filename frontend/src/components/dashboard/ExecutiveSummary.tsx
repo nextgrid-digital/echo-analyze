@@ -116,7 +116,7 @@ function ExecutiveSummaryInner({ summary }: ExecutiveSummaryProps) {
             }
           />
         </div>
-        <h3 className="mb-4 text-base font-semibold tracking-tight text-slate-900 sm:text-lg">
+        <h3 className="mb-4 text-base font-semibold tracking-tight text-slate-900 dark:text-slate-50 sm:text-lg">
           Key Insights Summary
         </h3>
         {insights.length > 0 ? (

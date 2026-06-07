@@ -1,3 +1,5 @@
+import { cn } from "@/lib/utils"
+
 export type DashboardAccent =
   | "emerald"
   | "sky"
@@ -123,23 +125,30 @@ export const DASHBOARD_ACCENT_STYLES: Record<
 
 export const INSIGHT_TYPE_STYLES = {
   success: {
-    surface: "bg-gradient-to-br from-teal-50 to-emerald-50/80 border-teal-200/80 shadow-sm shadow-teal-500/5",
-    icon: "text-teal-600",
-    label: "text-teal-800/90",
+    surface:
+      "bg-gradient-to-br from-teal-50 to-emerald-50/80 border-teal-200/80 shadow-sm shadow-teal-500/5 dark:from-teal-950/50 dark:to-emerald-950/40 dark:border-teal-800/50",
+    icon: "text-teal-600 dark:text-teal-400",
+    label: "text-teal-800/90 dark:text-teal-200/90",
   },
   warning: {
-    surface: "bg-gradient-to-br from-amber-50 to-orange-50/80 border-amber-200/80 shadow-sm shadow-amber-500/5",
-    icon: "text-amber-700",
-    label: "text-amber-900/90",
+    surface:
+      "bg-gradient-to-br from-amber-50 to-orange-50/80 border-amber-200/80 shadow-sm shadow-amber-500/5 dark:from-amber-950/50 dark:to-orange-950/40 dark:border-amber-800/50",
+    icon: "text-amber-700 dark:text-amber-400",
+    label: "text-amber-900/90 dark:text-amber-200/90",
   },
   info: {
-    surface: "bg-gradient-to-br from-sky-50 to-blue-50/80 border-blue-200/80 shadow-sm shadow-blue-500/5",
-    icon: "text-blue-600",
-    label: "text-blue-900/90",
+    surface:
+      "bg-gradient-to-br from-sky-50 to-blue-50/80 border-blue-200/80 shadow-sm shadow-blue-500/5 dark:from-sky-950/50 dark:to-blue-950/40 dark:border-blue-800/50",
+    icon: "text-blue-600 dark:text-blue-400",
+    label: "text-blue-900/90 dark:text-blue-200/90",
   },
 } as const
 
 export function getSectionPanelClass(accent: DashboardAccent) {
   const tint = DASHBOARD_ACCENT_STYLES[accent].panelTint
-  return `dashboard-section-panel bg-gradient-to-br ${tint}`
+  return cn(
+    "dashboard-section-panel bg-gradient-to-br",
+    tint,
+    "dark:from-slate-900/95 dark:via-slate-900/80 dark:to-slate-800/70"
+  )
 }

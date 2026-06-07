@@ -18,39 +18,51 @@ export function DashboardSectionHeader({
   const styles = DASHBOARD_ACCENT_STYLES[accent]
 
   return (
-    <div className="dashboard-section-header mb-5 sm:mb-6">
-      <div className="flex items-start gap-3 sm:gap-4">
+    <div className="dashboard-section-header mb-6 sm:mb-7">
+      <div className="flex items-start gap-4">
         {index !== undefined && (
-          <span
-            className={cn(
-              "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xs font-bold tabular-nums",
-              styles.sectionBadge
-            )}
-          >
-            {String(index).padStart(2, "0")}
-          </span>
+          <div className="relative shrink-0">
+            <span
+              className={cn(
+                "relative z-10 flex h-10 w-10 items-center justify-center rounded-2xl text-xs font-bold tabular-nums",
+                styles.sectionBadge
+              )}
+            >
+              {String(index).padStart(2, "0")}
+            </span>
+            <span
+              className={cn(
+                "absolute inset-0 rounded-2xl blur-md opacity-60",
+                styles.sectionGlow
+              )}
+            />
+          </div>
         )}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div
               className={cn(
-                "h-8 w-1.5 shrink-0 rounded-full bg-gradient-to-b",
+                "h-9 w-1.5 shrink-0 rounded-full bg-gradient-to-b shadow-sm",
                 styles.sectionGradient
               )}
             />
-            <h2 className="text-section-header bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
+            <h2 className="text-section-header font-bold tracking-tight text-slate-900 dark:text-slate-50">
               {title}
             </h2>
           </div>
-          <p className="mt-1.5 pl-[1.125rem] text-sm text-slate-500">{description}</p>
+          <p className="mt-2 pl-[1.375rem] text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+            {description}
+          </p>
         </div>
       </div>
-      <div
-        className={cn(
-          "mt-4 h-px bg-gradient-to-r via-transparent to-transparent opacity-60",
-          styles.sectionGradient
-        )}
-      />
+      <div className="relative mt-5 h-px overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-700/80">
+        <div
+          className={cn(
+            "absolute inset-y-0 left-0 w-1/3 rounded-full bg-gradient-to-r opacity-80",
+            styles.sectionGradient
+          )}
+        />
+      </div>
     </div>
   )
 }
