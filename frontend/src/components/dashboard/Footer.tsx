@@ -2,7 +2,7 @@ import { memo } from "react"
 
 export const Footer = memo(function Footer() {
   return (
-    <footer className="mt-12 w-full border-t border-slate-200 bg-slate-50/80 py-6 sm:mt-16 sm:py-8">
+    <footer className="mt-12 w-full border-t border-white/60 bg-gradient-to-b from-white/60 to-slate-50/90 py-6 backdrop-blur-sm sm:mt-16 sm:py-8">
       <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
         <div className="space-y-3 text-[10px] leading-relaxed text-slate-500">
           <div>

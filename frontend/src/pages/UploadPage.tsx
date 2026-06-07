@@ -13,6 +13,14 @@ import { ArrowRight, CreditCard, Lock, Upload } from "lucide-react"
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
+function isQuotaExceededMessage(message: string) {
+  const normalized = message.toLowerCase()
+  return (
+    normalized.includes("free cas report") ||
+    normalized.includes("subscribe for unlimited")
+  )
+}
+
 export function UploadPage() {
   const navigate = useNavigate()
   const { user, billingAccess, refreshBillingAccess } = useAuth()
@@ -60,6 +68,12 @@ export function UploadPage() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (user && billingAccess && !billingAccess.can_analyze) {
+      navigate("/pricing", { replace: true })
+    }
+  }, [user, billingAccess, navigate])
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
@@ -109,7 +123,7 @@ export function UploadPage() {
       if (!user) {
         setError("Sign in or create an account to analyze CAS reports.")
       } else if (isQuotaLocked) {
-        setError("You have used your free CAS report. Subscribe for unlimited analysis.")
+        navigate("/pricing")
       } else {
         setError("Checking your report access. Please try again in a moment.")
       }
@@ -170,7 +184,12 @@ export function UploadPage() {
         clearInterval(progressIntervalRef.current)
         progressIntervalRef.current = null
       }
-      setError(err instanceof Error ? err.message : "Connection error. Is the backend running?")
+      const message = err instanceof Error ? err.message : "Connection error. Is the backend running?"
+      if (isQuotaExceededMessage(message)) {
+        navigate("/pricing")
+        return
+      }
+      setError(message)
       setProgress(0)
       setLoading(false)
     }

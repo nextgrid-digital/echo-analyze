@@ -1,0 +1,1 @@
+import{c as o}from"./createLucideIcon-DMw4mftg.js";const a=[["path",{d:"M5 12h14",key:"1ays0h"}],["path",{d:"m12 5 7 7-7 7",key:"xquz4c"}]],e=o("arrow-right",a);const t=[["path",{d:"M12 3v12",key:"1x0j5s"}],["path",{d:"m17 8-5-5-5 5",key:"7q97r8"}],["path",{d:"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4",key:"ih7n3h"}]],h=o("upload",t);export{e as A,h as U};

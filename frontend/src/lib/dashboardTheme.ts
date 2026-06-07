@@ -11,94 +11,135 @@ export type DashboardAccent =
 export const DASHBOARD_ACCENT_STYLES: Record<
   DashboardAccent,
   {
-    leftBorder: string
+    cardGradient: string
+    cardShadow: string
+    topGradient: string
     surface: string
     icon: string
     label: string
-    sectionBar: string
+    sectionGradient: string
     sectionBadge: string
+    sectionGlow: string
+    panelTint: string
   }
 > = {
   emerald: {
-    leftBorder: "border-l-teal-600",
-    surface: "bg-white",
-    icon: "rounded-lg bg-teal-50 text-teal-700 ring-1 ring-teal-100",
+    cardGradient: "from-teal-50 via-white to-emerald-50/40",
+    cardShadow: "shadow-teal-500/12",
+    topGradient: "from-teal-500 to-emerald-400",
+    surface: "bg-white/90",
+    icon: "rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 text-white shadow-md shadow-teal-500/30",
     label: "text-teal-800",
-    sectionBar: "bg-teal-600",
-    sectionBadge: "bg-teal-50 text-teal-800 ring-1 ring-teal-100",
+    sectionGradient: "from-teal-500 to-emerald-500",
+    sectionBadge: "bg-gradient-to-br from-teal-500 to-emerald-500 text-white shadow-md shadow-teal-500/25",
+    sectionGlow: "bg-teal-400/20",
+    panelTint: "from-teal-50/60 via-white/80 to-emerald-50/30",
   },
   sky: {
-    leftBorder: "border-l-blue-600",
-    surface: "bg-white",
-    icon: "rounded-lg bg-blue-50 text-blue-700 ring-1 ring-blue-100",
+    cardGradient: "from-sky-50 via-white to-blue-50/40",
+    cardShadow: "shadow-blue-500/12",
+    topGradient: "from-sky-500 to-blue-500",
+    surface: "bg-white/90",
+    icon: "rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 text-white shadow-md shadow-blue-500/30",
     label: "text-blue-800",
-    sectionBar: "bg-blue-600",
-    sectionBadge: "bg-blue-50 text-blue-800 ring-1 ring-blue-100",
+    sectionGradient: "from-sky-500 to-blue-600",
+    sectionBadge: "bg-gradient-to-br from-sky-500 to-blue-600 text-white shadow-md shadow-blue-500/25",
+    sectionGlow: "bg-blue-400/20",
+    panelTint: "from-sky-50/60 via-white/80 to-blue-50/30",
   },
   violet: {
-    leftBorder: "border-l-indigo-600",
-    surface: "bg-white",
-    icon: "rounded-lg bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100",
+    cardGradient: "from-violet-50 via-white to-indigo-50/40",
+    cardShadow: "shadow-indigo-500/12",
+    topGradient: "from-violet-500 to-indigo-500",
+    surface: "bg-white/90",
+    icon: "rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-md shadow-indigo-500/30",
     label: "text-indigo-800",
-    sectionBar: "bg-indigo-600",
-    sectionBadge: "bg-indigo-50 text-indigo-800 ring-1 ring-indigo-100",
+    sectionGradient: "from-violet-500 to-indigo-600",
+    sectionBadge: "bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-md shadow-indigo-500/25",
+    sectionGlow: "bg-indigo-400/20",
+    panelTint: "from-violet-50/60 via-white/80 to-indigo-50/30",
   },
   amber: {
-    leftBorder: "border-l-amber-600",
-    surface: "bg-white",
-    icon: "rounded-lg bg-amber-50 text-amber-800 ring-1 ring-amber-100",
+    cardGradient: "from-amber-50 via-white to-orange-50/40",
+    cardShadow: "shadow-amber-500/12",
+    topGradient: "from-amber-500 to-orange-500",
+    surface: "bg-white/90",
+    icon: "rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-md shadow-amber-500/30",
     label: "text-amber-900",
-    sectionBar: "bg-amber-600",
-    sectionBadge: "bg-amber-50 text-amber-900 ring-1 ring-amber-100",
+    sectionGradient: "from-amber-500 to-orange-500",
+    sectionBadge: "bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-md shadow-amber-500/25",
+    sectionGlow: "bg-amber-400/20",
+    panelTint: "from-amber-50/60 via-white/80 to-orange-50/30",
   },
   rose: {
-    leftBorder: "border-l-rose-600",
-    surface: "bg-white",
-    icon: "rounded-lg bg-rose-50 text-rose-700 ring-1 ring-rose-100",
+    cardGradient: "from-rose-50 via-white to-pink-50/40",
+    cardShadow: "shadow-rose-500/12",
+    topGradient: "from-rose-500 to-pink-500",
+    surface: "bg-white/90",
+    icon: "rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 text-white shadow-md shadow-rose-500/30",
     label: "text-rose-800",
-    sectionBar: "bg-rose-600",
-    sectionBadge: "bg-rose-50 text-rose-800 ring-1 ring-rose-100",
+    sectionGradient: "from-rose-500 to-pink-500",
+    sectionBadge: "bg-gradient-to-br from-rose-500 to-pink-500 text-white shadow-md shadow-rose-500/25",
+    sectionGlow: "bg-rose-400/20",
+    panelTint: "from-rose-50/60 via-white/80 to-pink-50/30",
   },
   indigo: {
-    leftBorder: "border-l-slate-600",
-    surface: "bg-white",
-    icon: "rounded-lg bg-slate-100 text-slate-700 ring-1 ring-slate-200",
+    cardGradient: "from-slate-100 via-white to-indigo-50/40",
+    cardShadow: "shadow-slate-500/10",
+    topGradient: "from-slate-600 to-indigo-600",
+    surface: "bg-white/90",
+    icon: "rounded-xl bg-gradient-to-br from-slate-600 to-indigo-700 text-white shadow-md shadow-slate-500/30",
     label: "text-slate-800",
-    sectionBar: "bg-slate-600",
-    sectionBadge: "bg-slate-100 text-slate-800 ring-1 ring-slate-200",
+    sectionGradient: "from-slate-600 to-indigo-700",
+    sectionBadge: "bg-gradient-to-br from-slate-600 to-indigo-700 text-white shadow-md shadow-slate-500/25",
+    sectionGlow: "bg-slate-400/20",
+    panelTint: "from-slate-50/60 via-white/80 to-indigo-50/30",
   },
   cyan: {
-    leftBorder: "border-l-cyan-700",
-    surface: "bg-white",
-    icon: "rounded-lg bg-cyan-50 text-cyan-800 ring-1 ring-cyan-100",
+    cardGradient: "from-cyan-50 via-white to-teal-50/40",
+    cardShadow: "shadow-cyan-500/12",
+    topGradient: "from-cyan-500 to-teal-500",
+    surface: "bg-white/90",
+    icon: "rounded-xl bg-gradient-to-br from-cyan-500 to-teal-600 text-white shadow-md shadow-cyan-500/30",
     label: "text-cyan-900",
-    sectionBar: "bg-cyan-700",
-    sectionBadge: "bg-cyan-50 text-cyan-900 ring-1 ring-cyan-100",
+    sectionGradient: "from-cyan-500 to-teal-600",
+    sectionBadge: "bg-gradient-to-br from-cyan-500 to-teal-600 text-white shadow-md shadow-cyan-500/25",
+    sectionGlow: "bg-cyan-400/20",
+    panelTint: "from-cyan-50/60 via-white/80 to-teal-50/30",
   },
   fuchsia: {
-    leftBorder: "border-l-violet-600",
-    surface: "bg-white",
-    icon: "rounded-lg bg-violet-50 text-violet-700 ring-1 ring-violet-100",
+    cardGradient: "from-fuchsia-50 via-white to-violet-50/40",
+    cardShadow: "shadow-fuchsia-500/12",
+    topGradient: "from-fuchsia-500 to-violet-500",
+    surface: "bg-white/90",
+    icon: "rounded-xl bg-gradient-to-br from-fuchsia-500 to-violet-600 text-white shadow-md shadow-fuchsia-500/30",
     label: "text-violet-800",
-    sectionBar: "bg-violet-600",
-    sectionBadge: "bg-violet-50 text-violet-800 ring-1 ring-violet-100",
+    sectionGradient: "from-fuchsia-500 to-violet-600",
+    sectionBadge: "bg-gradient-to-br from-fuchsia-500 to-violet-600 text-white shadow-md shadow-fuchsia-500/25",
+    sectionGlow: "bg-fuchsia-400/20",
+    panelTint: "from-fuchsia-50/60 via-white/80 to-violet-50/30",
   },
 }
 
 export const INSIGHT_TYPE_STYLES = {
   success: {
-    surface: "bg-teal-50/80 border-teal-200/80",
+    surface: "bg-gradient-to-br from-teal-50 to-emerald-50/80 border-teal-200/80 shadow-sm shadow-teal-500/5",
     icon: "text-teal-600",
     label: "text-teal-800/90",
   },
   warning: {
-    surface: "bg-amber-50/80 border-amber-200/80",
+    surface: "bg-gradient-to-br from-amber-50 to-orange-50/80 border-amber-200/80 shadow-sm shadow-amber-500/5",
     icon: "text-amber-700",
     label: "text-amber-900/90",
   },
   info: {
-    surface: "bg-blue-50/80 border-blue-200/80",
+    surface: "bg-gradient-to-br from-sky-50 to-blue-50/80 border-blue-200/80 shadow-sm shadow-blue-500/5",
     icon: "text-blue-600",
     label: "text-blue-900/90",
   },
 } as const
+
+export function getSectionPanelClass(accent: DashboardAccent) {
+  const tint = DASHBOARD_ACCENT_STYLES[accent].panelTint
+  return `dashboard-section-panel bg-gradient-to-br ${tint}`
+}

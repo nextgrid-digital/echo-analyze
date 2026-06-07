@@ -23,7 +23,7 @@ function MetricIcon({
   return (
     <div
       className={cn(
-        "flex h-9 w-9 items-center justify-center",
+        "flex h-10 w-10 items-center justify-center transition-transform duration-300 group-hover:scale-105",
         DASHBOARD_ACCENT_STYLES[accent].icon
       )}
     >
@@ -44,7 +44,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
   const isHighCost = costPct > 1.5
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-4 lg:gap-6">
       <CompactCard accent="emerald">
         <div className="mb-2 flex items-start justify-between">
           <div className="flex items-center gap-2">
@@ -149,7 +149,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
         </div>
         <p
           className={cn(
-            "mb-1 font-mono text-lg font-bold",
+            "mb-1 font-mono text-stat-number",
             returnValue >= 0 ? "text-emerald-600" : "text-rose-600"
           )}
         >

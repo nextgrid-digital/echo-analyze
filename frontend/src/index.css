@@ -68,11 +68,11 @@
   --border: oklch(0.9 0 0);
   --input: oklch(0.95 0 0);
   --ring: #000000;
-  --chart-1: #0f766e;
-  --chart-2: #1d4ed8;
-  --chart-3: #4338ca;
-  --chart-4: #b45309;
-  --chart-5: #be123c;
+  --chart-1: #14b8a6;
+  --chart-2: #3b82f6;
+  --chart-3: #6366f1;
+  --chart-4: #f59e0b;
+  --chart-5: #f43f5e;
   --sidebar: oklch(0.98 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: #000000;
@@ -285,21 +285,42 @@
 
   .dashboard-page {
     background:
-      linear-gradient(180deg, #e2e8f0 0%, #f1f5f9 8rem, #f8fafc 100%);
+      radial-gradient(ellipse 90% 60% at 0% -5%, rgb(20 184 166 / 0.14), transparent 55%),
+      radial-gradient(ellipse 70% 50% at 100% 0%, rgb(59 130 246 / 0.14), transparent 50%),
+      radial-gradient(ellipse 60% 40% at 50% 100%, rgb(139 92 246 / 0.1), transparent 55%),
+      linear-gradient(180deg, #eef2f7 0%, #f4f7fb 12rem, #f8fafc 100%);
   }
 
   .dashboard-toolbar {
-    box-shadow: 0 1px 3px rgb(15 23 42 / 0.06);
+    position: relative;
+    box-shadow:
+      0 4px 24px rgb(15 23 42 / 0.06),
+      inset 0 -1px 0 rgb(255 255 255 / 0.6);
   }
 
-  .dashboard-card {
+  .dashboard-toolbar::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #14b8a6, #0ea5e9, #6366f1, #a855f7);
+    opacity: 0.7;
+  }
+
+  .dashboard-section-panel {
     box-shadow:
-      0 1px 2px rgb(15 23 42 / 0.04),
-      0 1px 3px rgb(15 23 42 / 0.06);
+      0 4px 24px rgb(15 23 42 / 0.05),
+      inset 0 1px 0 rgb(255 255 255 / 0.8);
   }
 
   .dashboard-section-header {
     scroll-margin-top: 6rem;
+  }
+
+  .dashboard-kpi-card {
+    isolation: isolate;
   }
 }
 

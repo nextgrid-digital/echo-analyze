@@ -1,4 +1,6 @@
 import { DashboardSectionHeader } from "./DashboardSectionHeader"
+import { getSectionPanelClass } from "@/lib/dashboardTheme"
+import { cn } from "@/lib/utils"
 import { HoldingsTable } from "./HoldingsTable"
 import { TopCards } from "./TopCards"
 import { Concentration } from "./Concentration"
@@ -63,7 +65,10 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Section 1: Executive Summary */}
           <section
             id="executive-summary"
-            className="scroll-mt-24 section-spacing pdf-section"
+            className={cn(
+              "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-3xl border border-white/60 p-5 shadow-lg backdrop-blur-md sm:p-7",
+              getSectionPanelClass("emerald")
+            )}
           >
             <DashboardSectionHeader
               index={1}
@@ -113,7 +118,10 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Section 2: Risk & Performance Analysis */}
           <section
             id="risk-performance"
-            className="scroll-mt-24 section-spacing pdf-section"
+            className={cn(
+              "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-3xl border border-white/60 p-5 shadow-lg backdrop-blur-md sm:p-7",
+              getSectionPanelClass("sky")
+            )}
           >
             <DashboardSectionHeader
               index={2}
@@ -158,7 +166,10 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Section 3: Portfolio Health & Structure */}
           <section
             id="portfolio-health"
-            className="scroll-mt-24 section-spacing pdf-section"
+            className={cn(
+              "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-3xl border border-white/60 p-5 shadow-lg backdrop-blur-md sm:p-7",
+              getSectionPanelClass("violet")
+            )}
           >
             <DashboardSectionHeader
               index={3}
@@ -201,7 +212,10 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Section 4: Cost & Tax Analysis */}
           <section
             id="cost-tax-analysis"
-            className="scroll-mt-24 section-spacing pdf-section"
+            className={cn(
+              "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-3xl border border-white/60 p-5 shadow-lg backdrop-blur-md sm:p-7",
+              getSectionPanelClass("amber")
+            )}
           >
             <DashboardSectionHeader
               index={4}
@@ -224,7 +238,10 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Section 5: Fixed Income Analysis */}
           <section
             id="fixed-income"
-            className="scroll-mt-24 section-spacing pdf-section"
+            className={cn(
+              "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-3xl border border-white/60 p-5 shadow-lg backdrop-blur-md sm:p-7",
+              getSectionPanelClass("indigo")
+            )}
           >
             <DashboardSectionHeader
               index={5}
@@ -251,7 +268,10 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Section 7: Key Observations */}
           <section
             id="key-observations"
-            className="scroll-mt-24 section-spacing pdf-section"
+            className={cn(
+              "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-3xl border border-white/60 p-5 shadow-lg backdrop-blur-md sm:p-7",
+              getSectionPanelClass("rose")
+            )}
           >
             <DashboardSectionHeader
               index={6}
@@ -265,7 +285,10 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Section 8: Detailed Holdings (Reference) */}
           <section
             id="detailed-holdings"
-            className="scroll-mt-24 section-spacing pdf-section"
+            className={cn(
+              "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-3xl border border-white/60 p-5 shadow-lg backdrop-blur-md sm:p-7",
+              getSectionPanelClass("cyan")
+            )}
           >
             <DashboardSectionHeader
               index={7}
@@ -282,7 +305,10 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
           {/* Notes & Feedback Section */}
           <section
             id="notes-feedback"
-            className="scroll-mt-24 section-spacing pdf-section"
+            className={cn(
+              "scroll-mt-24 section-spacing pdf-section dashboard-section-panel rounded-3xl border border-white/60 p-5 shadow-lg backdrop-blur-md sm:p-7",
+              getSectionPanelClass("fuchsia")
+            )}
           >
             <DashboardSectionHeader
               index={8}
