@@ -17,7 +17,7 @@ import httpx
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -42,6 +42,7 @@ from app.Code.billing import (
     verify_webhook_signature,
 )
 from app.Code.supabase_auth import (
+    get_public_supabase_config,
     get_supabase_registered_user_count,
     _is_allowed_supabase_url,
     require_supabase_user,
@@ -2982,13 +2983,32 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/api/public-config")
+async def public_config():
+    return get_public_supabase_config()
+
+
+def _serve_spa() -> HTMLResponse:
+    index_path = Path("static/index.html")
+    html = index_path.read_text(encoding="utf-8")
+    config = get_public_supabase_config()
+    if config:
+        payload = json.dumps(config, separators=(",", ":")).replace("</", "<\\/")
+        injection = f'<script>window.__ECHO_PUBLIC_CONFIG__={payload}</script>'
+        marker = '<script type="module"'
+        if marker in html:
+            html = html.replace(marker, f"{injection}\n    {marker}", 1)
+        else:
+            html = html.replace("</head>", f"    {injection}\n  </head>", 1)
+    return HTMLResponse(
+        content=html,
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
 @app.get("/")
 async def home():
-    return FileResponse("static/index.html")
-
-
-def _serve_spa() -> FileResponse:
-    return FileResponse("static/index.html")
+    return _serve_spa()
 
 
 @app.get("/dashboard")

@@ -105,6 +105,19 @@ describe("isSupabaseConfigured", () => {
     expect(await loadConfiguredState()).toBe(true)
   })
 
+  it("accepts runtime public config injected by the backend", async () => {
+    vi.stubEnv("APP_SUPABASE_URL", "")
+    vi.stubEnv("APP_SUPABASE_ANON_KEY", "")
+    window.__ECHO_PUBLIC_CONFIG__ = {
+      supabaseUrl: "https://project.supabase.co",
+      supabaseAnonKey: "anon",
+    }
+
+    expect(await loadConfiguredState()).toBe(true)
+
+    delete window.__ECHO_PUBLIC_CONFIG__
+  })
+
   it("rejects arbitrary HTTPS URLs that are not Supabase hosts", async () => {
     vi.stubEnv("APP_SUPABASE_URL", "https://example.com")
     vi.stubEnv("APP_SUPABASE_ANON_KEY", "anon")
