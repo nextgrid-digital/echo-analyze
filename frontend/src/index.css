@@ -287,10 +287,8 @@
     position: relative;
     isolation: isolate;
     background:
-      radial-gradient(ellipse 90% 60% at 0% -5%, rgb(20 184 166 / 0.18), transparent 55%),
-      radial-gradient(ellipse 70% 50% at 100% 0%, rgb(59 130 246 / 0.18), transparent 50%),
-      radial-gradient(ellipse 60% 40% at 50% 100%, rgb(139 92 246 / 0.12), transparent 55%),
-      linear-gradient(180deg, #e8eef5 0%, #f1f5f9 10rem, #f8fafc 100%);
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgb(20 184 166 / 0.1), transparent 60%),
+      linear-gradient(180deg, #f1f5f9 0%, #f8fafc 12rem, #ffffff 100%);
   }
 
   .dashboard-page::before {
@@ -305,22 +303,13 @@
   }
 
   .dashboard-page::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background:
-      radial-gradient(ellipse 50% 30% at 80% 20%, rgb(45 212 191 / 0.08), transparent 50%),
-      radial-gradient(ellipse 40% 25% at 10% 60%, rgb(96 165 250 / 0.08), transparent 50%);
+    content: none;
   }
 
   .dashboard-page.dark {
     background:
-      radial-gradient(ellipse 90% 60% at 0% -5%, rgb(20 184 166 / 0.12), transparent 55%),
-      radial-gradient(ellipse 70% 50% at 100% 0%, rgb(59 130 246 / 0.12), transparent 50%),
-      radial-gradient(ellipse 60% 40% at 50% 100%, rgb(139 92 246 / 0.08), transparent 55%),
-      linear-gradient(180deg, #0f172a 0%, #0c1222 10rem, #020617 100%);
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgb(20 184 166 / 0.08), transparent 60%),
+      linear-gradient(180deg, #0f172a 0%, #0c1222 12rem, #020617 100%);
     color: #f8fafc;
   }
 
@@ -330,9 +319,7 @@
   }
 
   .dashboard-page.dark::after {
-    background:
-      radial-gradient(ellipse 50% 30% at 80% 20%, rgb(45 212 191 / 0.06), transparent 50%),
-      radial-gradient(ellipse 40% 25% at 10% 60%, rgb(96 165 250 / 0.06), transparent 50%);
+    content: none;
   }
 
   .dashboard-page.dark .dashboard-toolbar {
@@ -362,15 +349,35 @@
     right: 0;
     bottom: 0;
     height: 2px;
-    background: linear-gradient(90deg, #14b8a6, #0ea5e9, #6366f1, #a855f7);
-    opacity: 0.7;
+    background: #0d9488;
+    opacity: 0.85;
   }
 
   .dashboard-section-panel {
     box-shadow:
-      0 8px 32px rgb(15 23 42 / 0.07),
-      0 1px 0 rgb(255 255 255 / 0.9) inset,
-      0 0 0 1px rgb(255 255 255 / 0.5);
+      0 1px 3px rgb(15 23 42 / 0.06),
+      0 8px 24px rgb(15 23 42 / 0.04);
+  }
+
+  .dashboard-disclaimer {
+    margin-bottom: 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgb(226 232 240);
+    background: rgb(248 250 252);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: rgb(71 85 105);
+  }
+
+  .dashboard-page.dark .dashboard-disclaimer {
+    border-color: rgb(51 65 85);
+    background: rgb(30 41 59 / 0.5);
+    color: rgb(148 163 184);
+  }
+
+  .dashboard-hero {
+    scroll-margin-top: 6rem;
   }
 
   .text-hero-stat {

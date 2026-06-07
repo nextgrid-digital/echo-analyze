@@ -24,7 +24,7 @@ function TaxAnalysisInner({ summary }: TaxAnalysisProps) {
 
   return (
     <div className="mb-6 sm:mb-8">
-      <div className="mb-3 border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+      <div className="dashboard-disclaimer">
         Estimated metrics: tax buckets are indicative and should not be used for tax filing decisions.
       </div>
       {/* Tax Metrics - Status Cards */}

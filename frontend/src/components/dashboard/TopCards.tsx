@@ -10,38 +10,83 @@ import {
   TrendingDown,
   CheckCircle2,
   AlertTriangle,
-  Sparkles,
 } from "lucide-react"
-import { DASHBOARD_ACCENT_STYLES } from "@/lib/dashboardTheme"
-import type { DashboardAccent } from "@/lib/dashboardTheme"
 import { cn } from "@/lib/utils"
-import { toLakhs, formatPercent } from "@/lib/format"
+import { formatPercent } from "@/lib/format"
 import type { AnalysisSummary } from "@/types/api"
 
 interface TopCardsProps {
   summary: AnalysisSummary
 }
 
-function MetricIcon({
-  accent,
-  children,
-  hero = false,
-}: {
-  accent: DashboardAccent
-  children: ReactNode
-  hero?: boolean
-}) {
+function formatLakhsParts(value: number) {
+  if (value >= 100_000) {
+    return { amount: (value / 100_000).toFixed(2), unit: "Lakhs" }
+  }
+  return { amount: value.toLocaleString("en-IN"), unit: null }
+}
+
+function MetricIcon({ children }: { children: ReactNode }) {
   return (
-    <div
-      className={cn(
-        "flex items-center justify-center transition-transform duration-300 group-hover:scale-105",
-        hero
-          ? "h-12 w-12 rounded-2xl bg-white/15 text-white shadow-lg ring-1 ring-white/25 backdrop-blur-sm"
-          : cn("h-10 w-10", DASHBOARD_ACCENT_STYLES[accent].icon)
-      )}
-    >
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-600 text-white shadow-sm">
       {children}
     </div>
+  )
+}
+
+function LakhsValue({
+  value,
+  size = "default",
+  className,
+}: {
+  value: number
+  size?: "default" | "large"
+  className?: string
+}) {
+  const { amount, unit } = formatLakhsParts(value)
+
+  return (
+    <p
+      className={cn(
+        "font-mono font-semibold tracking-tight text-slate-900 dark:text-slate-50",
+        size === "large" ? "text-3xl sm:text-4xl" : "text-2xl sm:text-3xl",
+        className
+      )}
+    >
+      <span className="whitespace-nowrap">Rs {amount}</span>
+      {unit && (
+        <span className="ml-1.5 text-sm font-medium text-slate-500 dark:text-slate-400 sm:text-base">
+          {unit}
+        </span>
+      )}
+    </p>
+  )
+}
+
+function MetricCard({
+  label,
+  tooltip,
+  icon,
+  children,
+  className,
+}: {
+  label: string
+  tooltip: ReactNode
+  icon: ReactNode
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <CompactCard className={cn("flex h-full flex-col", className)}>
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <MetricIcon>{icon}</MetricIcon>
+          <p className="text-label text-slate-500 dark:text-slate-400">{label}</p>
+        </div>
+        {tooltip}
+      </div>
+      <div className="mt-auto">{children}</div>
+    </CompactCard>
   )
 }
 
@@ -58,208 +103,182 @@ function TopCardsInner({ summary }: TopCardsProps) {
   const costPct = summary.cost?.portfolio_cost_pct ?? 0
   const isHighCost = costPct > 1.5
   const gainAmount = summary.total_market_value - summary.total_cost_value
+  const isPositiveReturn = returnValue >= 0
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-4 lg:grid-rows-2 lg:gap-6">
-      <CompactCard
-        accent="emerald"
-        variant="hero"
-        className="sm:col-span-2 lg:col-span-2 lg:row-span-2"
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-5">
+      <MetricCard
+        label="Portfolio value"
+        icon={<BarChart3 className="h-4 w-4" />}
+        tooltip={
+          <SectionInfoTooltip
+            title="Current Value"
+            formula={
+              <>
+                Current Value = Sum(units x latest NAV)
+                <br />
+                Absolute Return % = (Current Value - Total Invested) / Total Invested x 100
+              </>
+            }
+            content={
+              <>
+                Current value is the sum of market value of all holdings. Absolute return shows
+                the overall gain or loss percentage.
+              </>
+            }
+          />
+        }
       >
-        <div className="flex h-full min-h-[200px] flex-col justify-between">
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-3">
-              <MetricIcon accent="emerald" hero>
-                <BarChart3 className="h-5 w-5" />
-              </MetricIcon>
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-teal-200/90">
-                  Portfolio value
-                </p>
-                <p className="text-sm font-medium text-white/70">Current market value</p>
-              </div>
-            </div>
-            <SectionInfoTooltip
-              title="Current Value"
-              formula={
-                <>
-                  Current Value = Sum(units x latest NAV)<br />
-                  Absolute Return % = (Current Value - Total Invested) / Total Invested x 100
-                </>
-              }
-              content={
-                <>
-                  Current value is the sum of market value of all holdings. Absolute return shows the overall gain or loss percentage.
-                </>
-              }
-            />
-          </div>
-
-          <div className="mt-6">
-            <p className="text-hero-stat font-mono font-bold tracking-tight text-white">
-              {toLakhs(summary.total_market_value)}
-            </p>
-            {returnValue !== 0 && (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Badge className="border-0 bg-emerald-400/20 px-2.5 py-1 text-xs font-semibold text-emerald-100">
-                  <Sparkles className="mr-1 h-3 w-3" />
-                  {returnValue >= 0 ? "+" : ""}
-                  {formatPercent(returnValue)} return
-                </Badge>
-                {gainAmount > 0 && (
-                  <span className="text-xs text-teal-100/80">
-                    +{toLakhs(gainAmount)} vs cost
-                  </span>
-                )}
-              </div>
+        <LakhsValue value={summary.total_market_value} size="large" />
+        {returnValue !== 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span
+              className={cn(
+                "text-sm font-semibold",
+                isPositiveReturn ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+              )}
+            >
+              {isPositiveReturn ? "+" : ""}
+              {formatPercent(returnValue)}
+            </span>
+            {gainAmount > 0 && (
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                +{formatLakhsParts(gainAmount).amount} Lakhs vs cost
+              </span>
             )}
           </div>
-
-          <div className="mt-6 grid grid-cols-2 gap-3 border-t border-white/10 pt-4">
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-white/50">Invested</p>
-              <p className="font-mono text-sm font-semibold text-white">
-                {toLakhs(summary.total_cost_value)}
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-white/50">Holdings</p>
-              <p className="font-mono text-sm font-semibold text-white">
-                {summary.holdings_count ?? summary.concentration?.fund_count ?? "—"}
-              </p>
-            </div>
+        )}
+        <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-200/80 pt-3 dark:border-slate-700/80">
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Invested
+            </p>
+            <p className="font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">
+              Rs {formatLakhsParts(summary.total_cost_value).amount}{" "}
+              <span className="font-medium text-slate-500">Lakhs</span>
+            </p>
           </div>
-
-          {isHighCost && (
-            <div className="mt-3">
-              <Badge
-                variant="outline"
-                className="border-amber-300/40 bg-amber-400/10 text-[10px] text-amber-100"
-              >
-                <AlertTriangle className="mr-1 h-2.5 w-2.5" />
-                High cost: {formatPercent(costPct)}
-              </Badge>
-            </div>
-          )}
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Holdings
+            </p>
+            <p className="font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">
+              {summary.holdings_count ?? summary.concentration?.fund_count ?? "—"}
+            </p>
+          </div>
         </div>
-      </CompactCard>
-
-      <CompactCard accent="sky" className="lg:col-start-3 lg:row-start-1">
-        <div className="mb-2 flex items-start justify-between">
-          <div className="flex items-center gap-2">
-            <MetricIcon accent="sky">
-              <Wallet className="h-4 w-4" />
-            </MetricIcon>
-            <p className="text-label text-slate-500 dark:text-slate-400">Total Invested</p>
+        {isHighCost && (
+          <div className="mt-3">
+            <Badge
+              variant="outline"
+              className="border-slate-300 text-[10px] text-slate-600 dark:border-slate-600 dark:text-slate-300"
+            >
+              <AlertTriangle className="mr-1 h-2.5 w-2.5" />
+              High cost: {formatPercent(costPct)}
+            </Badge>
           </div>
+        )}
+      </MetricCard>
+
+      <MetricCard
+        label="Total invested"
+        icon={<Wallet className="h-4 w-4" />}
+        tooltip={
           <SectionInfoTooltip
             title="Total Invested"
             formula={<>Total Invested = Sum(units x purchase NAV)</>}
             content={
               <>
-                Sum of the cost value of all holdings (what you paid). Calculated as units x purchase NAV (or average cost) for each scheme, summed across the portfolio.
+                Sum of the cost value of all holdings (what you paid). Calculated as units x
+                purchase NAV (or average cost) for each scheme, summed across the portfolio.
               </>
             }
           />
-        </div>
-        <p className="font-mono text-stat-number text-slate-900 dark:text-slate-50">
-          {toLakhs(summary.total_cost_value)}
-        </p>
-      </CompactCard>
+        }
+      >
+        <LakhsValue value={summary.total_cost_value} />
+      </MetricCard>
 
-      <CompactCard accent="violet" className="lg:col-start-4 lg:row-start-1">
-        <div className="mb-2 flex items-start justify-between">
-          <div className="flex items-center gap-2">
-            <MetricIcon accent="violet">
-              <TrendingUp className="h-4 w-4" />
-            </MetricIcon>
-            <p className="text-label text-slate-500 dark:text-slate-400">Portfolio Return</p>
-          </div>
+      <MetricCard
+        label="Portfolio return"
+        icon={<TrendingUp className="h-4 w-4" />}
+        tooltip={
           <SectionInfoTooltip
             title="Portfolio Return"
             formula={
-              <>
-                Portfolio Return % = (Current Value - Total Invested) / Total Invested x 100
-              </>
+              <>Portfolio Return % = (Current Value - Total Invested) / Total Invested x 100</>
             }
             content={
-              <>
-                Absolute return percentage showing the overall gain or loss on your portfolio.
-              </>
+              <>Absolute return percentage showing the overall gain or loss on your portfolio.</>
             }
           />
-        </div>
+        }
+      >
         <p
           className={cn(
-            "mb-1 font-mono text-stat-number",
-            returnValue >= 0 ? "text-emerald-600" : "text-rose-600"
+            "font-mono text-2xl font-semibold tracking-tight sm:text-3xl",
+            isPositiveReturn ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
           )}
         >
           {formatPercent(returnValue)}
         </p>
-        <p className="text-xs text-muted-foreground">Absolute return</p>
-      </CompactCard>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Absolute return</p>
+      </MetricCard>
 
-      <CompactCard accent="amber" className="sm:col-span-2 lg:col-span-2 lg:col-start-3 lg:row-start-2">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 flex-1">
-            <div className="mb-2 flex items-start justify-between">
-              <div className="flex items-center gap-2">
-                <MetricIcon accent="amber">
-                  <Target className="h-4 w-4" />
-                </MetricIcon>
-                <p className="text-label text-slate-500 dark:text-slate-400">XIRR performance</p>
-              </div>
-              <div className="flex items-center gap-2">
-                {hasPortfolioXirr && hasBenchmarkXirr && (
-                  <Badge
-                    className={cn(
-                      "flex items-center gap-1 border-0 px-2 py-0.5 text-[10px] font-semibold",
-                      isBeatingBenchmark
-                        ? "bg-emerald-500 text-white"
-                        : "bg-amber-500 text-white"
-                    )}
-                  >
-                    {isBeatingBenchmark ? (
-                      <CheckCircle2 className="h-3 w-3" />
-                    ) : (
-                      <TrendingDown className="h-3 w-3" />
-                    )}
-                    {isBeatingBenchmark ? "Beating benchmark" : "Below benchmark"}
-                  </Badge>
-                )}
-                <SectionInfoTooltip
-                  title="XIRR"
-                  formula={
-                    <>
-                      XIRR = Internal Rate of Return using cash flows<br />
-                      Sum(CF_t / (1 + XIRR)^t) = 0
-                    </>
-                  }
-                  content={
-                    <>
-                      XIRR accounts for the timing of investments and redemptions, compared against benchmark XIRR for the same period.
-                    </>
-                  }
-                />
-              </div>
-            </div>
-            <p className="font-mono text-stat-number text-slate-900 dark:text-slate-50">
-              {hasPortfolioXirr ? formatPercent(xirrValue as number) : "N/A"}
-            </p>
-          </div>
-          {hasBenchmarkXirr && (
-            <div className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-4 py-3 sm:min-w-[140px]">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-800/70">
+      <MetricCard
+        label="XIRR"
+        icon={<Target className="h-4 w-4" />}
+        tooltip={
+          <SectionInfoTooltip
+            title="XIRR"
+            formula={
+              <>
+                XIRR = Internal Rate of Return using cash flows
+                <br />
+                Sum(CF_t / (1 + XIRR)^t) = 0
+              </>
+            }
+            content={
+              <>
+                XIRR accounts for the timing of investments and redemptions, compared against
+                benchmark XIRR for the same period.
+              </>
+            }
+          />
+        }
+      >
+        <p className="font-mono text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50 sm:text-3xl">
+          {hasPortfolioXirr ? formatPercent(xirrValue as number) : "N/A"}
+        </p>
+        {hasPortfolioXirr && hasBenchmarkXirr && (
+          <div className="mt-3 space-y-2">
+            <Badge
+              variant="outline"
+              className={cn(
+                "border-0 px-2 py-0.5 text-[10px] font-semibold",
+                isBeatingBenchmark
+                  ? "bg-emerald-600 text-white"
+                  : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"
+              )}
+            >
+              {isBeatingBenchmark ? (
+                <CheckCircle2 className="mr-1 h-3 w-3" />
+              ) : (
+                <TrendingDown className="mr-1 h-3 w-3" />
+              )}
+              {isBeatingBenchmark ? "Beating benchmark" : "Below benchmark"}
+            </Badge>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/60">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Benchmark
               </p>
-              <p className="font-mono text-lg font-bold text-amber-900">
+              <p className="font-mono text-lg font-semibold text-slate-800 dark:text-slate-200">
                 {formatPercent(benchmarkXirr as number)}
               </p>
             </div>
-          )}
-        </div>
-      </CompactCard>
+          </div>
+        )}
+      </MetricCard>
     </div>
   )
 }

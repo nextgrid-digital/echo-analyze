@@ -20,11 +20,11 @@ export const Performance = memo(function Performance({ performance }: Performanc
 
   return (
     <div className="mb-6 sm:mb-8">
-      <div className="mb-3 border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+      <div className="dashboard-disclaimer">
         Coverage note: 1Y/3Y buckets use only holdings with comparable scheme-benchmark data; percentages are still reported against total portfolio value.
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-        <CompactCard accent="emerald">
+        <CompactCard>
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -56,7 +56,7 @@ export const Performance = memo(function Performance({ performance }: Performanc
           </p>
         </CompactCard>
 
-        <CompactCard accent="amber">
+        <CompactCard>
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-500" />
@@ -103,7 +103,7 @@ export const Performance = memo(function Performance({ performance }: Performanc
           <p className="text-xs text-muted-foreground">Below benchmark returns</p>
         </CompactCard>
 
-        <CompactCard accent="violet">
+        <CompactCard>
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
               <TrendingDown className="w-4 h-4 text-violet-600" />
@@ -132,7 +132,7 @@ export const Performance = memo(function Performance({ performance }: Performanc
           <p className="text-xs text-muted-foreground">Underperformance &lt;= 3%</p>
         </CompactCard>
 
-        <CompactCard accent="rose">
+        <CompactCard>
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
               <TrendingDown className="w-4 h-4 text-rose-600" />
