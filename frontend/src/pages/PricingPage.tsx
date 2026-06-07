@@ -1,9 +1,11 @@
 import { useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { createSubscription, verifySubscriptionPayment } from "@/api/billing"
 import { useAuth } from "@/auth/useAuth"
-import { AdminAccessToolbar } from "@/components/AdminAccessToolbar"
+import { PricingFaq } from "@/components/marketing/PricingFaq"
+import { MarketingLayout } from "@/components/MarketingLayout"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -13,7 +15,8 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { loadRazorpayCheckout } from "@/lib/razorpayCheckout"
-import { ArrowLeft, Check, CreditCard, Infinity as InfinityIcon, ScanLine } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { Check, CreditCard, Infinity as InfinityIcon, ScanLine, Sparkles } from "lucide-react"
 
 declare global {
   interface Window {
@@ -51,7 +54,16 @@ interface RazorpayPaymentFailedResponse {
   }
 }
 
+const COMPARISON_ROWS = [
+  { feature: "CAS PDF or JSON upload", free: true, unlimited: true },
+  { feature: "Full portfolio dashboard", free: true, unlimited: true },
+  { feature: "Export & print tools", free: true, unlimited: true },
+  { feature: "Number of reports", free: "1", unlimited: "Unlimited" },
+  { feature: "Monthly billing", free: false, unlimited: true },
+] as const
+
 export function PricingPage() {
+  const navigate = useNavigate()
   const { user, billingAccess, refreshBillingAccess } = useAuth()
   const [isSubscribing, setIsSubscribing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -62,13 +74,14 @@ export function PricingPage() {
   const canStartSubscription = Boolean(user && billingAccess && !isUnlimited)
 
   const handleSubscribe = async () => {
+    if (!user) {
+      navigate("/upload")
+      return
+    }
+
     setError(null)
     setSuccess(null)
 
-    if (!user) {
-      setError("Sign in before starting checkout.")
-      return
-    }
     if (!billingAccess) {
       setError("Checking your report access. Please try again in a moment.")
       return
@@ -124,104 +137,152 @@ export function PricingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 py-8 sm:py-12">
-      <div className="w-full max-w-6xl mx-auto">
-        <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
-          <Button asChild variant="outline">
-            <Link to="/">
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </Link>
-          </Button>
-          <AdminAccessToolbar />
-        </div>
-
-        <header className="mb-10">
-          <p className="text-sm font-medium text-muted-foreground">Subscription</p>
-          <h1 className="mt-3 text-4xl sm:text-5xl font-bold tracking-tight">Choose your CAS access</h1>
-          <p className="mt-4 max-w-2xl text-muted-foreground">
-            Start with one free report, then unlock unlimited CAS analysis for your account.
+    <MarketingLayout>
+      <section className="marketing-hero relative overflow-hidden px-4 py-12 sm:px-6 sm:py-16">
+        <div className="marketing-grid-bg pointer-events-none absolute inset-0" />
+        <div className="relative mx-auto max-w-6xl text-center">
+          <p className="inline-flex items-center gap-2 border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-medium text-violet-800">
+            <Sparkles className="h-3.5 w-3.5 text-violet-600" />
+            Simple, transparent pricing
           </p>
-        </header>
+          <h1 className="mt-6 text-4xl font-bold tracking-tight sm:text-5xl">
+            Choose your CAS access
+          </h1>
+          <p className="mx-auto mt-4 max-w-2xl text-base text-muted-foreground sm:text-lg">
+            Start with one free report, then unlock unlimited CAS analysis whenever you
+            need it.
+          </p>
+        </div>
+      </section>
 
-        {(error || success) && (
-          <Alert variant={error ? "destructive" : "default"} className="mb-6">
-            <AlertDescription>{error ?? success}</AlertDescription>
-          </Alert>
-        )}
+      <div className="px-4 pb-16 sm:px-6 sm:pb-20">
+        <div className="mx-auto w-full max-w-6xl">
+          {(error || success) && (
+            <Alert variant={error ? "destructive" : "default"} className="mb-8">
+              <AlertDescription>{error ?? success}</AlertDescription>
+            </Alert>
+          )}
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Card className="min-h-[420px]">
-            <CardHeader>
-              <div className="mb-3 flex h-10 w-10 items-center justify-center border border-border bg-muted">
-                <ScanLine className="w-5 h-5" />
-              </div>
-              <CardTitle className="text-2xl">Free</CardTitle>
-              <CardDescription>For trying the portfolio analyzer once.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-1 flex-col justify-between gap-8">
-              <div>
-                <div className="text-4xl font-semibold">Rs 0</div>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {remainingReports > 0
-                    ? `${remainingReports} free report remaining`
-                    : "Free report already used"}
-                </p>
-                <div className="mt-8 space-y-4 text-sm">
-                  <Feature>One CAS PDF or JSON analysis</Feature>
-                  <Feature>Portfolio dashboard and export tools</Feature>
-                  <Feature>No commitment required</Feature>
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 sm:gap-8">
+            <Card className="relative flex h-full min-h-[460px] flex-col border-t-[3px] border-t-sky-500 bg-sky-50/40 shadow-apple">
+              <CardHeader>
+                <div className="mb-3 flex h-11 w-11 items-center justify-center bg-sky-500 text-white">
+                  <ScanLine className="h-5 w-5" />
                 </div>
-              </div>
-              <Button asChild variant="outline" className="w-full">
-                <Link to="/">Use free report</Link>
-              </Button>
-            </CardContent>
-          </Card>
+                <CardTitle className="text-2xl">Free</CardTitle>
+                <CardDescription>For trying the portfolio analyzer once.</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-1 flex-col justify-between gap-8">
+                <div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-5xl font-semibold tracking-tight">Rs 0</span>
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {user
+                      ? remainingReports > 0
+                        ? `${remainingReports} free report remaining`
+                        : "Free report already used"
+                      : "One free report included"}
+                  </p>
+                  <div className="mt-8 space-y-4 text-sm">
+                    <Feature>One CAS PDF or JSON analysis</Feature>
+                    <Feature>Portfolio dashboard and export tools</Feature>
+                    <Feature>No commitment required</Feature>
+                  </div>
+                </div>
+                <Button asChild variant="outline" className="min-h-11 w-full">
+                  <Link to="/upload">Use free report</Link>
+                </Button>
+              </CardContent>
+            </Card>
 
-          <Card className="min-h-[420px] border-foreground">
-            <CardHeader>
-              <div className="mb-3 flex h-10 w-10 items-center justify-center border border-foreground bg-foreground text-background">
-                <InfinityIcon className="w-5 h-5" />
-              </div>
-              <CardTitle className="text-2xl">Unlimited</CardTitle>
-              <CardDescription>For ongoing CAS scans on the same account.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-1 flex-col justify-between gap-8">
-              <div>
-                <div className="flex items-end gap-2">
-                  <span className="text-4xl font-semibold">Rs 2,360</span>
-                  <span className="pb-1 text-sm text-muted-foreground">per billing cycle</span>
+            <Card className="relative flex h-full min-h-[460px] flex-col border-t-[3px] border-t-violet-500 bg-violet-50/30 shadow-apple-hover">
+              <Badge className="absolute -top-3 right-6 rounded-none bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-600 hover:to-indigo-600">
+                Most popular
+              </Badge>
+              <CardHeader>
+                <div className="mb-3 flex h-11 w-11 items-center justify-center bg-gradient-to-br from-violet-600 to-indigo-600 text-white">
+                  <InfinityIcon className="h-5 w-5" />
                 </div>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Rs 2,000 plus 18% GST, billed monthly.
-                </p>
-                <div className="mt-8 space-y-4 text-sm">
-                  <Feature>Unlimited CAS report analysis</Feature>
-                  <Feature>Available whenever you sign in</Feature>
-                  <Feature>Easy renewal and cancellation</Feature>
+                <CardTitle className="text-2xl">Unlimited</CardTitle>
+                <CardDescription>For ongoing CAS scans on the same account.</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-1 flex-col justify-between gap-8">
+                <div>
+                  <div className="flex items-end gap-2">
+                    <span className="text-5xl font-semibold tracking-tight">Rs 2,360</span>
+                    <span className="pb-1.5 text-sm text-muted-foreground">/ month</span>
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Rs 2,000 plus 18% GST, billed monthly via Razorpay.
+                  </p>
+                  <div className="mt-8 space-y-4 text-sm">
+                    <Feature highlight>Unlimited CAS report analysis</Feature>
+                    <Feature highlight>Available whenever you sign in</Feature>
+                    <Feature highlight>Easy renewal and cancellation</Feature>
+                  </div>
                 </div>
-              </div>
-              <Button
-                type="button"
-                className="w-full"
-                disabled={isSubscribing || !canStartSubscription}
-                onClick={() => void handleSubscribe()}
-              >
-                <CreditCard className="w-4 h-4" />
-                {isUnlimited
-                  ? "Active"
-                  : !billingAccess
-                    ? "Checking access..."
-                    : isSubscribing
-                      ? "Opening checkout..."
-                      : "Subscribe"}
-              </Button>
-            </CardContent>
-          </Card>
+                <Button
+                  type="button"
+                  className="min-h-11 w-full"
+                  disabled={isSubscribing || isUnlimited || (Boolean(user) && !canStartSubscription)}
+                  onClick={() => void handleSubscribe()}
+                >
+                  <CreditCard className="h-4 w-4" />
+                  {isUnlimited
+                    ? "Active"
+                    : !billingAccess && user
+                      ? "Checking access..."
+                      : isSubscribing
+                        ? "Opening checkout..."
+                        : user
+                          ? "Subscribe now"
+                          : "Sign in to subscribe"}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="mt-16">
+            <h2 className="mb-6 text-center text-2xl font-bold tracking-tight sm:text-3xl">
+              Compare plans
+            </h2>
+            <div className="overflow-x-auto border border-border">
+              <table className="w-full min-w-[480px] text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="bg-muted/50 px-5 py-4 text-left font-medium text-muted-foreground">
+                      Feature
+                    </th>
+                    <th className="bg-sky-50 px-5 py-4 text-center font-medium text-sky-800">
+                      Free
+                    </th>
+                    <th className="bg-violet-50 px-5 py-4 text-center font-medium text-violet-800">
+                      Unlimited
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {COMPARISON_ROWS.map((row) => (
+                    <tr key={row.feature} className="border-b border-border last:border-0">
+                      <td className="px-5 py-4 text-muted-foreground">{row.feature}</td>
+                      <td className="px-5 py-4 text-center">
+                        <ComparisonCell value={row.free} />
+                      </td>
+                      <td className="px-5 py-4 text-center">
+                        <ComparisonCell value={row.unlimited} highlight />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <PricingFaq />
         </div>
       </div>
-    </div>
+    </MarketingLayout>
   )
 }
 
@@ -233,11 +294,37 @@ function formatRazorpayCheckoutFailure(response: RazorpayPaymentFailedResponse) 
   return description || "Razorpay payment failed. Please try again."
 }
 
-function Feature({ children }: { children: string }) {
+function Feature({ children, highlight = false }: { children: string; highlight?: boolean }) {
   return (
     <div className="flex items-start gap-3">
-      <Check className="mt-0.5 h-4 w-4 flex-none" />
+      <Check
+        className={cn(
+          "mt-0.5 h-4 w-4 flex-none",
+          highlight ? "text-violet-600" : "text-sky-600"
+        )}
+      />
       <span>{children}</span>
     </div>
+  )
+}
+
+function ComparisonCell({
+  value,
+  highlight = false,
+}: {
+  value: boolean | string
+  highlight?: boolean
+}) {
+  if (typeof value === "string") {
+    return (
+      <span className={cn("font-mono font-medium", highlight && "text-foreground")}>
+        {value}
+      </span>
+    )
+  }
+  return value ? (
+    <Check className={cn("mx-auto h-4 w-4", highlight ? "text-violet-600" : "text-sky-600")} />
+  ) : (
+    <span className="text-muted-foreground">—</span>
   )
 }

@@ -61,6 +61,21 @@ def _get_supabase_anon_key() -> str:
     return os.environ.get("SUPABASE_ANON_KEY", "").strip()
 
 
+def get_public_supabase_config() -> Dict[str, str]:
+    """Browser-safe Supabase settings for SPA bootstrap (anon key only)."""
+    supabase_url = _get_supabase_url()
+    supabase_anon_key = _get_supabase_anon_key()
+    if not supabase_url or not supabase_anon_key:
+        return {}
+
+    admin_role = os.environ.get("SUPABASE_ADMIN_ROLE", "admin").strip().lower() or "admin"
+    return {
+        "supabaseUrl": supabase_url,
+        "supabaseAnonKey": supabase_anon_key,
+        "supabaseAdminRole": admin_role,
+    }
+
+
 def _get_supabase_service_key() -> str:
     return os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 

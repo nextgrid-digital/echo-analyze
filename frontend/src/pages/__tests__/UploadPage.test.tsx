@@ -8,8 +8,8 @@ vi.mock("@/api/analyze", () => ({
   analyzePortfolio: vi.fn(),
 }))
 
-vi.mock("@/components/AdminAccessToolbar", () => ({
-  AdminAccessToolbar: () => <div data-testid="admin-access-toolbar">Admin</div>,
+vi.mock("@/components/SiteHeader", () => ({
+  SiteHeader: () => <div data-testid="site-header">Header</div>,
 }))
 
 vi.mock("@/auth/useAuth", () => ({

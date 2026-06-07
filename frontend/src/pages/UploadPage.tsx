@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom"
 import { analyzePortfolio } from "@/api/analyze"
 import { AuthPanel } from "@/auth/AuthPage"
 import { useAuth } from "@/auth/useAuth"
-import { AdminAccessToolbar } from "@/components/AdminAccessToolbar"
+import { SiteHeader } from "@/components/SiteHeader"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -177,23 +177,16 @@ export function UploadPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 py-8 sm:py-12">
+    <div className="marketing-page min-h-screen text-foreground">
+      <SiteHeader />
+      <div className="px-4 py-8 sm:px-6 sm:py-12">
       <div className="w-full max-w-6xl mx-auto">
-        {user && (
-          <div className="mb-8 flex justify-end">
-          <AdminAccessToolbar />
-          </div>
-        )}
-
-        <header className="text-center mb-12 sm:mb-16">
-          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-foreground mb-4 tracking-tight">
-            ECHO
+        <header className="text-center mb-10 sm:mb-12">
+          <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-3 tracking-tight">
+            Analyze your CAS
           </h1>
-          <p className="text-lg sm:text-xl text-muted-foreground font-medium">
-            Mutual Fund Portfolio Analyzer
-          </p>
-          <p className="text-sm sm:text-base text-muted-foreground mt-4 max-w-2xl mx-auto">
-            Upload a CAS PDF or JSON file to analyze your portfolio.
+          <p className="text-sm sm:text-base text-muted-foreground max-w-2xl mx-auto">
+            Upload a CAS PDF or JSON file to generate your portfolio dashboard.
           </p>
         </header>
 
@@ -210,8 +203,8 @@ export function UploadPage() {
                 isLocked
                   ? "cursor-not-allowed border-border opacity-75"
                   : isDragging
-                    ? "cursor-pointer border-primary bg-primary/5 scale-[1.01]"
-                    : "cursor-pointer border-border hover:border-primary/50"
+                    ? "cursor-pointer border-emerald-500 bg-emerald-50 scale-[1.01]"
+                    : "cursor-pointer border-border hover:border-emerald-400/60 hover:bg-emerald-50/30"
               }`}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -344,6 +337,7 @@ export function UploadPage() {
             </div>
           </section>
         </div>
+      </div>
       </div>
     </div>
   )

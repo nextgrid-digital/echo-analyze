@@ -1,13 +1,35 @@
-import { memo } from "react"
+import { memo, type ReactNode } from "react"
 import { CompactCard } from "./cards/CompactCard"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import { Badge } from "@/components/ui/badge"
 import { Wallet, TrendingUp, BarChart3, Target, TrendingDown, CheckCircle2, AlertTriangle } from "lucide-react"
+import { DASHBOARD_ACCENT_STYLES } from "@/lib/dashboardTheme"
+import type { DashboardAccent } from "@/lib/dashboardTheme"
+import { cn } from "@/lib/utils"
 import { toLakhs, formatPercent } from "@/lib/format"
 import type { AnalysisSummary } from "@/types/api"
 
 interface TopCardsProps {
   summary: AnalysisSummary
+}
+
+function MetricIcon({
+  accent,
+  children,
+}: {
+  accent: DashboardAccent
+  children: ReactNode
+}) {
+  return (
+    <div
+      className={cn(
+        "flex h-8 w-8 items-center justify-center",
+        DASHBOARD_ACCENT_STYLES[accent].icon
+      )}
+    >
+      {children}
+    </div>
+  )
 }
 
 function TopCardsInner({ summary }: TopCardsProps) {
@@ -22,13 +44,14 @@ function TopCardsInner({ summary }: TopCardsProps) {
   const isHighCost = costPct > 1.5
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-      {/* Current Value card */}
-      <CompactCard>
-        <div className="flex items-start justify-between mb-2">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-4">
+      <CompactCard accent="emerald">
+        <div className="mb-2 flex items-start justify-between">
           <div className="flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-primary" />
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            <MetricIcon accent="emerald">
+              <BarChart3 className="h-4 w-4" />
+            </MetricIcon>
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Current Value
             </p>
           </div>
@@ -47,14 +70,14 @@ function TopCardsInner({ summary }: TopCardsProps) {
             }
           />
         </div>
-        <p className="text-lg font-bold text-foreground font-mono mb-1">
+        <p className="mb-1 font-mono text-lg font-bold text-foreground">
           {toLakhs(summary.total_market_value)}
         </p>
         {returnValue !== 0 && (
           <div className="flex items-center gap-2">
             <span
               className={`text-xs font-semibold ${
-                returnValue >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                returnValue >= 0 ? "text-emerald-600" : "text-rose-600"
               }`}
             >
               {returnValue >= 0 ? "Up" : "Down"} {Math.abs(returnValue).toFixed(2)}%
@@ -66,21 +89,22 @@ function TopCardsInner({ summary }: TopCardsProps) {
           <div className="mt-2">
             <Badge
               variant="outline"
-              className="text-[10px] px-1.5 py-0 bg-amber-50 text-amber-800 dark:bg-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700 flex items-center gap-1"
+              className="flex items-center gap-1 border-amber-300 bg-amber-50 px-1.5 py-0 text-[10px] text-amber-800"
             >
-              <AlertTriangle className="w-2.5 h-2.5" />
+              <AlertTriangle className="h-2.5 w-2.5" />
               High Cost: {formatPercent(costPct)}
             </Badge>
           </div>
         )}
       </CompactCard>
 
-      {/* Total Invested card */}
-      <CompactCard>
-        <div className="flex items-start justify-between mb-2">
+      <CompactCard accent="sky">
+        <div className="mb-2 flex items-start justify-between">
           <div className="flex items-center gap-2">
-            <Wallet className="w-4 h-4 text-muted-foreground" />
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            <MetricIcon accent="sky">
+              <Wallet className="h-4 w-4" />
+            </MetricIcon>
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Total Invested
             </p>
           </div>
@@ -98,17 +122,18 @@ function TopCardsInner({ summary }: TopCardsProps) {
             }
           />
         </div>
-        <p className="text-lg font-bold text-foreground font-mono">
+        <p className="font-mono text-lg font-bold text-foreground">
           {toLakhs(summary.total_cost_value)}
         </p>
       </CompactCard>
 
-      {/* Portfolio Return card */}
-      <CompactCard>
-        <div className="flex items-start justify-between mb-2">
+      <CompactCard accent="violet">
+        <div className="mb-2 flex items-start justify-between">
           <div className="flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-muted-foreground" />
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            <MetricIcon accent="violet">
+              <TrendingUp className="h-4 w-4" />
+            </MetricIcon>
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Portfolio Return
             </p>
           </div>
@@ -126,18 +151,24 @@ function TopCardsInner({ summary }: TopCardsProps) {
             }
           />
         </div>
-        <p className="text-lg font-bold text-foreground font-mono mb-1">
+        <p
+          className={cn(
+            "mb-1 font-mono text-lg font-bold",
+            returnValue >= 0 ? "text-emerald-600" : "text-rose-600"
+          )}
+        >
           {formatPercent(returnValue)}
         </p>
         <p className="text-xs text-muted-foreground">Absolute Return</p>
       </CompactCard>
 
-      {/* XIRR card */}
-      <CompactCard>
-        <div className="flex items-start justify-between mb-2">
+      <CompactCard accent="amber">
+        <div className="mb-2 flex items-start justify-between">
           <div className="flex items-center gap-2">
-            <Target className="w-4 h-4 text-muted-foreground" />
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            <MetricIcon accent="amber">
+              <Target className="h-4 w-4" />
+            </MetricIcon>
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               XIRR
             </p>
           </div>
@@ -145,16 +176,16 @@ function TopCardsInner({ summary }: TopCardsProps) {
             {hasPortfolioXirr && hasBenchmarkXirr && (
               <Badge
                 variant={isBeatingBenchmark ? "secondary" : "outline"}
-                className={`text-[10px] px-1.5 py-0 flex items-center gap-1 ${
+                className={`flex items-center gap-1 px-1.5 py-0 text-[10px] ${
                   isBeatingBenchmark
-                    ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                    : "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200"
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-amber-100 text-amber-800"
                 }`}
               >
                 {isBeatingBenchmark ? (
-                  <CheckCircle2 className="w-2.5 h-2.5" />
+                  <CheckCircle2 className="h-2.5 w-2.5" />
                 ) : (
-                  <TrendingDown className="w-2.5 h-2.5" />
+                  <TrendingDown className="h-2.5 w-2.5" />
                 )}
                 {isBeatingBenchmark ? "Beating" : "Under"}
               </Badge>
@@ -176,7 +207,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
             />
           </div>
         </div>
-        <p className="text-lg font-bold text-foreground font-mono mb-1">
+        <p className="mb-1 font-mono text-lg font-bold text-foreground">
           {hasPortfolioXirr ? formatPercent(xirrValue as number) : "N/A"}
         </p>
         <p className="text-xs text-muted-foreground">

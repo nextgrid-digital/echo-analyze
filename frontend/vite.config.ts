@@ -6,6 +6,17 @@ import { defineConfig } from "vite"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// Vercel can expose SUPABASE_* only; map them for the client bundle at build time.
+if (!process.env.APP_SUPABASE_URL && process.env.SUPABASE_URL) {
+  process.env.APP_SUPABASE_URL = process.env.SUPABASE_URL
+}
+if (!process.env.APP_SUPABASE_ANON_KEY && process.env.SUPABASE_ANON_KEY) {
+  process.env.APP_SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY
+}
+if (!process.env.APP_SUPABASE_ADMIN_ROLE && process.env.SUPABASE_ADMIN_ROLE) {
+  process.env.APP_SUPABASE_ADMIN_ROLE = process.env.SUPABASE_ADMIN_ROLE
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   root: __dirname,

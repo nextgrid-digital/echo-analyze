@@ -262,7 +262,7 @@ export function AdminPage() {
             </CardHeader>
             <CardContent className="flex gap-3">
               <Button asChild variant="outline">
-                <Link to="/">Back to analyzer</Link>
+                <Link to="/upload">Back to analyzer</Link>
               </Button>
             </CardContent>
           </Card>
@@ -288,7 +288,7 @@ export function AdminPage() {
 
           <div className="flex flex-wrap items-center gap-2">
             <Button asChild variant="outline">
-              <Link to="/">Back to analyzer</Link>
+              <Link to="/upload">Back to analyzer</Link>
             </Button>
             <AdminAccessToolbar />
           </div>

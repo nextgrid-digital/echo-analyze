@@ -1,3 +1,4 @@
+import { DashboardSectionHeader } from "./DashboardSectionHeader"
 import { HoldingsTable } from "./HoldingsTable"
 import { TopCards } from "./TopCards"
 import { Concentration } from "./Concentration"
@@ -69,21 +70,18 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="executive-summary"
             className="scroll-mt-24 section-spacing pdf-section"
           >
-            <div className="mb-4 sm:mb-6">
-              <h2 className="text-section-header text-foreground mb-1">
-                Executive Summary
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Key portfolio metrics and insights at a glance
-              </p>
-            </div>
+            <DashboardSectionHeader
+              accent="emerald"
+              title="Executive Summary"
+              description="Key portfolio metrics and insights at a glance"
+            />
 
             {/* Key Metrics Bar */}
             <TopCards summary={summary} />
 
             {/* Portfolio vs Benchmark Chart */}
             <div className="mt-6 sm:mt-8">
-              <WideCard>
+              <WideCard accent="sky">
                 <div className="relative">
                   <div className="absolute top-0 right-0">
                     <SectionInfoTooltip
@@ -121,14 +119,11 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="risk-performance"
             className="scroll-mt-24 section-spacing pdf-section"
           >
-            <div className="mb-4 sm:mb-6">
-              <h2 className="text-section-header text-foreground mb-1">
-                Risk & Performance Analysis
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Risk metrics, performance attribution, and underperformance analysis
-              </p>
-            </div>
+            <DashboardSectionHeader
+              accent="sky"
+              title="Risk & Performance Analysis"
+              description="Risk metrics, performance attribution, and underperformance analysis"
+            />
 
             {/* Risk Metrics */}
             <div id="risk-metrics" className="scroll-mt-24 mb-6 sm:mb-8">
@@ -168,14 +163,11 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="portfolio-health"
             className="scroll-mt-24 section-spacing pdf-section"
           >
-            <div className="mb-4 sm:mb-6">
-              <h2 className="text-section-header text-foreground mb-1">
-                Portfolio Health & Structure
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Asset allocation, concentration, and diversification analysis
-              </p>
-            </div>
+            <DashboardSectionHeader
+              accent="violet"
+              title="Portfolio Health & Structure"
+              description="Asset allocation, concentration, and diversification analysis"
+            />
 
             {/* Asset Allocation */}
             <div id="portfolio-structure-asset-allocation" className="scroll-mt-24 mb-6 sm:mb-8">
@@ -213,14 +205,11 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="cost-tax-analysis"
             className="scroll-mt-24 section-spacing pdf-section"
           >
-            <div className="mb-4 sm:mb-6">
-              <h2 className="text-section-header text-foreground mb-1">
-                Cost & Tax Analysis
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Portfolio costs, expenses, and tax implications
-              </p>
-            </div>
+            <DashboardSectionHeader
+              accent="amber"
+              title="Cost & Tax Analysis"
+              description="Portfolio costs, expenses, and tax implications"
+            />
 
             {/* Tax Analysis */}
             <div className="mb-6 sm:mb-8">
@@ -238,14 +227,11 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="fixed-income"
             className="scroll-mt-24 section-spacing pdf-section"
           >
-            <div className="mb-4 sm:mb-6">
-              <h2 className="text-section-header text-foreground mb-1">
-                Fixed Income Analysis
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Fixed income holdings and debt allocation quality
-              </p>
-            </div>
+            <DashboardSectionHeader
+              accent="indigo"
+              title="Fixed Income Analysis"
+              description="Fixed income holdings and debt allocation quality"
+            />
             <FixedIncome
               fixedIncome={
                 summary.fixed_income ?? {
@@ -267,14 +253,11 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="key-observations"
             className="scroll-mt-24 section-spacing pdf-section"
           >
-            <div className="mb-4 sm:mb-6">
-              <h2 className="text-section-header text-foreground mb-1">
-                Key Observations
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Important data highlights organized by category
-              </p>
-            </div>
+            <DashboardSectionHeader
+              accent="rose"
+              title="Key Observations"
+              description="Important data highlights organized by category"
+            />
             <KeyObservations summary={summary} />
           </section>
 
@@ -283,14 +266,11 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="detailed-holdings"
             className="scroll-mt-24 section-spacing pdf-section"
           >
-            <div className="mb-4 sm:mb-6">
-              <h2 className="text-section-header text-foreground mb-1">
-                Proposed Allocation
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Complete holdings breakdown for detailed review
-              </p>
-            </div>
+            <DashboardSectionHeader
+              accent="cyan"
+              title="Proposed Allocation"
+              description="Complete holdings breakdown for detailed review"
+            />
             <HoldingsTable
               holdings={holdings}
               totalMarketValue={summary.total_market_value}
@@ -302,15 +282,12 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             id="notes-feedback"
             className="scroll-mt-24 section-spacing pdf-section"
           >
-            <div className="mb-4 sm:mb-6">
-              <h2 className="text-section-header text-foreground mb-1">
-                Notes & Feedback
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Expert feedback and personalized observations
-              </p>
-            </div>
-            <WideCard>
+            <DashboardSectionHeader
+              accent="fuchsia"
+              title="Notes & Feedback"
+              description="Expert feedback and personalized observations"
+            />
+            <WideCard accent="fuchsia">
               <div className="relative">
                 <div className="absolute top-0 right-0 z-20">
                   <SectionInfoTooltip

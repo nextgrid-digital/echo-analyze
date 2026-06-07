@@ -214,10 +214,10 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground" ref={dashboardRef} id="dashboard-capture-root">
-      <div className="mb-4 px-4 sm:px-6 pt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 min-h-[44px]">
+    <div className="dashboard-page min-h-screen bg-background text-foreground" ref={dashboardRef} id="dashboard-capture-root">
+      <div className="dashboard-toolbar mb-4 flex min-h-[44px] flex-col gap-2 border-b border-border/60 bg-card/80 px-4 pt-4 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div className="pdf-section">
-          <p className="text-foreground font-medium text-sm">
+          <p className="text-sm font-medium text-foreground">
             Live portfolio valuation
           </p>
           <p className="text-muted-foreground text-xs">

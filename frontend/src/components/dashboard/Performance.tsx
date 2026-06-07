@@ -24,10 +24,10 @@ export const Performance = memo(function Performance({ performance }: Performanc
         Coverage note: 1Y/3Y buckets use only holdings with comparable scheme-benchmark data; percentages are still reported against total portfolio value.
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-        <CompactCard>
+        <CompactCard accent="emerald">
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-green-600" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Performing
               </p>
@@ -47,7 +47,7 @@ export const Performance = memo(function Performance({ performance }: Performanc
               }
             />
           </div>
-          <p className="text-lg font-bold text-green-600 font-mono mb-1">
+          <p className="text-lg font-bold text-emerald-600 font-mono mb-1">
             {formatPercent(performing)}
           </p>
           <p className="text-xs text-muted-foreground">Meeting/exceeding within comparable set</p>
@@ -56,7 +56,7 @@ export const Performance = memo(function Performance({ performance }: Performanc
           </p>
         </CompactCard>
 
-        <CompactCard>
+        <CompactCard accent="amber">
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-500" />
@@ -103,10 +103,10 @@ export const Performance = memo(function Performance({ performance }: Performanc
           <p className="text-xs text-muted-foreground">Below benchmark returns</p>
         </CompactCard>
 
-        <CompactCard>
+        <CompactCard accent="violet">
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
-              <TrendingDown className="w-4 h-4 text-amber-500" />
+              <TrendingDown className="w-4 h-4 text-violet-600" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Upto 3% Gap
               </p>
@@ -132,10 +132,10 @@ export const Performance = memo(function Performance({ performance }: Performanc
           <p className="text-xs text-muted-foreground">Underperformance &lt;= 3%</p>
         </CompactCard>
 
-        <CompactCard>
+        <CompactCard accent="rose">
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
-              <TrendingDown className="w-4 h-4 text-red-600" />
+              <TrendingDown className="w-4 h-4 text-rose-600" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 &gt;3% Gap
               </p>

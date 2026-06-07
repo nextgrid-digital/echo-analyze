@@ -1,7 +1,20 @@
 import { createClient, type Session, type SupabaseClient, type User } from "@supabase/supabase-js"
+import { getEchoPublicConfig } from "@/lib/publicConfig"
 
-const supabaseUrl = import.meta.env.APP_SUPABASE_URL?.trim()
-const supabaseAnonKey = import.meta.env.APP_SUPABASE_ANON_KEY?.trim()
+function resolveSupabaseUrl() {
+  const runtime = getEchoPublicConfig().supabaseUrl?.trim()
+  const built = import.meta.env.APP_SUPABASE_URL?.trim()
+  return runtime || built || ""
+}
+
+function resolveSupabaseAnonKey() {
+  const runtime = getEchoPublicConfig().supabaseAnonKey?.trim()
+  const built = import.meta.env.APP_SUPABASE_ANON_KEY?.trim()
+  return runtime || built || ""
+}
+
+const supabaseUrl = resolveSupabaseUrl()
+const supabaseAnonKey = resolveSupabaseAnonKey()
 
 let client: SupabaseClient | null = null
 
@@ -147,7 +160,10 @@ export function isSupabaseAdminUser(user: User | null | undefined) {
     return false
   }
 
-  const adminRole = import.meta.env.APP_SUPABASE_ADMIN_ROLE?.trim().toLowerCase() || "admin"
+  const adminRole =
+    getEchoPublicConfig().supabaseAdminRole?.trim().toLowerCase() ||
+    import.meta.env.APP_SUPABASE_ADMIN_ROLE?.trim().toLowerCase() ||
+    "admin"
   const appMetadata = user.app_metadata ?? {}
   const roles = new Set(metadataRoles(appMetadata))
 

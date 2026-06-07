@@ -1,5 +1,6 @@
-import { memo, useMemo } from "react"
+import { memo, useMemo, type ReactNode } from "react"
 import { WideCard } from "./cards/WideCard"
+import type { DashboardAccent } from "@/lib/dashboardTheme"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
 import { AlertTriangle, TrendingUp, DollarSign, BarChart3 } from "lucide-react"
 import { formatPercent, toLakhs } from "@/lib/format"
@@ -14,7 +15,7 @@ function KeyObservationsInner({ summary }: KeyObservationsProps) {
   const observations = useMemo(() => {
     const obs: Array<{
       category: "performance" | "risk" | "cost" | "allocation"
-      icon: React.ReactNode
+      icon: ReactNode
       title: string
       items: string[]
     }> = []
@@ -164,10 +165,12 @@ function KeyObservationsInner({ summary }: KeyObservationsProps) {
     return null
   }
 
+  const observationAccents: DashboardAccent[] = ["emerald", "sky", "amber", "violet"]
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
       {observations.map((obs, idx) => (
-        <WideCard key={idx}>
+        <WideCard key={idx} accent={observationAccents[idx % observationAccents.length]}>
           <div className="relative">
             <div className="absolute top-0 right-0">
               <SectionInfoTooltip

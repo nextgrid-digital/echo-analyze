@@ -3,6 +3,9 @@ import { Navigate, Route, Routes } from "react-router-dom"
 import { useAuth } from "@/auth/useAuth"
 import "./App.css"
 
+const LandingPage = lazy(() =>
+  import("@/pages/LandingPage").then((module) => ({ default: module.LandingPage }))
+)
 const UploadPage = lazy(() =>
   import("@/pages/UploadPage").then((module) => ({ default: module.UploadPage }))
 )
@@ -36,18 +39,16 @@ function App() {
       }
     >
       <Routes>
-        <Route path="/" element={<UploadPage />} />
-        <Route
-          path="/pricing"
-          element={user ? <PricingPage /> : <Navigate to="/" replace />}
-        />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/upload" element={<UploadPage />} />
+        <Route path="/pricing" element={<PricingPage />} />
         <Route
           path="/dashboard"
-          element={user ? <DashboardPage /> : <Navigate to="/" replace />}
+          element={user ? <DashboardPage /> : <Navigate to="/upload" replace />}
         />
         <Route
           path="/admin"
-          element={user && isAdmin ? <AdminPage /> : <Navigate to="/" replace />}
+          element={user && isAdmin ? <AdminPage /> : <Navigate to="/upload" replace />}
         />
       </Routes>
     </Suspense>
