@@ -104,8 +104,9 @@ describe("DashboardPage", () => {
       expect(screen.getByTestId("mock-dashboard")).toBeInTheDocument()
     })
 
-    expect(screen.getByText(/live portfolio valuation/i)).toBeInTheDocument()
-    expect(screen.getByText(/statement date: 01-Jan-2026/i)).toBeInTheDocument()
+    expect(screen.getByText(/portfolio analysis report/i)).toBeInTheDocument()
+    expect(screen.getByText(/statement date:/i)).toBeInTheDocument()
+    expect(screen.getByText("01-Jan-2026")).toBeInTheDocument()
   })
 
   it("sanitizes statement dates before using them in PDF filenames", () => {

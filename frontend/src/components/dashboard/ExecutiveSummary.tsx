@@ -116,16 +116,16 @@ function ExecutiveSummaryInner({ summary }: ExecutiveSummaryProps) {
             }
           />
         </div>
-        <h3 className="font-semibold text-lg text-foreground mb-4">
+        <h3 className="mb-4 text-base font-semibold tracking-tight text-slate-900 sm:text-lg">
           Key Insights Summary
         </h3>
         {insights.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {insights.map((insight, idx) => (
               <div
                 key={idx}
                 className={cn(
-                  "flex items-start gap-2 border p-3",
+                  "flex items-start gap-2.5 rounded-lg border p-3.5",
                   INSIGHT_TYPE_STYLES[insight.type].surface
                 )}
               >

@@ -23,7 +23,7 @@ function MetricIcon({
   return (
     <div
       className={cn(
-        "flex h-8 w-8 items-center justify-center",
+        "flex h-9 w-9 items-center justify-center",
         DASHBOARD_ACCENT_STYLES[accent].icon
       )}
     >
@@ -51,7 +51,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
             <MetricIcon accent="emerald">
               <BarChart3 className="h-4 w-4" />
             </MetricIcon>
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <p className="text-label text-slate-500">
               Current Value
             </p>
           </div>
@@ -70,7 +70,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
             }
           />
         </div>
-        <p className="mb-1 font-mono text-lg font-bold text-foreground">
+        <p className="mb-1 font-mono text-stat-number text-slate-900">
           {toLakhs(summary.total_market_value)}
         </p>
         {returnValue !== 0 && (
@@ -104,9 +104,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
             <MetricIcon accent="sky">
               <Wallet className="h-4 w-4" />
             </MetricIcon>
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Total Invested
-            </p>
+            <p className="text-label text-slate-500">Total Invested</p>
           </div>
           <SectionInfoTooltip
             title="Total Invested"
@@ -122,7 +120,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
             }
           />
         </div>
-        <p className="font-mono text-lg font-bold text-foreground">
+        <p className="font-mono text-stat-number text-slate-900">
           {toLakhs(summary.total_cost_value)}
         </p>
       </CompactCard>
@@ -133,9 +131,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
             <MetricIcon accent="violet">
               <TrendingUp className="h-4 w-4" />
             </MetricIcon>
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Portfolio Return
-            </p>
+            <p className="text-label text-slate-500">Portfolio Return</p>
           </div>
           <SectionInfoTooltip
             title="Portfolio Return"
@@ -168,9 +164,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
             <MetricIcon accent="amber">
               <Target className="h-4 w-4" />
             </MetricIcon>
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              XIRR
-            </p>
+            <p className="text-label text-slate-500">XIRR</p>
           </div>
           <div className="flex items-center gap-2">
             {hasPortfolioXirr && hasBenchmarkXirr && (
@@ -207,7 +201,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
             />
           </div>
         </div>
-        <p className="mb-1 font-mono text-lg font-bold text-foreground">
+        <p className="mb-1 font-mono text-stat-number text-slate-900">
           {hasPortfolioXirr ? formatPercent(xirrValue as number) : "N/A"}
         </p>
         <p className="text-xs text-muted-foreground">

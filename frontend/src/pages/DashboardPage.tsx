@@ -215,14 +215,22 @@ export function DashboardPage() {
 
   return (
     <div className="dashboard-page min-h-screen bg-background text-foreground" ref={dashboardRef} id="dashboard-capture-root">
-      <div className="dashboard-toolbar mb-4 flex min-h-[44px] flex-col gap-2 border-b border-border/60 bg-card/80 px-4 pt-4 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <div className="pdf-section">
-          <p className="text-sm font-medium text-foreground">
-            Live portfolio valuation
-          </p>
-          <p className="text-muted-foreground text-xs">
-            Statement date: {displaySummary.statement_date ?? "N/A"}
-          </p>
+      <div className="dashboard-toolbar sticky top-0 z-40 mb-6 flex min-h-[44px] flex-col gap-3 border-b border-slate-200/80 bg-white/95 px-4 py-4 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+        <div className="pdf-section flex items-center gap-4">
+          <div className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold tracking-tight text-white sm:flex">
+            E
+          </div>
+          <div>
+            <p className="text-sm font-semibold tracking-tight text-slate-900">
+              Portfolio Analysis Report
+            </p>
+            <p className="text-xs text-slate-500">
+              Statement date:{" "}
+              <span className="font-medium text-slate-700">
+                {displaySummary.statement_date ?? "N/A"}
+              </span>
+            </p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:gap-4 no-print">
           <AdminAccessToolbar />
@@ -231,7 +239,7 @@ export function DashboardPage() {
             variant="default"
             onClick={handleDownloadPDF}
             disabled={isDownloading}
-            className="min-h-[44px] sm:min-h-0 py-2 px-6 shadow-md shadow-primary/10 flex items-center gap-2"
+            className="min-h-[44px] sm:min-h-0 flex items-center gap-2 rounded-lg bg-slate-900 px-6 py-2 shadow-sm hover:bg-slate-800"
           >
             {isDownloading ? (
               <div className="flex items-center gap-2">

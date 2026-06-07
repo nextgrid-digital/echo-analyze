@@ -2,11 +2,11 @@ import { memo } from "react"
 
 export const Footer = memo(function Footer() {
   return (
-    <footer className="w-full border-t border-border mt-12 sm:mt-16 py-6 sm:py-8">
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-[10px] text-muted-foreground leading-relaxed space-y-3">
+    <footer className="mt-12 w-full border-t border-slate-200 bg-slate-50/80 py-6 sm:mt-16 sm:py-8">
+      <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
+        <div className="space-y-3 text-[10px] leading-relaxed text-slate-500">
           <div>
-            <p className="font-semibold uppercase tracking-wider mb-2 text-foreground">
+            <p className="mb-2 font-semibold uppercase tracking-wider text-slate-700">
               CONFIDENTIAL AND PROPRIETARY INFORMATION
             </p>
             <p>
@@ -18,7 +18,7 @@ export const Footer = memo(function Footer() {
           </div>
 
           <div>
-            <p className="font-semibold uppercase tracking-wider mb-2 text-foreground">
+            <p className="mb-2 font-semibold uppercase tracking-wider text-slate-700">
               UNAUTHORIZED DISCLOSURE PROHIBITED
             </p>
             <p>
@@ -32,7 +32,7 @@ export const Footer = memo(function Footer() {
           </div>
 
           <div>
-            <p className="font-semibold uppercase tracking-wider mb-2 text-foreground">
+            <p className="mb-2 font-semibold uppercase tracking-wider text-slate-700">
               LEGAL CONSEQUENCES
             </p>
             <p className="mb-2">

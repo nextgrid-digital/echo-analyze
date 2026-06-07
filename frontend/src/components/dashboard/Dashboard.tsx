@@ -29,25 +29,20 @@ interface DashboardProps {
 export function SkeletonDashboard() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 sm:pt-10 pb-16 sm:pb-20 opacity-60">
-      {/* Top Cards Skeleton */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 lg:gap-8 mb-6 sm:mb-8">
-        <Skeleton className="h-40 w-full rounded-none" />
-        <Skeleton className="h-40 w-full rounded-none" />
+        <Skeleton className="h-40 w-full rounded-xl" />
+        <Skeleton className="h-40 w-full rounded-xl" />
       </div>
 
-      {/* Grid of 4 Skeletons */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
-        <Skeleton className="h-80 w-full rounded-none" />
-        <Skeleton className="h-80 w-full rounded-none" />
-        <Skeleton className="h-64 w-full rounded-none" />
-        <Skeleton className="h-64 w-full rounded-none" />
+        <Skeleton className="h-80 w-full rounded-xl" />
+        <Skeleton className="h-80 w-full rounded-xl" />
+        <Skeleton className="h-64 w-full rounded-xl" />
+        <Skeleton className="h-64 w-full rounded-xl" />
       </div>
 
-      {/* Large Feedback Skeleton */}
-      <Skeleton className="h-64 w-full rounded-none mb-12" />
-
-      {/* Table Skeleton */}
-      <Skeleton className="h-96 w-full rounded-none" />
+      <Skeleton className="h-64 w-full rounded-xl mb-12" />
+      <Skeleton className="h-96 w-full rounded-xl" />
     </div>
   )
 }
@@ -71,6 +66,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             className="scroll-mt-24 section-spacing pdf-section"
           >
             <DashboardSectionHeader
+              index={1}
               accent="emerald"
               title="Executive Summary"
               description="Key portfolio metrics and insights at a glance"
@@ -100,7 +96,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
                       }
                     />
                   </div>
-                  <h3 className="font-semibold text-lg text-foreground mb-6">
+                  <h3 className="mb-6 text-base font-semibold tracking-tight text-slate-900 sm:text-lg">
                     Portfolio Performance vs Benchmark
                   </h3>
                   <PortfolioBenchmarkChart summary={summary} holdings={holdings} />
@@ -120,6 +116,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             className="scroll-mt-24 section-spacing pdf-section"
           >
             <DashboardSectionHeader
+              index={2}
               accent="sky"
               title="Risk & Performance Analysis"
               description="Risk metrics, performance attribution, and underperformance analysis"
@@ -164,6 +161,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             className="scroll-mt-24 section-spacing pdf-section"
           >
             <DashboardSectionHeader
+              index={3}
               accent="violet"
               title="Portfolio Health & Structure"
               description="Asset allocation, concentration, and diversification analysis"
@@ -206,6 +204,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             className="scroll-mt-24 section-spacing pdf-section"
           >
             <DashboardSectionHeader
+              index={4}
               accent="amber"
               title="Cost & Tax Analysis"
               description="Portfolio costs, expenses, and tax implications"
@@ -228,6 +227,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             className="scroll-mt-24 section-spacing pdf-section"
           >
             <DashboardSectionHeader
+              index={5}
               accent="indigo"
               title="Fixed Income Analysis"
               description="Fixed income holdings and debt allocation quality"
@@ -254,6 +254,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             className="scroll-mt-24 section-spacing pdf-section"
           >
             <DashboardSectionHeader
+              index={6}
               accent="rose"
               title="Key Observations"
               description="Important data highlights organized by category"
@@ -267,6 +268,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             className="scroll-mt-24 section-spacing pdf-section"
           >
             <DashboardSectionHeader
+              index={7}
               accent="cyan"
               title="Proposed Allocation"
               description="Complete holdings breakdown for detailed review"
@@ -283,6 +285,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             className="scroll-mt-24 section-spacing pdf-section"
           >
             <DashboardSectionHeader
+              index={8}
               accent="fuchsia"
               title="Notes & Feedback"
               description="Expert feedback and personalized observations"
@@ -304,10 +307,10 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
                   />
                 </div>
                 <div className="relative z-10">
-                  <div className="bg-muted/50 backdrop-blur-md rounded-none p-4 border border-border">
+                  <div className="rounded-lg border border-slate-200/80 bg-slate-50/50 p-4">
                     <Textarea
                       rows={6}
-                      className="w-full min-h-[120px] bg-background border-input text-foreground placeholder:text-muted-foreground text-sm sm:text-base leading-relaxed resize-none"
+                      className="w-full min-h-[120px] resize-none rounded-lg border-slate-200 bg-white text-sm leading-relaxed text-foreground placeholder:text-muted-foreground sm:text-base"
                       placeholder="Write your professional feedback here... (e.g., 'Consider shifting some debt allocation to large cap for better long-term growth.')"
                     />
                   </div>

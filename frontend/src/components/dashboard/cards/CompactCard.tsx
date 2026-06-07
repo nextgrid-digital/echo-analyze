@@ -15,9 +15,9 @@ export function CompactCard({ children, className, accent }: CompactCardProps) {
   return (
     <div
       className={cn(
-        "rounded-none border border-border/50 bg-card p-4 shadow-sm transition-all duration-200 sm:p-5",
-        accentStyles?.topBorder && "border-t-[3px]",
-        accentStyles?.topBorder,
+        "dashboard-card rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition-shadow duration-200 hover:shadow-md sm:p-5",
+        accentStyles?.leftBorder && "border-l-[3px]",
+        accentStyles?.leftBorder,
         accentStyles?.surface,
         className
       )}
