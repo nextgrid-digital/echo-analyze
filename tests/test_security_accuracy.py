@@ -75,7 +75,6 @@ from app.Code.main import (
     _parse_pdf_upload_in_subprocess,
     _parse_pdf_upload,
     _prepare_benchmark_history,
-    _resolve_benchmark_components,
     _validate_cas_json_shape,
     _validate_upload,
     app,
@@ -86,6 +85,7 @@ from app.Code.main import (
     _safe_analysis_response,
 )
 from app.Code.supabase_auth import _get_supabase_url, _is_admin_user, _is_allowed_supabase_url, _sanitize_username
+from app.Code.benchmarks.resolver import resolve_benchmark
 from app.Code.utils import calculate_xirr, fetch_live_nav, fetch_nav_history, _parse_amfi_nav_history_text_for_code
 
 
@@ -393,8 +393,59 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(response.success)
         holding = response.holdings[0]
-        self.assertEqual(holding.benchmark_name, "Nifty 500 TRI proxy")
+        self.assertEqual(holding.benchmark_name, "Nifty 500 Total Return Index")
         self.assertIsNotNone(holding.benchmark_xirr)
+
+    async def test_summary_cas_warns_and_estimates_performance_from_cost_snapshot(self):
+        cas_data = {
+            "cas_type": "SUMMARY",
+            "folios": [
+                {
+                    "amc": "Test AMC",
+                    "folio": "1/1",
+                    "schemes": [
+                        {
+                            "scheme": "Test Equity Fund",
+                            "amfi": "100001",
+                            "type": "EQUITY",
+                            "close": 1000.0,
+                            "valuation": {"nav": 130.0, "value": 130000.0, "cost": 100000.0},
+                            "transactions": [],
+                        }
+                    ],
+                }
+            ],
+            "statement_period": {"from": "2020-01-01", "to": "2026-01-01"},
+        }
+
+        async def fake_live_nav(_):
+            return 130.0
+
+        async def fake_nav_history(code):
+            if str(code) == "100001":
+                return {"01-01-2020": 100.0, "01-01-2026": 130.0}
+            return {"01-01-2020": 100.0, "01-01-2026": 125.0}
+
+        with patch("app.Code.main.fetch_live_nav", new=fake_live_nav), patch(
+            "app.Code.main.fetch_nav_history", new=fake_nav_history
+        ), patch("app.Code.main.save_cache_async", new=AsyncMock()), patch(
+            "app.Code.main.get_holdings_for_schemes", new=AsyncMock(return_value={})
+        ), patch(
+            "app.Code.main.save_amfi_cache_async", new=AsyncMock()
+        ):
+            response = await map_casparser_to_analysis(cas_data)
+
+        self.assertTrue(response.success)
+        summary = response.summary
+        assert summary is not None
+        self.assertEqual(summary.analysis_version, "2026.06")
+        warning_codes = {warning.code for warning in summary.warnings}
+        self.assertIn("CAS_NO_TRANSACTIONS", warning_codes)
+        self.assertIn("PERFORMANCE_ESTIMATED_SNAPSHOT", warning_codes)
+        holding = response.holdings[0]
+        self.assertEqual(holding.performance_source, "estimated_snapshot")
+        self.assertIsNotNone(holding.xirr)
+        self.assertIsNotNone(holding.date_of_entry)
 
     async def test_performance_uses_distinct_1y_and_3y_windows(self):
         cas_data = {
@@ -545,76 +596,49 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(entry_dt, datetime(2024, 1, 1))
 
-    def test_benchmark_mapping_uses_more_specific_proxies(self):
-        flexi = _resolve_benchmark_components(
-            "Test Flexi Cap Fund - Direct Plan - Growth",
-            "EQUITY",
-            "Flexi Cap",
-            "Equity",
-        )
-        self.assertEqual([c.code for c in flexi], ["152731"])
+    def test_benchmark_mapping_uses_sebi_tier1_proxies(self):
+        flexi = resolve_benchmark(None, "Test Flexi Cap Fund - Direct Plan - Growth", scheme_type="EQUITY")
+        self.assertEqual(flexi.benchmark_name, "Nifty 500 Total Return Index")
+        self.assertEqual([c.code for c in flexi.components], ["152731"])
 
-        nasdaq = _resolve_benchmark_components(
+        nasdaq = resolve_benchmark(
+            None,
             "ICICI Prudential NASDAQ 100 Index Fund - Direct Plan - Growth",
-            "EQUITY",
-            "Index Fund",
-            "Equity",
+            scheme_type="EQUITY",
         )
-        self.assertEqual([c.code for c in nasdaq], ["149219"])
+        self.assertEqual(nasdaq.benchmark_name, "Nasdaq 100 Total Return Index")
+        self.assertEqual([c.code for c in nasdaq.components], ["149219"])
 
-        gold = _resolve_benchmark_components(
-            "HDFC Gold ETF Fund of Fund - Direct Plan",
-            "ETF",
-            "Index Fund",
-            "Equity",
-        )
-        self.assertEqual([c.code for c in gold], ["119132"])
+        gold = resolve_benchmark(None, "HDFC Gold ETF Fund of Fund - Direct Plan", scheme_type="ETF")
+        self.assertEqual(gold.benchmark_name, "Domestic Price of Gold")
+        self.assertEqual([c.code for c in gold.components], ["119132"])
 
-    def test_sectoral_equity_funds_do_not_fall_back_to_broad_proxy(self):
-        sectoral = _resolve_benchmark_components(
+    def test_sectoral_equity_funds_use_sector_tier1_benchmarks(self):
+        sectoral = resolve_benchmark(
+            None,
             "Test Banking and Financial Services Fund",
-            "EQUITY",
-            "Equity - Other",
-            "Equity",
+            scheme_type="EQUITY",
         )
-        self.assertEqual(sectoral, [])
+        self.assertEqual(sectoral.benchmark_name, "Nifty Bank Total Return Index")
+        self.assertEqual([c.code for c in sectoral.components], ["147620"])
 
     def test_technology_and_infrastructure_funds_use_sector_benchmarks(self):
-        technology = _resolve_benchmark_components(
-            "ICICI Prudential Technology Fund - Growth",
-            "EQUITY",
-            "Sectoral - Technology",
-            "Equity",
-        )
-        self.assertEqual([c.code for c in technology], ["148763"])
-        self.assertEqual(technology[0].label, "BSE Teck TRI proxy")
+        technology = resolve_benchmark(None, "ICICI Prudential Technology Fund - Growth", scheme_type="EQUITY")
+        self.assertEqual(technology.benchmark_name, "Nifty IT Total Return Index")
+        self.assertEqual([c.code for c in technology.components], ["153322"])
 
-        infrastructure = _resolve_benchmark_components(
-            "UTI Infrastructure Fund - Regular Plan",
-            "EQUITY",
-            "Thematic - Infrastructure",
-            "Equity",
-        )
-        self.assertEqual([c.code for c in infrastructure], ["140102"])
-        self.assertEqual(infrastructure[0].label, "Nifty Infrastructure TRI proxy")
+        infrastructure = resolve_benchmark(None, "UTI Infrastructure Fund - Regular Plan", scheme_type="EQUITY")
+        self.assertEqual(infrastructure.benchmark_name, "Nifty Infrastructure Total Return Index")
+        self.assertEqual([c.code for c in infrastructure.components], ["153078"])
 
-    def test_business_cycle_equity_funds_use_bse_500_tri_proxy_only(self):
-        business_cycle = _resolve_benchmark_components(
+    def test_business_cycle_equity_funds_use_bse_500_benchmark(self):
+        business_cycle = resolve_benchmark(
+            None,
             "Motilal Oswal Business Cycle Fund - Direct Plan - Growth",
-            "EQUITY",
-            "Equity - Other",
-            "Equity",
+            scheme_type="EQUITY",
         )
-        self.assertEqual([c.code for c in business_cycle], ["151728"])
-        self.assertEqual(business_cycle[0].label, "BSE 500 TRI proxy")
-
-        flexi = _resolve_benchmark_components(
-            "Test Flexi Cap Fund - Direct Plan - Growth",
-            "EQUITY",
-            "Flexi Cap",
-            "Equity",
-        )
-        self.assertEqual([c.code for c in flexi], ["152731"])
+        self.assertEqual(business_cycle.benchmark_name, "S&P BSE 500 Total Return Index")
+        self.assertEqual([c.code for c in business_cycle.components], ["151728"])
 
     async def test_analysis_uses_updated_benchmark_name_for_flexi_cap_funds(self):
         cas_data = {
@@ -624,8 +648,8 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
                     "folio": "1/1",
                     "schemes": [
                         {
-                            "scheme": "Test Flexi Cap Fund",
-                            "amfi": "100001",
+                            "scheme": "Parag Parikh Flexi Cap Fund",
+                            "amfi": "122639",
                             "type": "EQUITY",
                             "close": 100.0,
                             "valuation": {"nav": 120.0, "value": 12000.0, "cost": 10000.0},
@@ -653,7 +677,9 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
             response = await map_casparser_to_analysis(cas_data)
 
         self.assertTrue(response.success)
-        self.assertEqual(response.holdings[0].benchmark_name, "Nifty 500 TRI proxy")
+        self.assertEqual(response.holdings[0].benchmark_name, "Nifty 500 Total Return Index")
+        self.assertEqual(response.holdings[0].sebi_category, "flexi_cap")
+        self.assertEqual(response.holdings[0].benchmark_source, "sebi_tier1")
 
     async def test_analysis_labels_technology_and_infrastructure_benchmarks_without_proxy_history(self):
         cas_data = {
@@ -664,7 +690,7 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
                     "schemes": [
                         {
                             "scheme": "ICICI Prudential Technology Fund - Growth",
-                            "amfi": "100001",
+                            "amfi": "100363",
                             "type": "EQUITY",
                             "close": 100.0,
                             "valuation": {"nav": 120.0, "value": 12000.0, "cost": 10000.0},
@@ -677,8 +703,8 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
                     "folio": "511213501963/0",
                     "schemes": [
                         {
-                            "scheme": "UTI Infrastructure Fund - Regular Plan",
-                            "amfi": "100002",
+                            "scheme": "UTI - Infrastructure Fund",
+                            "amfi": "102395",
                             "type": "EQUITY",
                             "close": 100.0,
                             "valuation": {"nav": 130.0, "value": 13000.0, "cost": 10000.0},
@@ -711,20 +737,14 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         holdings_by_name = {holding.scheme_name: holding for holding in response.holdings}
         self.assertEqual(
             holdings_by_name["ICICI Prudential Technology Fund - Growth"].benchmark_name,
-            "BSE Teck TRI proxy",
+            "Nifty IT Total Return Index",
         )
+        self.assertIn("Sectoral", holdings_by_name["ICICI Prudential Technology Fund - Growth"].sub_category)
         self.assertEqual(
-            holdings_by_name["ICICI Prudential Technology Fund - Growth"].sub_category,
-            "Sectoral - Technology",
+            holdings_by_name["UTI - Infrastructure Fund"].benchmark_name,
+            "Nifty Infrastructure Total Return Index",
         )
-        self.assertEqual(
-            holdings_by_name["UTI Infrastructure Fund - Regular Plan"].benchmark_name,
-            "Nifty Infrastructure TRI proxy",
-        )
-        self.assertEqual(
-            holdings_by_name["UTI Infrastructure Fund - Regular Plan"].sub_category,
-            "Thematic - Infrastructure",
-        )
+        self.assertIn("Sectoral", holdings_by_name["UTI - Infrastructure Fund"].sub_category)
 
     async def test_performance_summary_exposes_comparable_coverage(self):
         cas_data = {
@@ -734,8 +754,8 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
                     "folio": "1/1",
                     "schemes": [
                         {
-                            "scheme": "Test Flexi Cap Fund",
-                            "amfi": "100001",
+                            "scheme": "Parag Parikh Flexi Cap Fund",
+                            "amfi": "122639",
                             "type": "EQUITY",
                             "close": 1000.0,
                             "valuation": {"nav": 100.0, "value": 100000.0, "cost": 90000.0},
@@ -783,7 +803,7 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(response.success)
         summary = response.summary
         assert summary is not None and summary.performance_summary is not None
-        self.assertEqual(summary.performance_summary.one_year.comparable_pct, 50.0)
+        self.assertEqual(summary.performance_summary.one_year.comparable_pct, 100.0)
 
     async def test_analysis_uses_remaining_holding_entry_date_and_parses_statement_cost(self):
         cas_data = {
@@ -793,8 +813,8 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
                     "folio": "1/1",
                     "schemes": [
                         {
-                            "scheme": "Test Flexi Cap Fund",
-                            "amfi": "100001",
+                            "scheme": "Parag Parikh Flexi Cap Fund",
+                            "amfi": "122639",
                             "type": "EQUITY",
                             "close": 50.0,
                             "valuation": {"nav": 140.0, "value": 7000.0, "cost": "7,000.0"},
@@ -1048,6 +1068,24 @@ class TestSecurityAccuracy(unittest.IsolatedAsyncioTestCase):
 
 
 class TestErrorSanitization(unittest.TestCase):
+    def test_load_local_env_fills_empty_placeholder_values_from_file(self):
+        temp_key = "TEST_ENV_LOADER_EMPTY_KEY"
+        original_temp = os.environ.get(temp_key)
+
+        try:
+            os.environ[temp_key] = ""
+            with tempfile.TemporaryDirectory() as tmpdir:
+                env_path = Path(tmpdir) / ".env"
+                env_path.write_text(f"{temp_key}=loaded-value\n", encoding="utf-8")
+                load_local_env(env_path)
+
+            self.assertEqual(os.environ.get(temp_key), "loaded-value")
+        finally:
+            if original_temp is None:
+                os.environ.pop(temp_key, None)
+            else:
+                os.environ[temp_key] = original_temp
+
     def test_load_local_env_sets_missing_values_without_overwriting_existing_ones(self):
         temp_key = "TEST_ENV_LOADER_KEY"
         preserved_key = "TEST_ENV_LOADER_PRESERVE"
@@ -1383,7 +1421,7 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertEqual(body["folios"][0]["amount"], 100.5)
         self.assertEqual(body["folios"][0]["date"], "2024-01-02")
         self.assertEqual(body["folios"][0]["type"], TransactionType.PURCHASE.value)
-        reserve_mock.assert_awaited_once_with("user_test")
+        reserve_mock.assert_awaited_once_with("user_test", is_admin=True)
         refund_mock.assert_not_awaited()
 
     def test_parse_pdf_rejects_malformed_parser_payload_before_export(self):
@@ -1412,7 +1450,7 @@ class TestErrorSanitization(unittest.TestCase):
         body = response.json()
         self.assertIn("invalid cas json format", body.get("error", "").lower())
         self.assertNotIn("request id", body.get("error", "").lower())
-        reserve_mock.assert_awaited_once_with("user_test")
+        reserve_mock.assert_awaited_once_with("user_test", is_admin=True)
         refund_mock.assert_awaited_once_with("user_test")
 
     def test_parse_pdf_requires_report_credit_before_processing(self):
@@ -1775,6 +1813,75 @@ class TestSupabaseAuthorization(unittest.TestCase):
 
 
 class TestBillingSecurity(unittest.TestCase):
+    def test_admin_users_get_unlimited_access_without_rpc(self):
+        from app.Code.billing import (
+            admin_unlimited_access_status,
+            get_access_status,
+            reserve_analysis_credit,
+        )
+
+        async def never_called(*args, **kwargs):
+            raise AssertionError("Supabase RPC should not be called for admin users")
+
+        with patch("app.Code.billing._supabase_rpc", new=never_called):
+            access = asyncio.run(get_access_status("user_admin", is_admin=True))
+            reservation = asyncio.run(
+                reserve_analysis_credit("user_admin", is_admin=True)
+            )
+
+        expected = admin_unlimited_access_status()
+        self.assertTrue(access.can_analyze)
+        self.assertTrue(access.has_unlimited_reports)
+        self.assertEqual(access.subscription_status, "active")
+        self.assertTrue(reservation.allowed)
+        self.assertFalse(reservation.credit_consumed)
+        self.assertEqual(reservation.access.to_dict(), expected.to_dict())
+
+    def test_billing_access_endpoint_returns_unlimited_for_admin_without_rpc(self):
+        client = TestClient(app)
+
+        async def never_called(*args, **kwargs):
+            raise AssertionError("Supabase RPC should not be called for admin users")
+
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.billing._supabase_rpc",
+            new=never_called,
+        ):
+            response = client.get("/api/billing/access")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["has_unlimited_reports"])
+        self.assertTrue(body["can_analyze"])
+        self.assertEqual(body["subscription_status"], "active")
+
+    def test_admin_parse_pdf_skips_credit_consumption_without_rpc(self):
+        client = TestClient(app)
+        parser_payload = {"folios": []}
+
+        async def never_called(*args, **kwargs):
+            raise AssertionError("Supabase RPC should not be called for admin users")
+
+        refund_mock = AsyncMock()
+        with patch("app.Code.main.require_supabase_user", new=_fake_require_supabase_user), patch(
+            "app.Code.billing._supabase_rpc",
+            new=never_called,
+        ), patch(
+            "app.Code.main.refund_analysis_credit",
+            new=refund_mock,
+        ), patch(
+            "app.Code.main._parse_pdf_upload",
+            new=AsyncMock(return_value={"success": True, "data": parser_payload}),
+        ):
+            response = client.post(
+                "/api/parse_pdf",
+                files={"file": ("statement.pdf", b"%PDF-1.7\n", "application/pdf")},
+                data={"password": "", "output_format": "json"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        refund_mock.assert_not_awaited()
+
     def test_billing_access_and_reservation_parsing_fail_closed(self):
         access = _parse_access_status({})
         self.assertFalse(access.can_analyze)

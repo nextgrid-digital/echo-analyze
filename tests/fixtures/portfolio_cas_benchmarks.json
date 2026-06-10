@@ -1,0 +1,18 @@
+{
+  "folios": [
+    {
+      "amc": "Portfolio Benchmark Coverage Fixture",
+      "folio": "BMK-001",
+      "schemes": [
+        {"scheme": "Aditya Birla Sun Life Large & Mid Cap Fund", "amfi": "100033", "type": "EQUITY", "close": 100.0, "valuation": {"nav": 500.0, "value": 50000.0, "date": "2024-01-01"}, "transactions": [{"date": "2023-01-01", "amount": 45000.0, "type": "PURCHASE"}]},
+        {"scheme": "ICICI Prudential Technology Fund", "amfi": "100363", "type": "EQUITY", "close": 80.0, "valuation": {"nav": 150.0, "value": 12000.0, "date": "2024-01-01"}, "transactions": [{"date": "2023-01-01", "amount": 10000.0, "type": "PURCHASE"}]},
+        {"scheme": "HDFC Liquid Fund", "amfi": "100041", "type": "DEBT", "close": 200.0, "valuation": {"nav": 3500.0, "value": 700000.0, "date": "2024-01-01"}, "transactions": [{"date": "2023-01-01", "amount": 680000.0, "type": "PURCHASE"}]},
+        {"scheme": "Kotak Aggressive Hybrid Fund", "amfi": "100081", "type": "HYBRID", "close": 120.0, "valuation": {"nav": 250.0, "value": 30000.0, "date": "2024-01-01"}, "transactions": [{"date": "2023-01-01", "amount": 28000.0, "type": "PURCHASE"}]},
+        {"scheme": "UTI Nifty 50 Index Fund", "amfi": "100484", "type": "EQUITY", "close": 50.0, "valuation": {"nav": 150.0, "value": 7500.0, "date": "2024-01-01"}, "transactions": [{"date": "2023-01-01", "amount": 7000.0, "type": "PURCHASE"}]},
+        {"scheme": "Axis Nifty India Defence Index Fund", "amfi": "154326", "type": "EQUITY", "close": 40.0, "valuation": {"nav": 20.0, "value": 800.0, "date": "2024-01-01"}, "transactions": [{"date": "2023-01-01", "amount": 700.0, "type": "PURCHASE"}]},
+        {"scheme": "HDFC Children's Gift Fund", "amfi": "100678", "type": "EQUITY", "close": 30.0, "valuation": {"nav": 200.0, "value": 6000.0, "date": "2024-01-01"}, "transactions": [{"date": "2023-01-01", "amount": 5500.0, "type": "PURCHASE"}]}
+      ]
+    }
+  ],
+  "statement_period": {"from": "01-Jan-2023", "to": "01-Jan-2024"}
+}

@@ -1,3 +1,4 @@
+import { CURRENT_ANALYSIS_VERSION } from "@/lib/analysisVersion"
 import type { AnalysisSummary, Holding } from "@/types/api"
 
 export function createEmptySummary(): AnalysisSummary {
@@ -59,6 +60,9 @@ export function createEmptySummary(): AnalysisSummary {
       benchmark_date_match_pct: 100,
       overlap_source: "none",
       overlap_available_funds: 0,
+      benchmark_coverage_pct: 100,
+      benchmark_unresolved_holdings: 0,
+      benchmark_fallback_holdings: 0,
     },
     fixed_income: {
       invested_value: 0,
@@ -74,6 +78,7 @@ export function createEmptySummary(): AnalysisSummary {
       one_year: { comparable_pct: 0, underperforming_pct: 0, upto_3_pct: 0, more_than_3_pct: 0 },
       three_year: { comparable_pct: 0, underperforming_pct: 0, upto_3_pct: 0, more_than_3_pct: 0 },
     },
+    analysis_version: CURRENT_ANALYSIS_VERSION,
     guidelines: null,
     overlap: {
       fund_codes: [],

@@ -37,6 +37,7 @@ function Probe() {
       <span>{auth.loading ? "loading" : "ready"}</span>
       <span>{auth.username}</span>
       <span>{auth.isAdmin ? "admin" : "not-admin"}</span>
+      <span>{auth.billingAccessError ?? "no-billing-error"}</span>
     </div>
   )
 }
@@ -181,6 +182,22 @@ describe("AuthProvider", () => {
 
     expect(screen.getByText("ready")).toBeInTheDocument()
     expect(screen.getByText("allowlisted-admin")).toBeInTheDocument()
+  })
+
+  it("records billing access errors when quota loading fails", async () => {
+    vi.mocked(getBillingAccess).mockRejectedValue(
+      new Error("Unable to load billing access. HTTP 503.")
+    )
+
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/unable to load billing access/i)).toBeInTheDocument()
+    })
   })
 
   it("starts Supabase Google OAuth with the configured redirect options", async () => {

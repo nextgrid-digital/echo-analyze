@@ -1,5 +1,7 @@
 import { memo, useMemo } from "react"
 import { SectionInfoTooltip } from "@/components/SectionInfoTooltip"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import type { AnalysisWarning } from "@/types/api"
 
@@ -21,10 +23,10 @@ const SECTION_LABELS: Array<{ key: string; label: string }> = [
   { key: "classification", label: "Classification" },
 ]
 
-const severityClasses: Record<string, string> = {
-  error: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200",
-  warn: "border-slate-200 bg-slate-50 text-slate-800 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-200",
-  info: "border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300",
+const severityVariant: Record<string, "default" | "destructive"> = {
+  error: "destructive",
+  warn: "default",
+  info: "default",
 }
 
 const fallbackSectionLabel = (section: string): string =>
@@ -72,17 +74,17 @@ function WarningRailInner({ warnings, className }: WarningRailProps) {
   if (!warnings.length) return null
 
   return (
-    <div className={cn("border border-border bg-muted/30 p-4", className)}>
-      <h3 className="text-sm font-semibold text-foreground mb-3">
-        Data Quality & Methodology Notices
-      </h3>
-      <div className="space-y-3">
+    <Card className={cn("gap-4 py-4", className)}>
+      <CardHeader className="px-4 pb-0">
+        <CardTitle className="text-sm">Data Quality & Methodology Notices</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 px-4">
         {orderedSections.map(({ key, label }) => {
           const items = grouped.get(key)
           if (!items?.length) return null
           return (
             <div key={key}>
-              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">
+              <p className="mb-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 {label}
               </p>
               <div className="space-y-1">
@@ -91,20 +93,21 @@ function WarningRailInner({ warnings, className }: WarningRailProps) {
                   const visibleSchemes = affectedSchemes.slice(0, 12)
                   const extraSchemeCount = Math.max(0, affectedSchemes.length - visibleSchemes.length)
                   return (
-                    <div
+                    <Alert
                       key={`${item.code}-${index}`}
-                      className={`border px-2 py-1 text-xs ${
-                        severityClasses[item.severity] ?? severityClasses.info
-                      }`}
+                      variant={severityVariant[item.severity] ?? "default"}
+                      className="px-3 py-2"
                     >
                       <div className="flex items-start gap-2">
-                        <p className="flex-1 leading-relaxed">{item.message}</p>
+                        <AlertDescription className="flex-1 text-xs leading-relaxed">
+                          {item.message}
+                        </AlertDescription>
                         {affectedSchemes.length > 0 && (
                           <SectionInfoTooltip
                             title={`Affected funds (${affectedSchemes.length})`}
                             side="left"
                             content={
-                              <div className="max-h-56 overflow-y-auto space-y-1">
+                              <div className="max-h-56 space-y-1 overflow-y-auto">
                                 {visibleSchemes.map((schemeName) => (
                                   <p key={schemeName} className="text-[11px] leading-tight break-words">
                                     {schemeName}
@@ -120,15 +123,15 @@ function WarningRailInner({ warnings, className }: WarningRailProps) {
                           />
                         )}
                       </div>
-                    </div>
+                    </Alert>
                   )
                 })}
               </div>
             </div>
           )
         })}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   )
 }
 

@@ -1,0 +1,170 @@
+{
+  "version": "1.0.0",
+  "source": "AMFI list of benchmark indices (sectoral/thematic Tier 1)",
+  "sectors": [
+    {
+      "sector_label": "Banking",
+      "tier1_index_name": "Nifty Bank Total Return Index",
+      "index_key": "nifty_bank_tri",
+      "priority": 100,
+      "match_patterns": ["BANKING AND FINANCIAL", "BANKING", "BANK FUND", "PSU BANK", "PRIVATE BANK"]
+    },
+    {
+      "sector_label": "PSU Bank",
+      "tier1_index_name": "Nifty PSU Bank Total Return Index",
+      "index_key": "nifty_psu_bank_tri",
+      "match_patterns": ["PSU BANK", "PUBLIC SECTOR BANK"]
+    },
+    {
+      "sector_label": "Private Bank",
+      "tier1_index_name": "Nifty Private Bank Total Return Index",
+      "index_key": "nifty_private_bank_tri",
+      "match_patterns": ["PRIVATE BANK"]
+    },
+    {
+      "sector_label": "Financial Services",
+      "tier1_index_name": "Nifty Financial Services Total Return Index",
+      "index_key": "nifty_financial_services_tri",
+      "priority": 50,
+      "match_patterns": ["FINANCIAL SERVICES EX", "FINANCIAL SERVICES INDEX", "FINANCIAL SERVICE SECTOR"]
+    },
+    {
+      "sector_label": "IT",
+      "tier1_index_name": "Nifty IT Total Return Index",
+      "index_key": "nifty_it_tri",
+      "match_patterns": ["TECHNOLOGY", " INFORMATION TECH", " IT ", "TECK", "DIGITAL INDIA", "DIGITAL FUND"]
+    },
+    {
+      "sector_label": "Pharma",
+      "tier1_index_name": "Nifty Pharma Total Return Index",
+      "index_key": "nifty_pharma_tri",
+      "match_patterns": ["PHARMA", "PHARMACEUTICAL"]
+    },
+    {
+      "sector_label": "Healthcare",
+      "tier1_index_name": "Nifty Healthcare Total Return Index",
+      "index_key": "nifty_healthcare_tri",
+      "match_patterns": ["HEALTHCARE", "HEALTH CARE", "HEALTH"]
+    },
+    {
+      "sector_label": "Infrastructure",
+      "tier1_index_name": "Nifty Infrastructure Total Return Index",
+      "index_key": "nifty_infra_tri",
+      "match_patterns": ["INFRASTRUCTURE", "INFRA "]
+    },
+    {
+      "sector_label": "Consumption",
+      "tier1_index_name": "Nifty India Consumption Total Return Index",
+      "index_key": "nifty_consumption_tri",
+      "match_patterns": ["CONSUMPTION", "CONSUMER"]
+    },
+    {
+      "sector_label": "MNC",
+      "tier1_index_name": "Nifty MNC Total Return Index",
+      "index_key": "nifty_mnc_tri",
+      "match_patterns": ["MNC", "MULTINATIONAL"]
+    },
+    {
+      "sector_label": "Manufacturing",
+      "tier1_index_name": "Nifty India Manufacturing Total Return Index",
+      "index_key": "nifty_india_manufacturing_tri",
+      "match_patterns": ["MANUFACTURING", "INDUSTRIAL", "MAKE IN INDIA"]
+    },
+    {
+      "sector_label": "Auto",
+      "tier1_index_name": "Nifty Auto Total Return Index",
+      "index_key": "nifty_auto_tri",
+      "match_patterns": ["AUTO", "AUTOMOBILE", "AUTOMOTIVE"]
+    },
+    {
+      "sector_label": "FMCG",
+      "tier1_index_name": "Nifty FMCG Total Return Index",
+      "index_key": "nifty_fmcg_tri",
+      "match_patterns": ["FMCG", "CONSUMER GOODS", "FAST MOVING"]
+    },
+    {
+      "sector_label": "Metal",
+      "tier1_index_name": "Nifty Metal Total Return Index",
+      "index_key": "nifty_metal_tri",
+      "match_patterns": ["METAL", "MINING"]
+    },
+    {
+      "sector_label": "Commodities",
+      "tier1_index_name": "Nifty Commodities Total Return Index",
+      "index_key": "nifty_commodities_tri",
+      "match_patterns": ["COMMODIT"]
+    },
+    {
+      "sector_label": "Realty",
+      "tier1_index_name": "Nifty Realty Total Return Index",
+      "index_key": "nifty_realty_tri",
+      "match_patterns": ["REALTY", "REAL ESTATE"]
+    },
+    {
+      "sector_label": "Energy",
+      "tier1_index_name": "Nifty Energy Total Return Index",
+      "index_key": "nifty_energy_tri",
+      "match_patterns": ["ENERGY"]
+    },
+    {
+      "sector_label": "Oil & Gas",
+      "tier1_index_name": "Nifty Oil & Gas Total Return Index",
+      "index_key": "nifty_oil_gas_tri",
+      "match_patterns": ["OIL", "GAS", "OIL & GAS"]
+    },
+    {
+      "sector_label": "Media",
+      "tier1_index_name": "Nifty Media Total Return Index",
+      "index_key": "nifty_media_tri",
+      "match_patterns": ["MEDIA", "ENTERTAINMENT"]
+    },
+    {
+      "sector_label": "Defence",
+      "tier1_index_name": "Nifty India Defence Total Return Index",
+      "index_key": "nifty_defence_tri",
+      "match_patterns": ["DEFENCE", "DEFENSE"]
+    },
+    {
+      "sector_label": "Chemicals",
+      "tier1_index_name": "Nifty Chemicals Total Return Index",
+      "index_key": "nifty_chemicals_tri",
+      "match_patterns": ["CHEMICAL"]
+    },
+    {
+      "sector_label": "ESG",
+      "tier1_index_name": "Nifty 100 ESG Total Return Index",
+      "index_key": "nifty_esg_tri",
+      "match_patterns": ["ESG", "SUSTAINAB", "RESPONSIBLE"]
+    },
+    {
+      "sector_label": "Housing",
+      "tier1_index_name": "Nifty Housing Total Return Index",
+      "index_key": "nifty_housing_tri",
+      "match_patterns": ["HOUSING"]
+    },
+    {
+      "sector_label": "Capital Markets",
+      "tier1_index_name": "Nifty Capital Markets Total Return Index",
+      "index_key": "nifty_capital_markets_tri",
+      "match_patterns": ["CAPITAL MARKET"]
+    },
+    {
+      "sector_label": "Transportation",
+      "tier1_index_name": "Nifty Transportation & Logistics Total Return Index",
+      "index_key": "nifty_transportation_tri",
+      "match_patterns": ["TRANSPORT", "LOGISTIC"]
+    },
+    {
+      "sector_label": "Business Cycle",
+      "tier1_index_name": "S&P BSE 500 Total Return Index",
+      "index_key": "bse_500_tri",
+      "match_patterns": ["BUSINESS CYCLE"]
+    },
+    {
+      "sector_label": "PSU",
+      "tier1_index_name": "Nifty PSU Bank Total Return Index",
+      "index_key": "nifty_psu_bank_tri",
+      "match_patterns": ["PSU", "PUBLIC SECTOR"]
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { renderWithProviders as render, screen } from "@/test/render"
 import { vi } from "vitest"
 import { EquityDeepDive } from "../EquityDeepDive"
 import { createEmptySummary } from "@/lib/emptyData"

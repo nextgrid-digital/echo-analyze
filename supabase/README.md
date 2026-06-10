@@ -57,7 +57,15 @@ After the user exists in Supabase Auth, run the helper in:
 supabase/admin/set_admin_claim.sql
 ```
 
-Replace `admin@example.com` with the admin user's email before running it. The backend also supports env allowlists:
+Replace `admin@example.com` with the admin user's email before running it.
+
+For unlimited dev access (admin claim + `subscription_status = active`), use:
+
+```text
+supabase/admin/grant_unlimited_dev_access.sql
+```
+
+The backend also supports env allowlists:
 
 - `SUPABASE_ADMIN_USER_IDS`
 - `SUPABASE_ADMIN_EMAILS`
@@ -69,8 +77,9 @@ Backend:
 ```text
 SUPABASE_URL=
 SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_SERVICE_ROLE_KEY=   # required for /api/billing/access and CAS quota
 SUPABASE_ADMIN_ROLE=admin
+SUPABASE_ADMIN_EMAILS=       # optional; e.g. abin@nextgrid.digital for dev unlimited access
 RAZORPAY_KEY_ID=
 RAZORPAY_KEY_SECRET=
 RAZORPAY_PLAN_ID=
@@ -124,3 +133,14 @@ https://YOUR_DOMAIN/api/billing/razorpay-webhook
 ```
 
 Use the same webhook secret in Razorpay and `RAZORPAY_WEBHOOK_SECRET`.
+
+## Upload Stuck On "Checking report access"
+
+If the dashboard upload panel never leaves **Checking report access**:
+
+1. Confirm the backend is running and `SUPABASE_SERVICE_ROLE_KEY` is set in `.env`.
+2. In browser DevTools, check `GET /api/billing/access`:
+   - **503** → missing/invalid service role key or billing RPC not migrated
+   - **401** → sign in again
+3. Set `SUPABASE_ADMIN_EMAILS=your@email` in backend `.env` for admin unlimited access without Razorpay.
+4. Run `supabase/admin/grant_unlimited_dev_access.sql` in the Supabase SQL editor for unlimited profile state.

@@ -10,3 +10,19 @@ if (!globalThis.ResizeObserver) {
   ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver =
     ResizeObserverMock
 }
+
+if (!window.matchMedia) {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  })
+}

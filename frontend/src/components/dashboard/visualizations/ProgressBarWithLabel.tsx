@@ -1,3 +1,4 @@
+import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 
 interface ProgressBarWithLabelProps {
@@ -16,7 +17,7 @@ export function ProgressBarWithLabel({
   max = 100,
   label,
   valueLabel,
-  color = "#10b981",
+  color,
   height = "md",
   showValue = true,
   className,
@@ -31,24 +32,26 @@ export function ProgressBarWithLabel({
   }[height]
 
   return (
-    <div className={cn("w-full", className)}>
-      <div className="flex items-center justify-between mb-1.5">
+    <div className={cn("w-full space-y-2", className)}>
+      <div className="flex w-full items-center justify-between gap-2">
         <span className="text-sm text-muted-foreground">{label}</span>
         {showValue && (
-          <span className="text-sm font-semibold text-foreground">
+          <span className="ml-auto text-sm font-semibold tabular-nums text-foreground">
             {valueLabel ?? `${safeValue.toFixed(1)}%`}
           </span>
         )}
       </div>
-      <div className={cn("w-full bg-muted rounded-full overflow-hidden", heightClass)}>
-        <div
-          className="h-full transition-all duration-500 rounded-full"
-          style={{
-            width: `${percentage}%`,
-            backgroundColor: color,
-          }}
-        />
-      </div>
+      <Progress
+        value={percentage}
+        className={heightClass}
+        style={
+          color
+            ? ({
+                ["--primary" as string]: color,
+              } as React.CSSProperties)
+            : undefined
+        }
+      />
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
 interface CompactCardProps {
@@ -16,17 +17,14 @@ export function CompactCard({
   const isHero = variant === "hero"
 
   return (
-    <div
+    <Card
       className={cn(
-        "dashboard-kpi-card group relative overflow-hidden rounded-2xl border backdrop-blur-sm transition-all duration-300",
-        isHero
-          ? "border-slate-700 bg-slate-900 p-6 shadow-lg sm:p-8"
-          : "border-slate-200/80 bg-white p-4 shadow-sm hover:shadow-md dark:border-slate-700 dark:bg-slate-900/90 sm:p-5",
+        "dashboard-kpi-card relative gap-4 overflow-hidden border-t-2 border-t-primary p-5 sm:p-6",
+        isHero && "border-foreground/20 bg-foreground text-background",
         className
       )}
     >
-      <div className={cn("absolute inset-x-0 top-0 h-0.5", isHero ? "bg-teal-500" : "bg-teal-600/80")} />
-      <div className="relative">{children}</div>
-    </div>
+      {children}
+    </Card>
   )
 }

@@ -347,7 +347,7 @@ export function AdminPage() {
                 </CardDescription>
               </div>
               <select
-                className="h-9 rounded-none border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
                 value={logWindow}
                 onChange={(event) => setLogWindow(event.target.value as AdminLogWindow)}
                 aria-label="Activity log window"

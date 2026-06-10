@@ -35,6 +35,8 @@ describe("UploadPage", () => {
         razorpay_subscription_id: null,
         current_period_end: null,
       },
+      billingAccessLoading: false,
+      billingAccessError: null,
       refreshBillingAccess: vi.fn(),
       signIn: vi.fn(),
       signInWithGoogle: vi.fn(),
@@ -61,6 +63,8 @@ describe("UploadPage", () => {
         razorpay_subscription_id: null,
         current_period_end: null,
       },
+      billingAccessLoading: false,
+      billingAccessError: null,
       refreshBillingAccess: vi.fn(),
       signIn: vi.fn(),
       signInWithGoogle: vi.fn(),
@@ -82,6 +86,38 @@ describe("UploadPage", () => {
     })
   })
 
+  it("redirects unauthenticated users to sign-in with upload redirect", async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      configured: true,
+      loading: false,
+      session: null,
+      user: null,
+      username: "Unknown user",
+      isAdmin: false,
+      billingAccess: null,
+      billingAccessLoading: false,
+      billingAccessError: null,
+      refreshBillingAccess: vi.fn(),
+      signIn: vi.fn(),
+      signInWithGoogle: vi.fn(),
+      signUp: vi.fn(),
+      signOut: vi.fn(),
+    })
+
+    render(
+      <MemoryRouter initialEntries={["/upload"]}>
+        <Routes>
+          <Route path="/upload" element={<UploadPage />} />
+          <Route path="/sign-in" element={<div>Sign in page</div>} />
+        </Routes>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText("Sign in page")).toBeInTheDocument()
+    })
+  })
+
   it("allows PDF analysis attempts without forcing a password first", async () => {
     vi.mocked(analyzePortfolio).mockResolvedValue({
       success: false,
@@ -99,7 +135,7 @@ describe("UploadPage", () => {
     const pdfFile = new File(["%PDF-1.4"], "statement.pdf", { type: "application/pdf" })
 
     fireEvent.change(fileInput, { target: { files: [pdfFile] } })
-    fireEvent.click(screen.getByRole("button", { name: /analyze portfolio/i }))
+    fireEvent.click(screen.getByRole("button", { name: /analyze cas/i }))
 
     await waitFor(() => {
       expect(analyzePortfolio).toHaveBeenCalledWith(pdfFile, "")

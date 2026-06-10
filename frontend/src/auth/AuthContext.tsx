@@ -68,6 +68,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [serverAuth, setServerAuth] = useState<ServerAuthContext | null>(null)
   const [billingAccess, setBillingAccess] = useState<AuthContextValue["billingAccess"]>(null)
+  const [billingAccessLoading, setBillingAccessLoading] = useState(false)
+  const [billingAccessError, setBillingAccessError] = useState<string | null>(null)
   const supabase = configured ? getSupabaseClient() : null
 
   useEffect(() => {
@@ -138,15 +140,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshBillingAccess = useCallback(async () => {
     if (!accessToken || !user?.id) {
       setBillingAccess(null)
+      setBillingAccessLoading(false)
+      setBillingAccessError(null)
       return null
     }
+    setBillingAccessLoading(true)
+    setBillingAccessError(null)
     try {
       const access = await getBillingAccess()
       setBillingAccess(access)
+      setBillingAccessError(null)
       return access
-    } catch {
+    } catch (error) {
       setBillingAccess(null)
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Could not load report quota. Check backend Supabase service role config."
+      setBillingAccessError(message)
       return null
+    } finally {
+      setBillingAccessLoading(false)
     }
   }, [accessToken, user?.id])
 
@@ -154,6 +168,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!accessToken || !user?.id) {
       setServerAuth(null)
       setBillingAccess(null)
+      setBillingAccessLoading(false)
+      setBillingAccessError(null)
       return
     }
 
@@ -226,6 +242,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       username: serverAuthForUser?.username ?? localUsername,
       isAdmin: serverAuthForUser?.isAdmin ?? localIsAdmin,
       billingAccess,
+      billingAccessLoading,
+      billingAccessError,
       refreshBillingAccess,
       async signIn(email: string, password: string) {
         if (!supabase) {
@@ -304,6 +322,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localIsAdmin,
     localUsername,
     billingAccess,
+    billingAccessLoading,
+    billingAccessError,
     refreshBillingAccess,
     serverAuthForUser,
     serverAuthLoaded,

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, renderWithProviders as render, screen } from "@/test/render"
 import { WarningRail } from "../WarningRail"
 import type { AnalysisWarning } from "@/types/api"
 
@@ -69,7 +69,7 @@ describe("WarningRail", () => {
   })
 
   it("does not render when there are no warnings", () => {
-    const { container } = render(<WarningRail warnings={[]} />)
-    expect(container).toBeEmptyDOMElement()
+    render(<WarningRail warnings={[]} />)
+    expect(screen.queryByRole("list")).not.toBeInTheDocument()
   })
 })

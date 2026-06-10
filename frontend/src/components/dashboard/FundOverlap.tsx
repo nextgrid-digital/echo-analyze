@@ -185,7 +185,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
   }
 
   return (
-    <div className="mb-6 sm:mb-8 bg-card border border-border p-4 sm:p-6 shadow-sm" ref={matrixRef}>
+    <div className="mb-6 sm:mb-8 bg-card border border-border p-5 sm:p-6" ref={matrixRef}>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <h2 className="text-xl sm:text-2xl font-bold text-foreground">
           Fund Overlap Analysis
@@ -207,7 +207,7 @@ export const FundOverlap = memo(function FundOverlap({ overlap }: FundOverlapPro
               onClick={handleDownloadImage}
               variant="outline"
               size="sm"
-              className="flex h-9 items-center gap-2 border-0 bg-teal-600 px-3 text-xs font-semibold text-white shadow-sm hover:bg-teal-500"
+              className="flex h-9 items-center gap-2 border-0 bg-primary px-3 text-xs font-semibold text-white shadow-sm hover:bg-primary/90"
               title="Download Image"
             >
               <Download className="w-4 h-4" />

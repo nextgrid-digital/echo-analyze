@@ -9,7 +9,10 @@ export interface BenchmarkCoverageMeta {
 }
 
 export const BENCHMARK_RECONSTRUCTED_NOTICE =
-  "Reconstructed comparison path using each holding's entry date, invested value, and current value. This is an illustrative benchmark comparison, not a transaction-level valuation history."
+  "Benchmarks follow SEBI/AMFI Tier 1 category indices (or the underlying index for index funds/ETFs). Returns are simulated via index-fund NAV proxies where TRI index history is unavailable."
+
+export const BENCHMARK_FALLBACK_NOTICE =
+  "Some holdings used name-based category fallback because the AMFI scheme master did not include their AMFI code."
 
 export function classifyAllocationCategory(rawCategory: string): AllocationGroupKey {
   const category = (rawCategory ?? "").toUpperCase()
@@ -114,7 +117,7 @@ export function formatBenchmarkCoverageNotice(seriesMeta: BenchmarkCoverageMeta)
 }
 
 export function getDashboardMethodologyWarnings(
-  summary: Pick<AnalysisSummary, "guidelines" | "total_market_value">,
+  summary: Pick<AnalysisSummary, "guidelines" | "total_market_value" | "data_coverage">,
   holdings: Holding[],
 ): AnalysisWarning[] {
   const warnings: AnalysisWarning[] = []
@@ -125,6 +128,42 @@ export function getDashboardMethodologyWarnings(
       section: "benchmark",
       severity: "info",
       message: BENCHMARK_RECONSTRUCTED_NOTICE,
+    })
+  }
+
+  const fallbackHoldings = holdings.filter((holding) => holding.benchmark_source === "fallback")
+  if (fallbackHoldings.length > 0) {
+    warnings.push({
+      code: "BENCHMARK_CATEGORY_FALLBACK_UI",
+      section: "benchmark",
+      severity: "info",
+      message: `${BENCHMARK_FALLBACK_NOTICE} (${fallbackHoldings.length} holding(s)).`,
+    })
+  }
+
+  const unresolvedHoldings = holdings.filter((holding) => holding.benchmark_source === "unresolved")
+  if (unresolvedHoldings.length > 0) {
+    warnings.push({
+      code: "BENCHMARK_UNRESOLVED_UI",
+      section: "benchmark",
+      severity: "warn",
+      message: `${unresolvedHoldings.length} holding(s) could not be mapped to a SEBI Tier 1 benchmark.`,
+    })
+  }
+
+  const coveragePct = summary.data_coverage?.benchmark_coverage_pct
+  if (
+    typeof coveragePct === "number" &&
+    coveragePct < 100 &&
+    (summary.data_coverage?.benchmark_unresolved_holdings || 0) +
+      (summary.data_coverage?.benchmark_fallback_holdings || 0) >
+      0
+  ) {
+    warnings.push({
+      code: "BENCHMARK_COVERAGE_INCOMPLETE_UI",
+      section: "benchmark",
+      severity: (summary.data_coverage?.benchmark_unresolved_holdings || 0) > 0 ? "error" : "warn",
+      message: `SEBI Tier 1 benchmark coverage is ${coveragePct.toFixed(1)}% of portfolio value.`,
     })
   }
 

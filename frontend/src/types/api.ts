@@ -19,6 +19,9 @@ export interface Holding {
   missed_gains?: number | null
   date_of_entry?: string | null
   style_category?: string | null
+  sebi_category?: string | null
+  benchmark_source?: "sebi_tier1" | "underlying_index" | "fallback" | "unresolved" | null
+  performance_source?: "transactions" | "estimated_snapshot" | null
 }
 
 export interface TopItem {
@@ -169,6 +172,9 @@ export interface DataCoverage {
   benchmark_date_match_pct: number
   overlap_source: "real" | "none"
   overlap_available_funds: number
+  benchmark_coverage_pct?: number
+  benchmark_unresolved_holdings?: number
+  benchmark_fallback_holdings?: number
 }
 
 export interface AnalysisSummary {
@@ -206,6 +212,7 @@ export interface AnalysisSummary {
   tax: TaxSummary
   warnings: AnalysisWarning[]
   data_coverage: DataCoverage
+  analysis_version?: string
 }
 
 export interface AnalysisResponse {

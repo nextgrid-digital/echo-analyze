@@ -732,3 +732,10 @@ def calculate_xirr(dates, amounts) -> Optional[float]:
     if not math.isfinite(result_pct):
         return None
     return result_pct
+
+
+def fetch_tri_index_history(index_key: str, required_dates: Optional[Iterable[Any]] = None) -> dict:
+    """Prefer committed TRI index levels over AMFI index-fund NAV proxies when available."""
+    from app.Code.benchmarks.tri_history import fetch_tri_index_history as _fetch_tri
+
+    return _fetch_tri(index_key, required_dates)

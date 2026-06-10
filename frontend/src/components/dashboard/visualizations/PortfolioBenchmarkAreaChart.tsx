@@ -42,20 +42,20 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
   const difference = data?.difference || 0
 
   return (
-    <div className="rounded-xl border border-slate-200/80 bg-white/95 p-3 shadow-xl backdrop-blur-sm">
+    <div className="rounded-xl border border-border/80 bg-white/95 p-3 shadow-xl backdrop-blur-sm">
       <p className="text-xs font-semibold text-foreground mb-1.5">
         {data?.date || ""}
       </p>
       <div className="space-y-0.5">
         <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-none" style={{ backgroundColor: CHART_COLORS[0] }} />
+          <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: CHART_COLORS[0] }} />
           <span className="text-[10px] text-muted-foreground">Portfolio:</span>
           <span className="text-[10px] font-semibold text-foreground">
             {toLakhs(portfolioValue)} ({portfolioPct >= 0 ? "+" : ""}{portfolioPct.toFixed(2)}%)
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-none" style={{ backgroundColor: CHART_COLORS[1] }} />
+          <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: CHART_COLORS[1] }} />
           <span className="text-[10px] text-muted-foreground">Benchmark:</span>
           <span className="text-[10px] font-semibold text-foreground">
             {toLakhs(benchmarkValue)} ({benchmarkPct >= 0 ? "+" : ""}{benchmarkPct.toFixed(2)}%)

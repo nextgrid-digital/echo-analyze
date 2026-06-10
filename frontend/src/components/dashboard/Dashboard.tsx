@@ -106,7 +106,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
                       }
                     />
                   </div>
-                  <h3 className="mb-6 text-base font-semibold tracking-tight text-slate-900 dark:text-slate-50 sm:text-lg">
+                  <h3 className="mb-6 text-base font-semibold tracking-tight text-foreground sm:text-lg">
                     Portfolio Performance vs Benchmark
                   </h3>
                   <PortfolioBenchmarkChart summary={summary} holdings={holdings} />
@@ -304,6 +304,7 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
             <HoldingsTable
               holdings={holdings}
               totalMarketValue={summary.total_market_value}
+              variant="embedded"
             />
           </section>
 
@@ -338,10 +339,10 @@ export function Dashboard({ summary, holdings }: DashboardProps) {
                   />
                 </div>
                 <div className="relative z-10">
-                  <div className="rounded-lg border border-slate-200/80 bg-slate-50/50 p-4">
+                  <div className="rounded-lg border border-border/80 bg-muted/30 p-4">
                     <Textarea
                       rows={6}
-                      className="w-full min-h-[120px] resize-none rounded-lg border-slate-200 bg-white text-sm leading-relaxed text-foreground placeholder:text-muted-foreground sm:text-base"
+                      className="w-full min-h-[120px] resize-none rounded-lg border-border bg-card text-sm leading-relaxed text-foreground placeholder:text-muted-foreground sm:text-base"
                       placeholder="Write your professional feedback here... (e.g., 'Consider shifting some debt allocation to large cap for better long-term growth.')"
                     />
                   </div>

@@ -63,7 +63,7 @@ function AssetAllocationBreakdownChartInner({
                   <CollapsibleTrigger asChild>
                     <button
                       type="button"
-                      className="inline-flex items-center gap-1 rounded-none border border-border/60 bg-background px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                      className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
                       aria-label={
                         isOthersOpen
                           ? "Collapse others details"
@@ -90,7 +90,7 @@ function AssetAllocationBreakdownChartInner({
                 showValue={false}
               />
               <CollapsibleContent className="overflow-hidden transition-all duration-300 ease-out data-[state=closed]:max-h-0 data-[state=open]:max-h-[560px] data-[state=closed]:opacity-0 data-[state=open]:opacity-100">
-                <div className="mt-3 rounded-none border border-border/60 bg-muted/20 p-3 sm:p-4">
+                <div className="mt-3 rounded-lg border border-border/60 bg-muted/20 p-3 sm:p-4">
                   <div className="space-y-3">
                     {othersBreakdown.length > 0 && (
                       <div className="space-y-1.5">

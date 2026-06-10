@@ -52,7 +52,7 @@ export function SectionInfoTooltip({
           <p className="font-semibold text-foreground mb-1.5 text-xs">{title}</p>
         )}
         {formula && (
-          <div className="font-mono text-foreground mb-2 text-[10px] bg-muted/50 p-2 rounded-none border border-border/50">
+          <div className="mb-2 rounded-md border border-border/50 bg-muted/50 p-2 font-mono text-[10px] text-foreground">
             {formula}
           </div>
         )}

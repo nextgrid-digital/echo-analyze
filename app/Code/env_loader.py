@@ -10,12 +10,17 @@ def _is_public_frontend_env_key(key: str) -> bool:
     )
 
 
+def _env_value_is_empty(key: str) -> bool:
+    value = os.environ.get(key)
+    return value is None or not str(value).strip()
+
+
 def _should_set_env(key: str, *, override: bool, override_public_frontend: bool) -> bool:
     if override_public_frontend and not _is_public_frontend_env_key(key):
         return False
     if override:
         return True
-    if key not in os.environ:
+    if _env_value_is_empty(key):
         return True
     if override_public_frontend and _is_public_frontend_env_key(key):
         return True

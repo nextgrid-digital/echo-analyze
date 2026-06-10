@@ -28,7 +28,7 @@ function formatLakhsParts(value: number) {
 
 function MetricIcon({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-600 text-white shadow-sm">
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
       {children}
     </div>
   )
@@ -48,14 +48,14 @@ function LakhsValue({
   return (
     <p
       className={cn(
-        "font-mono font-semibold tracking-tight text-slate-900 dark:text-slate-50",
+        "font-mono font-semibold tracking-tight text-foreground",
         size === "large" ? "text-3xl sm:text-4xl" : "text-2xl sm:text-3xl",
         className
       )}
     >
       <span className="whitespace-nowrap">Rs {amount}</span>
       {unit && (
-        <span className="ml-1.5 text-sm font-medium text-slate-500 dark:text-slate-400 sm:text-base">
+        <span className="ml-1.5 text-sm font-medium text-muted-foreground sm:text-base">
           {unit}
         </span>
       )}
@@ -81,7 +81,7 @@ function MetricCard({
       <div className="mb-3 flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2.5">
           <MetricIcon>{icon}</MetricIcon>
-          <p className="text-label text-slate-500 dark:text-slate-400">{label}</p>
+          <p className="text-label text-muted-foreground">{label}</p>
         </div>
         {tooltip}
       </div>
@@ -142,27 +142,27 @@ function TopCardsInner({ summary }: TopCardsProps) {
               {formatPercent(returnValue)}
             </span>
             {gainAmount > 0 && (
-              <span className="text-xs text-slate-500 dark:text-slate-400">
+              <span className="text-xs text-muted-foreground">
                 +{formatLakhsParts(gainAmount).amount} Lakhs vs cost
               </span>
             )}
           </div>
         )}
-        <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-200/80 pt-3 dark:border-slate-700/80">
+        <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border/80 pt-3 ">
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
               Invested
             </p>
-            <p className="font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">
+            <p className="font-mono text-sm font-semibold text-foreground">
               Rs {formatLakhsParts(summary.total_cost_value).amount}{" "}
-              <span className="font-medium text-slate-500">Lakhs</span>
+              <span className="font-medium text-muted-foreground">Lakhs</span>
             </p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
               Holdings
             </p>
-            <p className="font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">
+            <p className="font-mono text-sm font-semibold text-foreground">
               {summary.holdings_count ?? summary.concentration?.fund_count ?? "—"}
             </p>
           </div>
@@ -171,7 +171,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
           <div className="mt-3">
             <Badge
               variant="outline"
-              className="border-slate-300 text-[10px] text-slate-600 dark:border-slate-600 dark:text-slate-300"
+              className="text-[10px]"
             >
               <AlertTriangle className="mr-1 h-2.5 w-2.5" />
               High cost: {formatPercent(costPct)}
@@ -222,7 +222,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
         >
           {formatPercent(returnValue)}
         </p>
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Absolute return</p>
+        <p className="mt-1 text-xs text-muted-foreground">Absolute return</p>
       </MetricCard>
 
       <MetricCard
@@ -247,7 +247,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
           />
         }
       >
-        <p className="font-mono text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50 sm:text-3xl">
+        <p className="font-mono text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           {hasPortfolioXirr ? formatPercent(xirrValue as number) : "N/A"}
         </p>
         {hasPortfolioXirr && hasBenchmarkXirr && (
@@ -258,7 +258,7 @@ function TopCardsInner({ summary }: TopCardsProps) {
                 "border-0 px-2 py-0.5 text-[10px] font-semibold",
                 isBeatingBenchmark
                   ? "bg-emerald-600 text-white"
-                  : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"
+                  : "bg-muted text-muted-foreground"
               )}
             >
               {isBeatingBenchmark ? (
@@ -268,11 +268,11 @@ function TopCardsInner({ summary }: TopCardsProps) {
               )}
               {isBeatingBenchmark ? "Beating benchmark" : "Below benchmark"}
             </Badge>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/60">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <div className="rounded-lg border border-border bg-muted/50 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Benchmark
               </p>
-              <p className="font-mono text-lg font-semibold text-slate-800 dark:text-slate-200">
+              <p className="font-mono text-lg font-semibold text-foreground">
                 {formatPercent(benchmarkXirr as number)}
               </p>
             </div>

@@ -1,0 +1,61 @@
+amfi_code,scheme_name,expected_benchmark
+100081,DSP Aggressive Hybrid Fund,CRISIL Hybrid 35+65 - Aggressive Index
+103780,JM Arbitrage Fund,Nifty 50 Arbitrage Index
+100119,HDFC Balanced Advantage Fund,CRISIL Hybrid 50+50 - Moderate Index
+100373,ICICI Prudential Premier,CRISIL Hybrid 60+40 Index
+103176,Aditya Birla Sun Life Banking & PSU Debt Fund,CRISIL Banking and PSU Debt Index
+100678,UTI Children's Hybrid Fund,CRISIL Hybrid 50+50 - Moderate Index
+100600,Canara Robeco Conservative Hybrid Fund,CRISIL Hybrid 85+15 - Conservative Index
+103039,Kotak Contra Fund,Nifty 500 Total Return Index
+100527,Franklin India Corporate Debt Fund,CRISIL Corporate Bond Composite Index
+101543,Sundaram Short Term Credit Risk Fund,CRISIL Credit Risk Debt Fund Index
+101737,Aditya Birla Sun Life Dividend Yield Fund,Nifty 500 Total Return Index
+100498,Franklin India Dynamic Accrual Fund (No. of segregated portfolios- 3),CRISIL Dynamic Bond Index
+100174,Quant ELSS Tax Saver Fund,Nifty 500 Total Return Index
+101609,Tata Equity Savings Fund,CRISIL Equity Savings Index
+101705,ICICI Prudential BSE Sensex ETF,S&P BSE Sensex Total Return Index
+100080,DSP Flexi Cap Fund,Nifty 500 Total Return Index
+101044,Franklin India Floating Rate Fund,CRISIL Floaters Index
+102760,HDFC Focused Fund,Nifty 500 Total Return Index
+101656,Franklin India Dynamic Asset Allocation Active Fund of Funds,Nifty 500 Total Return Index
+106369,Sundaram Global Brand Theme-Equity Active FOF,S&P 500 Total Return Index
+100057,Aditya Birla Sun Life Government Securities Fund,CRISIL Dynamic Gilt Index
+108644,Bandhan Gilt Fund   with 10 year constant duration Fund,CRISIL 10 Year Gilt Index
+105463,UTI - Gold Exchange Traded Fund,Domestic Price of Gold
+100484,Franklin India NSE Nifty 50 Index Fund,Nifty 50 Total Return Index
+100218,JM Large Cap Fund,Nifty 100 Total Return Index
+100033,Aditya Birla Sun Life Large & Mid Cap Fund,Nifty LargeMidcap 250 Total Return Index
+100041,Aditya Birla Sun Life Liquid Fund,CRISIL Liquid Fund Index
+100364,ICICI Prudential Long Term Bond Fund,CRISIL Long Duration Debt Fund Index
+100503,Franklin India Low Duration Fund (No. of Segregated Portfolios-2),CRISIL Low Duration Debt Fund Index
+100077,DSP Bond Fund,CRISIL Medium Duration Debt Fund Index
+100037,Aditya Birla Sun Life Income Fund,CRISIL Medium to Long Duration Debt Fund Index
+100375,Nippon India Growth Mid Cap Fund,Nifty Midcap 150 Total Return Index
+100087,DSP Savings Fund,CRISIL Money Market Index
+101071,Quant Multi Asset Allocation Fund,S&P BSE 500 Total Return Index
+100630,Quant Multi Cap Fund,Nifty 500 Multicap 50:25:25 Total Return Index
+100810,UTI - Overnight Fund,CRISIL Overnight Index
+100535,Franklin India Retirement Fund,S&P BSE 500 Total Return Index
+100063,Aditya Birla Sun Life MNC Fund,Nifty MNC Total Return Index
+101115,Taurus Short Term Income Fund,CRISIL Short Duration Bond Fund Index
+100176,Quant Small Cap Fund,Nifty Smallcap 250 Total Return Index
+101316,Aditya Birla Sun Life Savings Fund,CRISIL Ultra Short Term Debt Index
+100254,JM Value Fund,Nifty 500 Total Return Index
+100363,ICICI Prudential Technology Fund,Nifty IT Total Return Index
+147620,Motilal Oswal Nifty Bank Index Fund,Nifty Bank Total Return Index
+150930,ICICI Prudential Nifty Pharma Index Fund,Nifty Pharma Total Return Index
+153322,SBI Nifty IT Index Fund,Nifty IT Total Return Index
+154326,Axis Nifty India Defence Index Fund,Nifty India Defence Total Return Index
+153934,Kotak Nifty Chemicals ETF,Nifty Chemicals Total Return Index
+148576,Mirae Asset Nifty 100 ESG Sector Leaders Fund of Fund,Nifty 100 Total Return Index
+153096,HDFC Nifty India Digital Index Fund,
+153351,Kotak Nifty Commodities Index Fund,Nifty Commodities Total Return Index
+152865,UTI Nifty Private Bank Index Fund,Nifty Private Bank Total Return Index
+151763,UTI BSE Housing Index Fund,
+118950,HDFC Focused Fund - Growth Option - Direct Plan,Nifty 500 Total Return Index
+122639,Parag Parikh Flexi Cap Fund,Nifty 500 Total Return Index
+101228,ICICI Prudential Multicap Fund,Nifty 500 Multicap 50:25:25 Total Return Index
+,UTI Nifty 50 Index Fund - Direct Plan - Growth,Nifty 50 Total Return Index
+,Motilal Oswal Nifty Bank Index Fund - Direct Plan,Nifty Bank Total Return Index
+,HDFC Liquid Fund - Direct Plan - Growth,CRISIL Liquid Fund Index
+,Kotak Aggressive Hybrid Fund - Direct Plan - Growth,CRISIL Hybrid 35+65 - Aggressive Index

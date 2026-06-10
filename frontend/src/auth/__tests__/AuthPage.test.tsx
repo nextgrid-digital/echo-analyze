@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { MemoryRouter } from "react-router-dom"
 import { AuthPanel } from "@/auth/AuthPage"
 import { useAuth } from "@/auth/useAuth"
 
@@ -15,6 +16,8 @@ function mockAuth(overrides: Partial<ReturnType<typeof useAuth>> = {}) {
     username: "Unknown user",
     isAdmin: false,
     billingAccess: null,
+    billingAccessLoading: false,
+    billingAccessError: null,
     refreshBillingAccess: vi.fn(),
     signIn: vi.fn(),
     signInWithGoogle: vi.fn(),
@@ -29,7 +32,11 @@ describe("AuthPanel", () => {
     const signInWithGoogle = vi.fn().mockResolvedValue(undefined)
     mockAuth({ signInWithGoogle })
 
-    render(<AuthPanel />)
+    render(
+      <MemoryRouter>
+        <AuthPanel />
+      </MemoryRouter>
+    )
 
     const googleButton = screen.getByRole("button", { name: /continue with google/i })
     expect(googleButton).toBeEnabled()

@@ -41,6 +41,7 @@ from app.Code.billing import (
     verify_checkout_signature,
     verify_webhook_signature,
 )
+from app.Code.env_loader import load_local_env
 from app.Code.supabase_auth import (
     get_public_supabase_config,
     get_supabase_registered_user_count,
@@ -48,11 +49,23 @@ from app.Code.supabase_auth import (
     require_supabase_user,
 )
 from app.cas_parser import convert_to_excel, parse_with_casparser
+from app.Code.benchmarks.category_map import asset_class_from_sebi, is_equity_sebi_category
+from app.Code.benchmarks.models import BenchmarkComponent
+from app.Code.benchmarks.amfi_enrichment import enrich_cas_amfi_codes
+from app.Code.benchmarks.resolver import resolve_benchmark
+from app.Code.benchmarks.tri_history import fetch_tri_index_history, tri_data_available
 from app.holdings import get_holdings_for_schemes, save_amfi_cache_async
 from app.overlap import compute_overlap_matrix
 from app.utils import calculate_xirr, fetch_live_nav, fetch_nav_history, save_cache_async
 
 app = FastAPI()
+
+
+@app.on_event("startup")
+def _refresh_local_env_on_startup() -> None:
+    """Re-read .env on worker start so config edits apply after restart/reload."""
+    load_local_env()
+
 
 LOG_FILE = "data/backend_debug.log"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -65,6 +78,7 @@ MAX_UNIQUE_AMFI_CODES = 250
 MAX_OVERLAP_FUNDS = 100
 MAX_TEXT_FIELD_CHARS = 500
 MAX_NUMERIC_ABS = 1_000_000_000_000_000.0
+ANALYSIS_VERSION = "2026.06"
 ALLOWED_EXTENSIONS = {".pdf", ".json"}
 ALLOWED_CONTENT_TYPES = {
     ".pdf": {"application/pdf", "application/octet-stream"},
@@ -93,6 +107,9 @@ SENSITIVE_API_PATHS = {
     "/api/billing/razorpay-webhook",
     "/api/admin/overview",
 }
+DEMO_REQUEST_CLIENT_BANDS = {"under-50", "50-500", "500-plus"}
+DEMO_REQUEST_RATE_LIMIT_SECONDS = 60
+_demo_request_rate_limit: Dict[str, float] = {}
 
 
 def _redact_pii(text: str) -> str:
@@ -170,39 +187,6 @@ async def add_response_security_headers(request: Request, call_next):
     return response
 
 
-def get_sub_category(scheme_name: str, scheme_type: str) -> str:
-    name = (scheme_name or "").upper()
-    typ = (scheme_type or "").upper()
-    if "LIQUID" in name or "OVERNIGHT" in name or "MONEY MARKET" in name:
-        return "Diff - Liquidity"
-    if "ELSS" in name or "TAX SAVER" in name:
-        return "ELSS (Tax Savings)"
-    if "ETF" in name or "INDEX" in name or "NIFTY" in name or "SENSEX" in name:
-        return "Index Fund"
-    if "LARGE & MID" in name:
-        return "Large & Mid-Cap"
-    if "MID CAP" in name:
-        return "Mid-Cap"
-    if "SMALL CAP" in name:
-        return "Small-Cap"
-    if "FLEXI CAP" in name:
-        return "Flexi Cap"
-    if "TECHNOLOGY" in name or "TECK" in name:
-        return "Sectoral - Technology"
-    if "INFRASTRUCTURE" in name:
-        return "Thematic - Infrastructure"
-    if "LARGE CAP" in name or "BLUECHIP" in name or "TOP 100" in name or "FOCUS" in name:
-        return "Large-Cap"
-    if "HYBRID" in name or "BALANCED" in name or "AGGRESSIVE" in name:
-        return "Equity - Hybrid"
-    # Type-based debt mapping must happen before "GROWTH" keyword checks.
-    if "DEBT" in typ or "FIXED INCOME" in typ:
-        return "Debt - Market"
-    if "EQUITY" in typ or "GROWTH" in name or "DIVIDEND" in name:
-        return "Equity - Other"
-    return "Others"
-
-
 def _infer_category(scheme_name: str, scheme_type: str, sub_category: str) -> Tuple[str, bool]:
     name = (scheme_name or "").upper()
     typ = (scheme_type or "").upper()
@@ -259,6 +243,42 @@ def _parse_iso_date(value: Any) -> Optional[datetime]:
             return parsed.replace(tzinfo=None)
         except ValueError:
             return None
+
+
+def _resolve_snapshot_cashflow_date(
+    stmt_period: Any,
+    valuation: dict,
+    fallback_dt: datetime,
+) -> Optional[datetime]:
+    candidates: List[Any] = []
+    if isinstance(stmt_period, dict):
+        candidates.append(stmt_period.get("from"))
+        candidates.append(stmt_period.get("from_"))
+        candidates.append(stmt_period.get("to"))
+    if isinstance(valuation, dict):
+        candidates.append(valuation.get("date"))
+    for raw in candidates:
+        parsed = _parse_iso_date(raw)
+        if parsed and parsed <= fallback_dt:
+            return parsed
+    return fallback_dt - timedelta(days=365)
+
+
+def _count_cas_transactions(folios: List[Any]) -> int:
+    total = 0
+    for folio_data in folios:
+        if not isinstance(folio_data, dict):
+            continue
+        schemes = folio_data.get("schemes", [])
+        if not isinstance(schemes, list):
+            continue
+        for scheme in schemes:
+            if not isinstance(scheme, dict):
+                continue
+            transactions = scheme.get("transactions", [])
+            if isinstance(transactions, list):
+                total += len(transactions)
+    return total
 
 
 def _parse_amount(value) -> Optional[float]:
@@ -803,152 +823,11 @@ def _benchmark_nav_for_date(
     return None, False
 
 
-@dataclass(frozen=True)
-class BenchmarkComponent:
-    code: str
-    weight: float
-    label: str
-
-
 @dataclass
 class TaxLot:
     acquired_on: datetime
     units: float
     cost_per_unit: float
-
-
-def _resolve_benchmark_components(
-    scheme_name: str,
-    scheme_type: str,
-    sub_category: str,
-    category: str,
-) -> List[BenchmarkComponent]:
-    name = (scheme_name or "").upper()
-    typ = (scheme_type or "").upper()
-    sub = (sub_category or "").upper()
-    text = f"{name} {typ} {sub}"
-
-    def has_any(*needles: str) -> bool:
-        return any(needle in text for needle in needles)
-
-    eq_nifty50 = BenchmarkComponent("120716", 1.0, "Nifty 50 TRI proxy")
-    eq_nifty100 = BenchmarkComponent("147666", 1.0, "Nifty 100 TRI proxy")
-    eq_next50 = BenchmarkComponent("149466", 1.0, "Nifty Next 50 TRI proxy")
-    eq_nifty500 = BenchmarkComponent("152731", 1.0, "Nifty 500 TRI proxy")
-    eq_bse500 = BenchmarkComponent("151728", 1.0, "BSE 500 TRI proxy")
-    eq_mid150 = BenchmarkComponent("148726", 1.0, "Nifty Midcap 150 TRI proxy")
-    eq_small250 = BenchmarkComponent("148519", 1.0, "Nifty Smallcap 250 TRI proxy")
-    eq_sensex = BenchmarkComponent("152422", 1.0, "BSE Sensex TRI proxy")
-    eq_bse_teck = BenchmarkComponent("148763", 1.0, "BSE Teck TRI proxy")
-    eq_nifty_infra = BenchmarkComponent("140102", 1.0, "Nifty Infrastructure TRI proxy")
-    eq_nasdaq100 = BenchmarkComponent("149219", 1.0, "Nasdaq 100 proxy")
-    eq_sp500 = BenchmarkComponent("148381", 1.0, "S&P 500 proxy")
-    eq_hang_seng = BenchmarkComponent("140095", 1.0, "Hang Seng proxy")
-    alt_gold = BenchmarkComponent("119132", 1.0, "Gold proxy")
-    debt_liquid = BenchmarkComponent("120197", 1.0, "Liquid debt proxy")
-    debt_corp = BenchmarkComponent("120692", 1.0, "Corporate bond proxy")
-    debt_gilt = BenchmarkComponent("120590", 1.0, "Gilt proxy")
-    debt_credit = BenchmarkComponent("120711", 1.0, "Credit risk proxy")
-
-    if "GOLD" in text:
-        return [alt_gold]
-    if has_any("SILVER", "PRECIOUS METAL", "COMMODITY"):
-        return []
-
-    if has_any("NASDAQ"):
-        return [eq_nasdaq100]
-    if has_any("S&P 500", "SP500"):
-        return [eq_sp500]
-    if has_any("HANG SENG"):
-        return [eq_hang_seng]
-    if has_any("SENSEX"):
-        return [eq_sensex]
-    if has_any("NIFTY NEXT 50", "NEXT 50", "JUNIOR BEES"):
-        return [eq_next50]
-    if has_any("NIFTY 500"):
-        return [eq_nifty500]
-    if has_any("NIFTY 100"):
-        return [eq_nifty100]
-    if has_any("NIFTY MIDCAP 150", "MIDCAP 150"):
-        return [eq_mid150]
-    if has_any("NIFTY SMALLCAP 250", "SMALLCAP 250"):
-        return [eq_small250]
-    if has_any("NIFTY 50"):
-        return [eq_nifty50]
-    if has_any("NIFTY BEES", "NIFTYBEES"):
-        return [eq_nifty50]
-
-    if has_any("HYBRID", "BALANCED", "AGGRESSIVE", "BALANCED ADVANTAGE", "DYNAMIC ASSET ALLOCATION", "MULTI ASSET") or "EQUITY - HYBRID" in sub:
-        if has_any("CONSERVATIVE", "MONTHLY INCOME"):
-            return [
-                BenchmarkComponent(eq_nifty500.code, 0.25, eq_nifty500.label),
-                BenchmarkComponent(debt_corp.code, 0.75, debt_corp.label),
-            ]
-        if has_any("BALANCED ADVANTAGE", "DYNAMIC ASSET ALLOCATION"):
-            return [
-                BenchmarkComponent(eq_nifty500.code, 0.5, eq_nifty500.label),
-                BenchmarkComponent(debt_corp.code, 0.5, debt_corp.label),
-            ]
-        if has_any("MULTI ASSET"):
-            return [
-                BenchmarkComponent(eq_nifty500.code, 0.5, eq_nifty500.label),
-                BenchmarkComponent(debt_corp.code, 0.3, debt_corp.label),
-                BenchmarkComponent(alt_gold.code, 0.2, alt_gold.label),
-            ]
-        return [
-            BenchmarkComponent(eq_nifty500.code, 0.65, eq_nifty500.label),
-            BenchmarkComponent(debt_corp.code, 0.35, debt_corp.label),
-        ]
-
-    if category == "Fixed Income" or "DEBT" in typ or "FIXED INCOME" in typ:
-        if has_any("LIQUID", "OVERNIGHT", "MONEY MARKET", "ULTRA SHORT", "LOW DURATION"):
-            return [debt_liquid]
-        if has_any("GILT", "TREASURY", "CONSTANT MATURITY", "SDL"):
-            return [debt_gilt]
-        if has_any("CREDIT RISK", "LOW RATED", "HIGH YIELD"):
-            return [debt_credit]
-        return [debt_corp]
-
-    if category == "Equity":
-        if has_any("BUSINESS CYCLE"):
-            return [eq_bse500]
-        if has_any("TECHNOLOGY", "TECK"):
-            return [eq_bse_teck]
-        if has_any("INFRASTRUCTURE", "INFRA"):
-            return [eq_nifty_infra]
-        if has_any("BANKING", "FINANCIAL SERVICES", "PHARMA", "HEALTHCARE", "CONSUMPTION", "MNC", "MANUFACTURING", "DIGITAL", "PSU"):
-            return []
-        if has_any("LARGE & MID", "LARGE AND MID", "LARGEMIDCAP", "LARGE MIDCAP 250", "LARGEMIDCAP 250"):
-            return [
-                BenchmarkComponent(eq_nifty100.code, 0.5, eq_nifty100.label),
-                BenchmarkComponent(eq_mid150.code, 0.5, eq_mid150.label),
-            ]
-        if has_any("MIDSMALLCAP", "MID SMALLCAP"):
-            return [
-                BenchmarkComponent(eq_mid150.code, 0.5, eq_mid150.label),
-                BenchmarkComponent(eq_small250.code, 0.5, eq_small250.label),
-            ]
-        if has_any("SMALL CAP", "SMALL-CAP", "SMALLCAP"):
-            return [eq_small250]
-        if has_any("MID CAP", "MID-CAP", "MIDCAP"):
-            return [eq_mid150]
-        if has_any("MULTI CAP", "MULTI-CAP", "MULTICAP"):
-            return [
-                BenchmarkComponent(eq_nifty100.code, 1 / 3, eq_nifty100.label),
-                BenchmarkComponent(eq_mid150.code, 1 / 3, eq_mid150.label),
-                BenchmarkComponent(eq_small250.code, 1 / 3, eq_small250.label),
-            ]
-        if has_any("FLEXI CAP", "FLEXI-CAP", "FLEXICAP", "ELSS", "TAX SAVER", "FOCUS", "FOCUSED", "VALUE", "CONTRA", "DIVIDEND YIELD"):
-            return [eq_nifty500]
-        if has_any("LARGE CAP", "LARGE-CAP", "LARGECAP", "BLUECHIP", "TOP 100"):
-            return [eq_nifty100]
-        if "INDEX FUND" in sub or has_any("ETF"):
-            return []
-        return [eq_nifty500]
-
-    if has_any("LIQUID", "OVERNIGHT", "MONEY MARKET"):
-        return [debt_liquid]
-    return []
 
 
 def _normalize_benchmark_components(
@@ -986,6 +865,18 @@ async def _fetch_nav_history_for_required_dates(code: str, required_dates: Optio
         if "required_dates" not in str(exc) and "unexpected keyword" not in str(exc):
             raise
         return await fetch_nav_history(code)
+
+
+async def _fetch_benchmark_history_for_proxy(
+    proxy_code: str,
+    index_key: Optional[str],
+    required_dates: Optional[Set[date]],
+) -> dict:
+    if index_key and tri_data_available(index_key):
+        tri_history = fetch_tri_index_history(index_key, required_dates)
+        if tri_history:
+            return tri_history
+    return await _fetch_nav_history_for_required_dates(proxy_code, required_dates)
 
 
 def _units_at_cutoff(
@@ -1238,6 +1129,9 @@ class Holding(BaseModel):
     missed_gains: Optional[float] = None
     date_of_entry: Optional[str] = None
     style_category: Optional[str] = None
+    sebi_category: Optional[str] = None
+    benchmark_source: Optional[str] = None
+    performance_source: Optional[Literal["transactions", "estimated_snapshot"]] = None
 
 
 class TopItem(BaseModel):
@@ -1375,6 +1269,9 @@ class DataCoverage(BaseModel):
     benchmark_date_match_pct: float
     overlap_source: Literal["real", "none"]
     overlap_available_funds: int
+    benchmark_coverage_pct: float = 100.0
+    benchmark_unresolved_holdings: int = 0
+    benchmark_fallback_holdings: int = 0
 
 
 class AnalysisSummary(BaseModel):
@@ -1413,6 +1310,7 @@ class AnalysisSummary(BaseModel):
     tax: TaxSummary
     warnings: List[AnalysisWarning] = Field(default_factory=list)
     data_coverage: DataCoverage
+    analysis_version: str = ANALYSIS_VERSION
 
 
 class AnalysisResponse(BaseModel):
@@ -1494,6 +1392,18 @@ class VerifySubscriptionPaymentRequest(BaseModel):
 class VerifySubscriptionPaymentResponse(BaseModel):
     success: bool
     access: BillingAccessResponse
+
+
+class DemoRequestBody(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    email: str = Field(..., min_length=3, max_length=254)
+    firm_name: str = Field(..., min_length=1, max_length=200)
+    clients_managed: Literal["under-50", "50-500", "500-plus"]
+    message: Optional[str] = Field(default=None, max_length=2000)
+
+
+class DemoRequestResponse(BaseModel):
+    ok: bool = True
 
 
 class AdminAnalyticsMetrics(BaseModel):
@@ -1588,6 +1498,24 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
     folios = cas_data.get("folios", [])
     if not isinstance(folios, list):
         return AnalysisResponse(success=False, error="Invalid CAS JSON format. 'folios' must be a list.")
+
+    cas_type = _safe_text(cas_data.get("cas_type"), "").upper()
+    total_cas_transactions = _count_cas_transactions(folios)
+    stmt_period = cas_data.get("statement_period", {})
+    if not isinstance(stmt_period, dict):
+        stmt_period = {}
+    estimated_performance_holdings = 0
+
+    enriched_scheme_names = enrich_cas_amfi_codes(cas_data)
+    if enriched_scheme_names:
+        add_warning(
+            "BENCHMARK_AMFI_ENRICHED",
+            "benchmark",
+            "info",
+            f"AMFI scheme codes were resolved from ISIN/name lookup for {len(enriched_scheme_names)} holding(s).",
+            affected_schemes=enriched_scheme_names,
+        )
+
     analysis_now_dt = datetime.now()
     one_year_cutoff_dt = analysis_now_dt - timedelta(days=365)
     three_year_cutoff_dt = analysis_now_dt - timedelta(days=365 * 3)
@@ -1637,6 +1565,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
     all_amfis = set()
     benchmark_codes_needed = set()
+    proxy_index_key_by_code: Dict[str, str] = {}
     history_dates_by_code: Dict[str, Set[date]] = {}
 
     def add_history_date(code: str, value: Any) -> None:
@@ -1663,9 +1592,8 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                     add_history_date(amfi, anchor_dt)
             name = _safe_text(scheme.get("scheme"), "Unknown Scheme")
             scheme_type = _safe_text(scheme.get("type"), "OTHERS")
-            sub_cat = get_sub_category(name, scheme_type)
-            cat, _ = _infer_category(name, scheme_type, sub_cat)
-            comps = _resolve_benchmark_components(name, scheme_type, sub_cat, cat)
+            benchmark_resolution = resolve_benchmark(amfi, name, scheme_type=scheme_type)
+            comps = benchmark_resolution.components
             transaction_dates: List[datetime] = []
             transactions = scheme.get("transactions", [])
             if isinstance(transactions, list):
@@ -1680,6 +1608,8 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                         add_history_date(amfi, txn_dt)
             for comp in comps:
                 benchmark_codes_needed.add(comp.code)
+                if benchmark_resolution.index_key:
+                    proxy_index_key_by_code[comp.code] = benchmark_resolution.index_key
                 for anchor_dt in history_anchor_dates:
                     add_history_date(comp.code, anchor_dt)
                 for txn_dt in transaction_dates:
@@ -1696,7 +1626,14 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         live_nav_results, benchmark_history_results, scheme_history_results = await asyncio.gather(
             asyncio.gather(*[fetch_live_nav(code) for code in amfi_codes], return_exceptions=True),
             asyncio.gather(
-                *[_fetch_nav_history_for_required_dates(code, history_dates_by_code.get(code)) for code in benchmark_codes],
+                *[
+                    _fetch_benchmark_history_for_proxy(
+                        code,
+                        proxy_index_key_by_code.get(code),
+                        history_dates_by_code.get(code),
+                    )
+                    for code in benchmark_codes
+                ],
                 return_exceptions=True,
             ),
             asyncio.gather(
@@ -1762,13 +1699,53 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             name = _safe_text(scheme.get("scheme"), "Unknown Scheme")
             amfi = _normalize_amfi_code(scheme.get("amfi"))
             scheme_type = _safe_text(scheme.get("type"), "OTHERS")
-            sub_cat = get_sub_category(name, scheme_type)
-            cat, ambiguous = _infer_category(name, scheme_type, sub_cat)
-            benchmark_components_raw = _resolve_benchmark_components(name, scheme_type, sub_cat, cat)
+            benchmark_resolution = resolve_benchmark(amfi, name, scheme_type=scheme_type)
+            benchmark_components_raw = benchmark_resolution.components
             benchmark_components = _normalize_benchmark_components(benchmark_components_raw, benchmark_histories_prepared)
-            benchmark_name = _format_benchmark_name(benchmark_components) or _format_benchmark_name(
-                benchmark_components_raw
+            benchmark_name = (
+                benchmark_resolution.benchmark_name
+                or _format_benchmark_name(benchmark_components)
+                or "Nifty 500 Total Return Index"
             )
+            sub_cat = benchmark_resolution.sub_category
+            cat = asset_class_from_sebi(benchmark_resolution.sebi_category)
+            if cat == "Others":
+                cat, ambiguous = _infer_category(name, scheme_type, sub_cat)
+            else:
+                ambiguous = benchmark_resolution.used_fallback_classifier
+            for warning_code in benchmark_resolution.warnings:
+                if warning_code == "BENCHMARK_CATEGORY_FALLBACK":
+                    add_warning(
+                        warning_code,
+                        "benchmark",
+                        "info",
+                        "Scheme category inferred from name because AMFI master lookup was unavailable.",
+                        affected_schemes=[name],
+                    )
+                elif warning_code == "BENCHMARK_UNRESOLVED":
+                    add_warning(
+                        warning_code,
+                        "benchmark",
+                        "warn",
+                        "SEBI Tier 1 benchmark could not be resolved for this scheme.",
+                        affected_schemes=[name],
+                    )
+                elif warning_code == "BENCHMARK_PROXY_GAP":
+                    add_warning(
+                        warning_code,
+                        "benchmark",
+                        "warn",
+                        "Benchmark index proxy NAV history is unavailable for this scheme.",
+                        affected_schemes=[name],
+                    )
+                elif warning_code == "BENCHMARK_SECTOR_UNRESOLVED":
+                    add_warning(
+                        warning_code,
+                        "benchmark",
+                        "warn",
+                        "Sector benchmark inferred from keyword fallback; no official AMFI sector table match.",
+                        affected_schemes=[name],
+                    )
             if ambiguous:
                 ambiguous_category_count += 1
             schemes_seen.add(name)
@@ -1856,7 +1833,7 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
 
                 if benchmark_components:
                     benchmark_cashflows.append((dt, cashflow))
-                    if cat == "Equity":
+                    if is_equity_sebi_category(benchmark_resolution.sebi_category):
                         equity_benchmark_cashflows.append((dt, cashflow))
                     for comp in benchmark_components:
                         history_bundle = benchmark_histories_prepared.get(comp.code)
@@ -1882,8 +1859,8 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             if not isinstance(val, dict):
                 val = {}
 
-            scheme_entry_dt = min(scheme_tx_dates) if scheme_tx_dates else None
             parsed_cost = _parse_amount(val.get("cost")) if "cost" in val else None
+            scheme_entry_dt = min(scheme_tx_dates) if scheme_tx_dates else None
             remaining_lots = _rebuild_remaining_tax_lots(
                 units,
                 lot_events,
@@ -1897,6 +1874,52 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 scheme_cost = sum(lot.units * lot.cost_per_unit for lot in remaining_lots)
             else:
                 scheme_cost = purchase_cost_total
+
+            performance_source: Optional[Literal["transactions", "estimated_snapshot"]] = None
+            if scheme_cashflows:
+                performance_source = "transactions"
+            elif scheme_cost > 0:
+                synthetic_dt = _resolve_snapshot_cashflow_date(stmt_period, val, analysis_now_dt)
+                if synthetic_dt:
+                    cashflow = -scheme_cost
+                    date_str = synthetic_dt.strftime("%Y-%m-%d")
+                    scheme_cashflows.append((synthetic_dt, cashflow))
+                    scheme_tx_dates.append(synthetic_dt)
+                    scheme_unit_events.append((synthetic_dt, units))
+                    portfolio_cashflows.append((synthetic_dt, cashflow))
+                    if cat == "Equity":
+                        equity_cashflows.append((synthetic_dt, cashflow))
+                    if cat == "Fixed Income":
+                        fi_cashflows.append((synthetic_dt, cashflow))
+                    if benchmark_components:
+                        benchmark_cashflows.append((synthetic_dt, cashflow))
+                        if is_equity_sebi_category(benchmark_resolution.sebi_category):
+                            equity_benchmark_cashflows.append((synthetic_dt, cashflow))
+                        for comp in benchmark_components:
+                            history_bundle = benchmark_histories_prepared.get(comp.code)
+                            if not history_bundle:
+                                continue
+                            benchmark_txn_total += 1
+                            b_nav, is_exact = _nav_from_prepared_history(date_str, history_bundle)
+                            if not b_nav:
+                                continue
+                            txn_bm_units = ((-cashflow) * comp.weight) / b_nav
+                            scheme_benchmark_units[comp.code] = max(
+                                0.0, scheme_benchmark_units.get(comp.code, 0.0) + txn_bm_units
+                            )
+                            scheme_benchmark_unit_events.setdefault(comp.code, []).append(
+                                (synthetic_dt, txn_bm_units)
+                            )
+                            if is_exact:
+                                benchmark_txn_exact += 1
+                            else:
+                                benchmark_fallback_by_scheme[name] = (
+                                    benchmark_fallback_by_scheme.get(name, 0) + 1
+                                )
+                    performance_source = "estimated_snapshot"
+                    estimated_performance_holdings += 1
+
+            scheme_entry_dt = min(scheme_tx_dates) if scheme_tx_dates else None
 
             statement_nav = _parse_amount(val.get("nav")) or 0.0
             statement_value_raw = val.get("value")
@@ -2120,6 +2143,9 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
                 missed_gains=round(s_missed_gains, 2) if s_missed_gains is not None else None,
                 date_of_entry=date_of_entry,
                 style_category="Direct" if is_direct else "Regular",
+                sebi_category=benchmark_resolution.sebi_category,
+                benchmark_source=benchmark_resolution.benchmark_source,
+                performance_source=performance_source,
             )
             holdings.append(h_obj)
 
@@ -2181,6 +2207,26 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             "benchmark",
             "info",
             "Benchmark calculation excludes some scheme cashflows where benchmark proxies were unavailable.",
+        )
+
+    authoritative_sources = {"sebi_tier1", "underlying_index"}
+    benchmark_covered_value = sum(
+        h.market_value for h in holdings if (h.benchmark_source or "") in authoritative_sources
+    )
+    benchmark_unresolved_holdings = sum(1 for h in holdings if h.benchmark_source == "unresolved")
+    benchmark_fallback_holdings = sum(1 for h in holdings if h.benchmark_source == "fallback")
+    benchmark_coverage_pct = (
+        round((benchmark_covered_value / total_mkt_live) * 100, 2) if total_mkt_live > 0 else 100.0
+    )
+    if benchmark_unresolved_holdings > 0 or benchmark_fallback_holdings > 0:
+        add_warning(
+            "BENCHMARK_COVERAGE_INCOMPLETE",
+            "benchmark",
+            "error" if benchmark_unresolved_holdings > 0 else "warn",
+            (
+                f"Benchmark Tier 1 coverage is {benchmark_coverage_pct}% by portfolio value "
+                f"({benchmark_unresolved_holdings} unresolved, {benchmark_fallback_holdings} fallback holding(s))."
+            ),
         )
 
     benchmark_date_match_pct = round((benchmark_txn_exact / benchmark_txn_total) * 100, 2) if benchmark_txn_total > 0 else 100.0
@@ -2467,7 +2513,23 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         investor_info = InvestorInfo(**{k: v for k, v in investor_data.items() if v})
         log_debug(f"Investor metadata extracted; fields={[k for k, v in investor_data.items() if v]}")
 
-    stmt_period = cas_data.get("statement_period", {})
+    if cas_type == "SUMMARY" or total_cas_transactions == 0:
+        add_warning(
+            "CAS_NO_TRANSACTIONS",
+            "performance",
+            "warn",
+            "This CAS has no transaction history (Summary statement). XIRR, benchmark comparison, and missed gains "
+            "require a Detailed CAS. Re-download from CAMS/KFintech as 'Detailed Statement' and re-upload.",
+        )
+    if estimated_performance_holdings > 0:
+        add_warning(
+            "PERFORMANCE_ESTIMATED_SNAPSHOT",
+            "performance",
+            "warn",
+            f"Performance metrics for {estimated_performance_holdings} holding(s) are estimated from cost snapshots "
+            "because transaction history was unavailable.",
+        )
+
     statement_date = (
         _safe_text(stmt_period.get("to"), "", max_length=80)
         if isinstance(stmt_period, dict)
@@ -2526,7 +2588,11 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
             benchmark_date_match_pct=benchmark_date_match_pct,
             overlap_source=overlap_source,
             overlap_available_funds=overlap_available_funds,
+            benchmark_coverage_pct=benchmark_coverage_pct,
+            benchmark_unresolved_holdings=benchmark_unresolved_holdings,
+            benchmark_fallback_holdings=benchmark_fallback_holdings,
         ),
+        analysis_version=ANALYSIS_VERSION,
     )
     return _safe_analysis_response(AnalysisResponse(success=True, holdings=holdings, summary=summary))
 
@@ -2544,7 +2610,7 @@ async def auth_me(request: Request):
 @app.get("/api/billing/access", response_model=BillingAccessResponse)
 async def billing_access(request: Request):
     user = await require_supabase_user(request)
-    access = await get_access_status(user.user_id)
+    access = await get_access_status(user.user_id, is_admin=user.is_admin)
     return BillingAccessResponse(**access.to_dict())
 
 
@@ -2737,7 +2803,10 @@ async def analyze(
 
     async def reserve_report_access() -> None:
         nonlocal credit_consumed
-        reservation = await reserve_analysis_credit(auth_user.user_id)
+        reservation = await reserve_analysis_credit(
+            auth_user.user_id,
+            is_admin=auth_user.is_admin,
+        )
         credit_consumed = reservation.credit_consumed
 
     async def refund_report_access_if_needed() -> None:
@@ -2837,7 +2906,10 @@ async def parse_pdf(
 
     async def reserve_report_access() -> None:
         nonlocal credit_consumed
-        reservation = await reserve_analysis_credit(auth_user.user_id)
+        reservation = await reserve_analysis_credit(
+            auth_user.user_id,
+            is_admin=auth_user.is_admin,
+        )
         credit_consumed = reservation.credit_consumed
 
     async def refund_report_access_if_needed() -> None:
@@ -2978,6 +3050,63 @@ async def parse_pdf(
         return JSONResponse(status_code=500, content={"error": f"Internal server error. Request ID: {request_id}"})
 
 
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "").strip()
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def _check_demo_request_rate_limit(client_ip: str) -> None:
+    now = monotonic()
+    last_request = _demo_request_rate_limit.get(client_ip)
+    if last_request is not None and now - last_request < DEMO_REQUEST_RATE_LIMIT_SECONDS:
+        raise HTTPException(status_code=429, detail="Please wait before submitting another request.")
+    _demo_request_rate_limit[client_ip] = now
+
+
+@app.post("/api/demo-request", response_model=DemoRequestResponse)
+async def demo_request(request: Request, body: DemoRequestBody):
+    if body.clients_managed not in DEMO_REQUEST_CLIENT_BANDS:
+        raise HTTPException(status_code=422, detail="Invalid clients_managed value.")
+
+    email = body.email.strip()
+    if "@" not in email or email.startswith("@") or email.endswith("@"):
+        raise HTTPException(status_code=422, detail="Invalid email address.")
+
+    client_ip = _client_ip(request)
+    _check_demo_request_rate_limit(client_ip)
+
+    payload = {
+        "name": body.name.strip(),
+        "email": email,
+        "firm_name": body.firm_name.strip(),
+        "clients_managed": body.clients_managed,
+        "message": body.message.strip() if body.message else None,
+        "client_ip": client_ip,
+        "submitted_at": datetime.utcnow().isoformat() + "Z",
+    }
+    log_debug(f"[demo-request] {json.dumps(payload, separators=(',', ':'))}")
+    record_audit_log(
+        user_id=None,
+        username=None,
+        route=request.url.path,
+        action="demo_request",
+        status="ok",
+        message=json.dumps(
+            {
+                "firm_name": payload["firm_name"],
+                "clients_managed": payload["clients_managed"],
+                "client_ip": client_ip,
+            },
+            separators=(",", ":"),
+        ),
+    )
+    return DemoRequestResponse()
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
@@ -3048,6 +3177,41 @@ async def pricing_page():
 
 @app.get("/pricing/{path:path}")
 async def pricing_page_nested(path: str):
+    return _serve_spa()
+
+
+@app.get("/demo")
+async def demo_page():
+    return _serve_spa()
+
+
+@app.get("/terms")
+async def terms_page():
+    return _serve_spa()
+
+
+@app.get("/privacy")
+async def privacy_page():
+    return _serve_spa()
+
+
+@app.get("/sign-in")
+async def sign_in_page():
+    return _serve_spa()
+
+
+@app.get("/sign-up")
+async def sign_up_page():
+    return _serve_spa()
+
+
+@app.get("/clients")
+async def clients_page():
+    return _serve_spa()
+
+
+@app.get("/clients/{path:path}")
+async def clients_page_nested(path: str):
     return _serve_spa()
 
 

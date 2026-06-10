@@ -1,12 +1,15 @@
 import { Link, useLocation } from "react-router-dom"
 import { useAuth } from "@/auth/useAuth"
+import { EchoLogo } from "@/components/EchoLogo"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 const NAV_LINKS = [
   { to: "/pricing", label: "Pricing" },
-  { to: "/upload", label: "Analyze" },
+  { to: "/demo", label: "Demo" },
 ] as const
+
+const AUTH_NAV_LINKS = [{ to: "/dashboard", label: "Dashboard" }] as const
 
 export function SiteHeader() {
   const { pathname } = useLocation()
@@ -19,9 +22,7 @@ export function SiteHeader() {
           to="/"
           className="group flex items-center gap-2 text-foreground hover:opacity-80"
         >
-          <span className="flex h-8 w-8 items-center justify-center bg-gradient-to-br from-emerald-500 to-sky-600 text-xs font-bold text-white shadow-sm">
-            E
-          </span>
+          <EchoLogo size={32} className="shadow-sm" />
           <span className="text-lg font-bold tracking-tight">ECHO</span>
         </Link>
 
@@ -32,15 +33,24 @@ export function SiteHeader() {
               asChild
               variant="ghost"
               size="sm"
-              className={cn(
-                pathname === to && "bg-emerald-50 text-emerald-800"
-              )}
+              className={cn(pathname === to && "bg-accent text-accent-foreground")}
             >
               <Link to={to}>{label}</Link>
             </Button>
           ))}
           {user ? (
             <>
+              {AUTH_NAV_LINKS.map(({ to, label }) => (
+                <Button
+                  key={to}
+                  asChild
+                  variant="ghost"
+                  size="sm"
+                  className={cn(pathname === to && "bg-accent text-accent-foreground")}
+                >
+                  <Link to={to}>{label}</Link>
+                </Button>
+              ))}
               <span className="hidden text-sm text-muted-foreground sm:inline">{username}</span>
               {isAdmin && (
                 <Button asChild variant="outline" size="sm">
@@ -52,9 +62,14 @@ export function SiteHeader() {
               </Button>
             </>
           ) : (
-            <Button asChild size="sm" className="ml-1">
-              <Link to="/upload">Sign in</Link>
-            </Button>
+            <>
+              <Button asChild variant="ghost" size="sm">
+                <Link to="/sign-in">Sign in</Link>
+              </Button>
+              <Button asChild size="sm" className="ml-1">
+                <Link to="/demo">Book demo</Link>
+              </Button>
+            </>
           )}
         </nav>
       </div>

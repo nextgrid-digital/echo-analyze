@@ -162,7 +162,7 @@ function CostInner({ cost }: CostProps) {
               Portfolio Cost Analysis
             </h3>
             {isHighCost && (
-              <span className="text-[10px] bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 px-2 py-0.5 rounded-none uppercase">
+              <span className="rounded-md bg-destructive/10 px-2 py-0.5 text-[10px] uppercase text-destructive">
                 High
               </span>
             )}

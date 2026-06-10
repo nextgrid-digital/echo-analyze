@@ -10,6 +10,8 @@ export interface AuthContextValue {
   username: string
   isAdmin: boolean
   billingAccess: BillingAccess | null
+  billingAccessLoading: boolean
+  billingAccessError: string | null
   refreshBillingAccess: () => Promise<BillingAccess | null>
   signIn: (email: string, password: string) => Promise<void>
   signInWithGoogle: () => Promise<void>

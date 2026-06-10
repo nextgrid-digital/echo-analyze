@@ -79,7 +79,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
         <CompactCard>
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-teal-600" />
+              <Activity className="h-4 w-4 text-primary" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Volatility
               </p>
@@ -109,7 +109,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
         <CompactCard>
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-teal-600" />
+              <TrendingUp className="h-4 w-4 text-primary" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Sharpe Ratio
               </p>
@@ -139,7 +139,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
         <CompactCard>
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4 text-teal-600" />
+              <BarChart3 className="h-4 w-4 text-primary" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Beta
               </p>
@@ -170,7 +170,7 @@ function RiskMetricsInner({ summary }: RiskMetricsProps) {
         <CompactCard>
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-teal-600" />
+              <AlertTriangle className="h-4 w-4 text-primary" />
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Risk Score
               </p>

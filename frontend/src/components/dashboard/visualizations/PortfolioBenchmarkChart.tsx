@@ -363,7 +363,7 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
 
   return (
     <div className="w-full">
-      <div className="mb-3 border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-900">
+      <div className="mb-3 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-foreground">
         {BENCHMARK_RECONSTRUCTED_NOTICE}
       </div>
       {chartHasPartialCoverage && (
@@ -387,7 +387,7 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
         <Button
           variant={zoomLevel === "daily" ? "default" : "outline"}
           onClick={() => setZoomLevel("daily")}
-          className="rounded-none h-8 px-3 text-xs"
+          className="h-8 px-3 text-xs"
           size="sm"
         >
           Daily
@@ -395,7 +395,7 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
         <Button
           variant={zoomLevel === "monthly" ? "default" : "outline"}
           onClick={() => setZoomLevel("monthly")}
-          className="rounded-none h-8 px-3 text-xs"
+          className="h-8 px-3 text-xs"
           size="sm"
         >
           Monthly
@@ -403,7 +403,7 @@ export function PortfolioBenchmarkChart({ summary, holdings }: PortfolioBenchmar
         <Button
           variant={zoomLevel === "yearly" ? "default" : "outline"}
           onClick={() => setZoomLevel("yearly")}
-          className="rounded-none h-8 px-3 text-xs"
+          className="h-8 px-3 text-xs"
           size="sm"
         >
           Yearly

@@ -191,12 +191,28 @@ async def _supabase_rpc(function_name: str, payload: Dict[str, Any]) -> Any:
         return None
 
 
-async def get_access_status(user_id: str) -> AccessStatus:
+def admin_unlimited_access_status() -> AccessStatus:
+    return AccessStatus(
+        can_analyze=True,
+        has_unlimited_reports=True,
+        cas_report_limit=FREE_REPORT_LIMIT,
+        cas_reports_used=0,
+        remaining_free_reports=FREE_REPORT_LIMIT,
+        subscription_status="active",
+    )
+
+
+async def get_access_status(user_id: str, *, is_admin: bool = False) -> AccessStatus:
+    if is_admin:
+        return admin_unlimited_access_status()
     payload = await _supabase_rpc("echo_get_access_status", {"target_user_id": user_id})
     return _parse_access_status(payload)
 
 
-async def reserve_analysis_credit(user_id: str) -> CreditReservation:
+async def reserve_analysis_credit(user_id: str, *, is_admin: bool = False) -> CreditReservation:
+    if is_admin:
+        access = admin_unlimited_access_status()
+        return CreditReservation(allowed=True, credit_consumed=False, access=access)
     payload = await _supabase_rpc("echo_consume_report_credit", {"target_user_id": user_id})
     reservation = _parse_credit_reservation(payload)
     if not reservation.allowed:

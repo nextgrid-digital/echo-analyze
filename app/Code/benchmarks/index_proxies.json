@@ -1,0 +1,407 @@
+{
+  "version": "1.0.0",
+  "indices": {
+    "nifty_50_tri": {
+      "display_name": "Nifty 50 Total Return Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120716", "weight": 1.0, "proxy_name": "UTI Nifty 50 Index Fund"}]
+    },
+    "nifty_100_tri": {
+      "display_name": "Nifty 100 Total Return Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "147666", "weight": 1.0, "proxy_name": "UTI Nifty 100 Index Fund"}]
+    },
+    "nifty_next_50_tri": {
+      "display_name": "Nifty Next 50 Total Return Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "149466", "weight": 1.0, "proxy_name": "UTI Nifty Next 50 Index Fund"}]
+    },
+    "nifty_500_tri": {
+      "display_name": "Nifty 500 Total Return Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "152731", "weight": 1.0, "proxy_name": "Axis Nifty 500 Index Fund"}]
+    },
+    "bse_500_tri": {
+      "display_name": "S&P BSE 500 Total Return Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "151728", "weight": 1.0, "proxy_name": "UTI BSE 500 Index Fund"}]
+    },
+    "nifty_midcap_150_tri": {
+      "display_name": "Nifty Midcap 150 Total Return Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "148726", "weight": 1.0, "proxy_name": "Motilal Oswal Nifty Midcap 150 Index Fund"}]
+    },
+    "nifty_smallcap_250_tri": {
+      "display_name": "Nifty Smallcap 250 Total Return Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "148519", "weight": 1.0, "proxy_name": "Motilal Oswal Nifty Smallcap 250 Index Fund"}]
+    },
+    "nifty_largemidcap_250_tri": {
+      "display_name": "Nifty LargeMidcap 250 Total Return Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "149341", "weight": 1.0, "proxy_name": "Edelweiss Nifty LargeMidcap 250 Index Fund"}]
+    },
+    "nifty_500_multicap_502525_tri": {
+      "display_name": "Nifty 500 Multicap 50:25:25 Total Return Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "152778", "weight": 1.0, "proxy_name": "HDFC Nifty500 Multicap 50 25 25 Index Fund"}]
+    },
+    "bse_sensex_tri": {
+      "display_name": "S&P BSE Sensex Total Return Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "152422", "weight": 1.0, "proxy_name": "HDFC BSE Sensex Index Fund"}]
+    },
+    "nifty_bank_tri": {
+      "display_name": "Nifty Bank Total Return Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "147620", "weight": 1.0, "proxy_name": "Motilal Oswal Nifty Bank Index Fund"}]
+    },
+    "nifty_pharma_tri": {
+      "display_name": "Nifty Pharma Total Return Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "150930", "weight": 1.0, "proxy_name": "ICICI Prudential Nifty Pharma Index Fund"}]
+    },
+    "nifty_it_tri": {
+      "display_name": "Nifty IT Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "153322",
+      "proxy_scheme_name": "SBI Nifty IT Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "153322", "weight": 1.0, "proxy_name": "SBI Nifty IT Index Fund"}]
+    },
+    "nifty_infra_tri": {
+      "display_name": "Nifty Infrastructure Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "153078",
+      "proxy_scheme_name": "Aditya Birla Sun Life BSE India Infrastructure Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "153078", "weight": 1.0, "proxy_name": "Aditya Birla Sun Life BSE India Infrastructure Index Fund"}]
+    },
+    "nifty_consumption_tri": {
+      "display_name": "Nifty India Consumption Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "153013",
+      "proxy_scheme_name": "SBI Nifty India Consumption Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "153013", "weight": 1.0, "proxy_name": "SBI Nifty India Consumption Index Fund"}]
+    },
+    "nifty_mnc_tri": {
+      "display_name": "Nifty MNC Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "150531",
+      "proxy_scheme_name": "Kotak Nifty MNC ETF",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "150531", "weight": 1.0, "proxy_name": "Kotak Nifty MNC ETF"}]
+    },
+    "nifty_india_manufacturing_tri": {
+      "display_name": "Nifty India Manufacturing Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "153270",
+      "proxy_scheme_name": "UTI Nifty India Manufacturing Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "153270", "weight": 1.0, "proxy_name": "UTI Nifty India Manufacturing Index Fund"}]
+    },
+    "nifty_psu_bank_tri": {
+      "display_name": "Nifty PSU Bank Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "154278",
+      "proxy_scheme_name": "Groww Nifty PSU Bank Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "154278", "weight": 1.0, "proxy_name": "Groww Nifty PSU Bank Index Fund"}]
+    },
+    "nifty_private_bank_tri": {
+      "display_name": "Nifty Private Bank Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "152865",
+      "proxy_scheme_name": "UTI Nifty Private Bank Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "152865", "weight": 1.0, "proxy_name": "UTI Nifty Private Bank Index Fund"}]
+    },
+    "nifty_financial_services_tri": {
+      "display_name": "Nifty Financial Services Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "152574",
+      "proxy_scheme_name": "Tata Nifty Financial Services Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "152574", "weight": 1.0, "proxy_name": "Tata Nifty Financial Services Index Fund"}]
+    },
+    "nifty_auto_tri": {
+      "display_name": "Nifty Auto Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "150643",
+      "proxy_scheme_name": "ICICI Prudential Nifty Auto Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "150643", "weight": 1.0, "proxy_name": "ICICI Prudential Nifty Auto Index Fund"}]
+    },
+    "nifty_fmcg_tri": {
+      "display_name": "Nifty FMCG Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "154357",
+      "proxy_scheme_name": "DSP Nifty FMCG ETF",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "154357", "weight": 1.0, "proxy_name": "DSP Nifty FMCG ETF"}]
+    },
+    "nifty_metal_tri": {
+      "display_name": "Nifty Metal Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "154034",
+      "proxy_scheme_name": "Groww Nifty Metal ETF",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "154034", "weight": 1.0, "proxy_name": "Groww Nifty Metal ETF"}]
+    },
+    "nifty_realty_tri": {
+      "display_name": "Nifty Realty Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "152521",
+      "proxy_scheme_name": "HDFC NIFTY Realty Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "152521", "weight": 1.0, "proxy_name": "HDFC NIFTY Realty Index Fund"}]
+    },
+    "nifty_energy_tri": {
+      "display_name": "Nifty Energy Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "153945",
+      "proxy_scheme_name": "Mirae Asset Nifty Energy ETF",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "153945", "weight": 1.0, "proxy_name": "Mirae Asset Nifty Energy ETF"}]
+    },
+    "nifty_oil_gas_tri": {
+      "display_name": "Nifty Oil & Gas Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "152748",
+      "proxy_scheme_name": "ICICI Prudential Nifty Oil & Gas ETF",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "152748", "weight": 1.0, "proxy_name": "ICICI Prudential Nifty Oil & Gas ETF"}]
+    },
+    "nifty_media_tri": {
+      "display_name": "Nifty Media Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "147666",
+      "proxy_scheme_name": "UTI Nifty 100 Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "147666", "weight": 1.0, "proxy_name": "UTI Nifty 100 Index Fund"}]
+    },
+    "nifty_healthcare_tri": {
+      "display_name": "Nifty Healthcare Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "153592",
+      "proxy_scheme_name": "DSP Nifty Healthcare Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "153592", "weight": 1.0, "proxy_name": "DSP Nifty Healthcare Index Fund"}]
+    },
+    "nifty_defence_tri": {
+      "display_name": "Nifty India Defence Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "154326",
+      "proxy_scheme_name": "Axis Nifty India Defence Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "154326", "weight": 1.0, "proxy_name": "Axis Nifty India Defence Index Fund"}]
+    },
+    "nifty_chemicals_tri": {
+      "display_name": "Nifty Chemicals Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "153934",
+      "proxy_scheme_name": "Kotak Nifty Chemicals ETF",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "153934", "weight": 1.0, "proxy_name": "Kotak Nifty Chemicals ETF"}]
+    },
+    "nifty_commodities_tri": {
+      "display_name": "Nifty Commodities Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "153351",
+      "proxy_scheme_name": "Kotak Nifty Commodities Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "153351", "weight": 1.0, "proxy_name": "Kotak Nifty Commodities Index Fund"}]
+    },
+    "nifty_digital_tri": {
+      "display_name": "Nifty India Digital Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "153096",
+      "proxy_scheme_name": "HDFC Nifty India Digital Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "153096", "weight": 1.0, "proxy_name": "HDFC Nifty India Digital Index Fund"}]
+    },
+    "nifty_esg_tri": {
+      "display_name": "Nifty 100 ESG Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "148576",
+      "proxy_scheme_name": "Mirae Asset Nifty 100 ESG Sector Leaders Fund of Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "148576", "weight": 1.0, "proxy_name": "Mirae Asset Nifty 100 ESG Sector Leaders Fund of Fund"}]
+    },
+    "nifty_housing_tri": {
+      "display_name": "Nifty Housing Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "151763",
+      "proxy_scheme_name": "UTI BSE Housing Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "151763", "weight": 1.0, "proxy_name": "UTI BSE Housing Index Fund"}]
+    },
+    "nifty_capital_markets_tri": {
+      "display_name": "Nifty Capital Markets Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "152951",
+      "proxy_scheme_name": "Tata Nifty Capital Markets Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "152951", "weight": 1.0, "proxy_name": "Tata Nifty Capital Markets Index Fund"}]
+    },
+    "nifty_transportation_tri": {
+      "display_name": "Nifty Transportation & Logistics Total Return Index",
+      "uses_tri_proxy": true,
+      "proxy_amfi": "151728",
+      "proxy_scheme_name": "UTI BSE 500 Index Fund",
+      "verified_date": "2026-06-09",
+      "components": [{"code": "151728", "weight": 1.0, "proxy_name": "UTI BSE 500 Index Fund"}]
+    },
+    "nasdaq_100": {
+      "display_name": "Nasdaq 100 Total Return Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "149219", "weight": 1.0, "proxy_name": "Motilal Oswal Nasdaq 100 Fund of Fund"}]
+    },
+    "sp_500": {
+      "display_name": "S&P 500 Total Return Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "148381", "weight": 1.0, "proxy_name": "Motilal Oswal S&P 500 Index Fund"}]
+    },
+    "hang_seng": {
+      "display_name": "Hang Seng Total Return Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "140095", "weight": 1.0, "proxy_name": "Mirae Asset Hang Seng Equity Fund"}]
+    },
+    "gold": {
+      "display_name": "Domestic Price of Gold",
+      "uses_tri_proxy": true,
+      "components": [{"code": "119132", "weight": 1.0, "proxy_name": "SBI Gold Fund"}]
+    },
+    "silver": {
+      "display_name": "Domestic Price of Silver",
+      "uses_tri_proxy": true,
+      "components": []
+    },
+    "nifty_arbitrage": {
+      "display_name": "Nifty 50 Arbitrage Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120716", "weight": 1.0, "proxy_name": "UTI Nifty 50 Index Fund"}]
+    },
+    "crisil_liquid": {
+      "display_name": "CRISIL Liquid Fund Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120197", "weight": 1.0, "proxy_name": "Nippon India Liquid Fund"}]
+    },
+    "crisil_overnight": {
+      "display_name": "CRISIL Overnight Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120197", "weight": 1.0, "proxy_name": "Nippon India Liquid Fund"}]
+    },
+    "crisil_ultra_short": {
+      "display_name": "CRISIL Ultra Short Term Debt Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120197", "weight": 1.0, "proxy_name": "Nippon India Liquid Fund"}]
+    },
+    "crisil_low_duration": {
+      "display_name": "CRISIL Low Duration Debt Fund Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120692", "weight": 1.0, "proxy_name": "HDFC Corporate Bond Fund"}]
+    },
+    "crisil_money_market": {
+      "display_name": "CRISIL Money Market Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120197", "weight": 1.0, "proxy_name": "Nippon India Liquid Fund"}]
+    },
+    "crisil_short_duration": {
+      "display_name": "CRISIL Short Duration Bond Fund Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120692", "weight": 1.0, "proxy_name": "HDFC Corporate Bond Fund"}]
+    },
+    "crisil_medium_duration": {
+      "display_name": "CRISIL Medium Duration Debt Fund Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120692", "weight": 1.0, "proxy_name": "HDFC Corporate Bond Fund"}]
+    },
+    "crisil_medium_long_duration": {
+      "display_name": "CRISIL Medium to Long Duration Debt Fund Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120692", "weight": 1.0, "proxy_name": "HDFC Corporate Bond Fund"}]
+    },
+    "crisil_long_duration": {
+      "display_name": "CRISIL Long Duration Debt Fund Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120590", "weight": 1.0, "proxy_name": "SBI Magnum Gilt Fund"}]
+    },
+    "crisil_corporate_bond": {
+      "display_name": "CRISIL Corporate Bond Composite Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120692", "weight": 1.0, "proxy_name": "HDFC Corporate Bond Fund"}]
+    },
+    "crisil_credit_risk": {
+      "display_name": "CRISIL Credit Risk Debt Fund Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120711", "weight": 1.0, "proxy_name": "HDFC Credit Risk Debt Fund"}]
+    },
+    "crisil_banking_psu": {
+      "display_name": "CRISIL Banking and PSU Debt Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120692", "weight": 1.0, "proxy_name": "HDFC Corporate Bond Fund"}]
+    },
+    "crisil_gilt": {
+      "display_name": "CRISIL Dynamic Gilt Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120590", "weight": 1.0, "proxy_name": "SBI Magnum Gilt Fund"}]
+    },
+    "crisil_gilt_10y": {
+      "display_name": "CRISIL 10 Year Gilt Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120590", "weight": 1.0, "proxy_name": "SBI Magnum Gilt Fund"}]
+    },
+    "crisil_dynamic_bond": {
+      "display_name": "CRISIL Dynamic Bond Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120692", "weight": 1.0, "proxy_name": "HDFC Corporate Bond Fund"}]
+    },
+    "crisil_floater": {
+      "display_name": "CRISIL Floaters Index",
+      "uses_tri_proxy": true,
+      "components": [{"code": "120692", "weight": 1.0, "proxy_name": "HDFC Corporate Bond Fund"}]
+    },
+    "crisil_hybrid_35_65_aggressive": {
+      "display_name": "CRISIL Hybrid 35+65 - Aggressive Index",
+      "uses_tri_proxy": true,
+      "components": [
+        {"code": "152731", "weight": 0.35, "proxy_name": "Axis Nifty 500 Index Fund"},
+        {"code": "120692", "weight": 0.65, "proxy_name": "HDFC Corporate Bond Fund"}
+      ]
+    },
+    "crisil_hybrid_85_15_conservative": {
+      "display_name": "CRISIL Hybrid 85+15 - Conservative Index",
+      "uses_tri_proxy": true,
+      "components": [
+        {"code": "120692", "weight": 0.85, "proxy_name": "HDFC Corporate Bond Fund"},
+        {"code": "152731", "weight": 0.15, "proxy_name": "Axis Nifty 500 Index Fund"}
+      ]
+    },
+    "crisil_hybrid_60_40": {
+      "display_name": "CRISIL Hybrid 60+40 Index",
+      "uses_tri_proxy": true,
+      "components": [
+        {"code": "152731", "weight": 0.6, "proxy_name": "Axis Nifty 500 Index Fund"},
+        {"code": "120692", "weight": 0.4, "proxy_name": "HDFC Corporate Bond Fund"}
+      ]
+    },
+    "crisil_hybrid_50_50_moderate": {
+      "display_name": "CRISIL Hybrid 50+50 - Moderate Index",
+      "uses_tri_proxy": true,
+      "components": [
+        {"code": "152731", "weight": 0.5, "proxy_name": "Axis Nifty 500 Index Fund"},
+        {"code": "120692", "weight": 0.5, "proxy_name": "HDFC Corporate Bond Fund"}
+      ]
+    },
+    "crisil_equity_savings": {
+      "display_name": "CRISIL Equity Savings Index",
+      "uses_tri_proxy": true,
+      "components": [
+        {"code": "152731", "weight": 0.35, "proxy_name": "Axis Nifty 500 Index Fund"},
+        {"code": "120692", "weight": 0.65, "proxy_name": "HDFC Corporate Bond Fund"}
+      ]
+    }
+  }
+}

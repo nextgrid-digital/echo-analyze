@@ -19,8 +19,8 @@ export function MarketingSection({
       id={id}
       className={cn(
         "px-4 py-16 sm:px-6 sm:py-20 lg:py-24",
-        variant === "muted" && "border-y border-border bg-emerald-50/30",
-        variant === "dark" && "marketing-cta-gradient text-background",
+        variant === "muted" && "border-y border-border bg-muted/40",
+        variant === "dark" && "marketing-cta-gradient",
         className
       )}
     >
@@ -35,6 +35,7 @@ interface SectionHeadingProps {
   description?: string
   align?: "left" | "center"
   dark?: boolean
+  className?: string
 }
 
 export function SectionHeading({
@@ -43,19 +44,21 @@ export function SectionHeading({
   description,
   align = "left",
   dark = false,
+  className,
 }: SectionHeadingProps) {
   return (
     <div
       className={cn(
         "mb-12 max-w-2xl",
-        align === "center" && "mx-auto text-center"
+        align === "center" && "mx-auto text-center",
+        className
       )}
     >
       {eyebrow && (
         <p
           className={cn(
             "text-label",
-            dark ? "text-background/60" : "text-muted-foreground"
+            dark ? "text-white/60" : "text-muted-foreground"
           )}
         >
           {eyebrow}
@@ -64,7 +67,7 @@ export function SectionHeading({
       <h2
         className={cn(
           "mt-3 text-3xl font-bold tracking-tight sm:text-4xl",
-          dark && "text-background"
+          dark && "text-white"
         )}
       >
         {title}
@@ -73,7 +76,7 @@ export function SectionHeading({
         <p
           className={cn(
             "mt-4 text-base sm:text-lg",
-            dark ? "text-background/70" : "text-muted-foreground"
+            dark ? "text-white/70" : "text-muted-foreground"
           )}
         >
           {description}

@@ -1,12 +1,13 @@
 import { memo } from "react"
+import { Separator } from "@/components/ui/separator"
 
 export const Footer = memo(function Footer() {
   return (
-    <footer className="mt-12 w-full border-t border-white/60 bg-gradient-to-b from-white/60 to-slate-50/90 py-6 backdrop-blur-sm dark:border-white/10 dark:from-slate-900/80 dark:to-slate-950/90 sm:mt-16 sm:py-8">
+    <footer className="mt-12 w-full border-t border-border bg-card/60 py-6 backdrop-blur-sm sm:mt-16 sm:py-8">
       <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
-        <div className="space-y-3 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">
+        <div className="space-y-3 text-[10px] leading-relaxed text-muted-foreground">
           <div>
-            <p className="mb-2 font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+            <p className="mb-2 font-semibold uppercase tracking-wider text-foreground">
               CONFIDENTIAL AND PROPRIETARY INFORMATION
             </p>
             <p>
@@ -18,7 +19,7 @@ export const Footer = memo(function Footer() {
           </div>
 
           <div>
-            <p className="mb-2 font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+            <p className="mb-2 font-semibold uppercase tracking-wider text-foreground">
               UNAUTHORIZED DISCLOSURE PROHIBITED
             </p>
             <p>
@@ -32,13 +33,13 @@ export const Footer = memo(function Footer() {
           </div>
 
           <div>
-            <p className="mb-2 font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+            <p className="mb-2 font-semibold uppercase tracking-wider text-foreground">
               LEGAL CONSEQUENCES
             </p>
             <p className="mb-2">
               Violation of this confidentiality requirement may result in:
             </p>
-            <ul className="list-disc list-inside space-y-1 ml-2">
+            <ul className="ml-2 list-inside list-disc space-y-1">
               <li>Criminal prosecution under data protection and privacy laws</li>
               <li>Civil liability for damages</li>
               <li>Regulatory penalties and sanctions</li>
@@ -51,14 +52,13 @@ export const Footer = memo(function Footer() {
             </p>
           </div>
 
-          <div className="pt-2 border-t border-border/50">
-            <p>
-              By accessing this report, you acknowledge that you understand and agree
-              to maintain the confidentiality of all information contained herein and
-              will not share, distribute, or disclose this report to any unauthorized
-              third party.
-            </p>
-          </div>
+          <Separator className="mt-2" />
+          <p className="pt-2">
+            By accessing this report, you acknowledge that you understand and agree
+            to maintain the confidentiality of all information contained herein and
+            will not share, distribute, or disclose this report to any unauthorized
+            third party.
+          </p>
         </div>
       </div>
     </footer>

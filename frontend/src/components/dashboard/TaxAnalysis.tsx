@@ -136,7 +136,7 @@ function TaxAnalysisInner({ summary }: TaxAnalysisProps) {
             {toLakhs(taxData.taxable_gains)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            Est. tax: {toLakhs(taxData.estimated_tax_liability)}
+            Estimated tax: {toLakhs(taxData.estimated_tax_liability)}
           </p>
         </CompactCard>
       </div>

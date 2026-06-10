@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ./app/Code
+          pip install httpx fastapi uvicorn pydantic PyJWT cryptography casparser-isin click colorama pdfminer-six python-dateutil rich pygments openpyxl xlrd
+      - name: Validate benchmark fixtures
+        run: |
+          PYTHONPATH=. python3 scripts/validate_benchmarks.py
+          PYTHONPATH=. python3 scripts/build_amfi_sector_benchmarks.py
+      - name: Verify scheme master is populated
+        run: |
+          PYTHONPATH=. python3 -c "from app.Code.benchmarks.registry import get_scheme_master_meta; m=get_scheme_master_meta(); assert m.get('scheme_count',0)>10000"
+      - name: Run backend tests
+        run: PYTHONPATH=. python3 -m unittest discover -s tests -p "test_*.py"
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test

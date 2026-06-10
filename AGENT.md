@@ -143,4 +143,5 @@ run_local.bat
 - Keep backend Pydantic models and frontend TypeScript types in sync when response fields change.
 - Add focused tests for admin access, username PII redaction, same-origin token handling, telemetry privacy, upload validation, INR/numeric parsing, parser resilience, report-credit reserve/refund behavior, Razorpay metadata minimization, webhook body/event-id limits, webhook signatures/idempotency, checkout script loading, SPA route config, env exposure, download filename sanitization, and export escaping when touching those areas.
 - Treat benchmark and holdings data as best-effort. Methodology and data-quality warnings are part of the API/UI contract.
+- SEBI/AMFI Tier 1 benchmark data lives in `app/Code/benchmarks/` (`sebi_tier1_registry.json`, `index_proxies.json`, generated `scheme_master.json`). Refresh scheme metadata with `python3 scripts/build_scheme_master.py` and validate mappings with `python3 scripts/validate_benchmarks.py`.
 - If dependency audits flag `pdfminer-six`, prefer upgrading the direct pin and running parser regressions before changing the vendored parser.

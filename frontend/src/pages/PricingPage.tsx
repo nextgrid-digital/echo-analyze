@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
+import { withAuthRedirect } from "@/lib/authRedirect"
 import { createSubscription, verifySubscriptionPayment } from "@/api/billing"
 import { useAuth } from "@/auth/useAuth"
 import { PricingFaq } from "@/components/marketing/PricingFaq"
@@ -55,10 +56,10 @@ interface RazorpayPaymentFailedResponse {
 }
 
 const COMPARISON_ROWS = [
-  { feature: "CAS PDF or JSON upload", free: true, unlimited: true },
-  { feature: "Full portfolio dashboard", free: true, unlimited: true },
-  { feature: "Export & print tools", free: true, unlimited: true },
-  { feature: "Number of reports", free: "1", unlimited: "Unlimited" },
+  { feature: "Advisor workspace", free: true, unlimited: true },
+  { feature: "Portfolio intelligence", free: true, unlimited: true },
+  { feature: "Client review exports", free: true, unlimited: true },
+  { feature: "Client portfolios", free: "1", unlimited: "Unlimited" },
   { feature: "Monthly billing", free: false, unlimited: true },
 ] as const
 
@@ -75,7 +76,7 @@ export function PricingPage() {
 
   const handleSubscribe = async () => {
     if (!user) {
-      navigate("/upload")
+      navigate(withAuthRedirect("/sign-in", "/pricing"))
       return
     }
 
@@ -108,7 +109,7 @@ export function PricingPage() {
           key: subscription.key_id,
           subscription_id: subscription.subscription_id,
           name: "ECHO",
-          description: "Unlimited CAS report analysis",
+          description: "Unlimited client portfolio analysis",
           theme: { color: "#000000" },
           prefill: { email: user?.email },
           handler: (response) => {
@@ -141,16 +142,16 @@ export function PricingPage() {
       <section className="marketing-hero relative overflow-hidden px-4 py-12 sm:px-6 sm:py-16">
         <div className="marketing-grid-bg pointer-events-none absolute inset-0" />
         <div className="relative mx-auto max-w-6xl text-center">
-          <p className="inline-flex items-center gap-2 border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-medium text-violet-800">
-            <Sparkles className="h-3.5 w-3.5 text-violet-600" />
+          <p className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/50 px-3 py-1 text-xs font-medium text-muted-foreground">
+            <Sparkles className="h-3.5 w-3.5" />
             Simple, transparent pricing
           </p>
           <h1 className="mt-6 text-4xl font-bold tracking-tight sm:text-5xl">
-            Choose your CAS access
+            Plans for advisory practices
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-base text-muted-foreground sm:text-lg">
-            Start with one free report, then unlock unlimited CAS analysis whenever you
-            need it.
+            Start with one client portfolio, then scale to unlimited reviews across your
+            book.
           </p>
         </div>
       </section>
@@ -170,7 +171,7 @@ export function PricingPage() {
                   <ScanLine className="h-5 w-5" />
                 </div>
                 <CardTitle className="text-2xl">Free</CardTitle>
-                <CardDescription>For trying the portfolio analyzer once.</CardDescription>
+                <CardDescription>For evaluating Echo with one client portfolio.</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col justify-between gap-8">
                 <div>
@@ -185,8 +186,8 @@ export function PricingPage() {
                       : "One free report included"}
                   </p>
                   <div className="mt-8 space-y-4 text-sm">
-                    <Feature>One CAS PDF or JSON analysis</Feature>
-                    <Feature>Portfolio dashboard and export tools</Feature>
+                    <Feature>One client portfolio</Feature>
+                    <Feature>Full advisor workspace and exports</Feature>
                     <Feature>No commitment required</Feature>
                   </div>
                 </div>
@@ -197,7 +198,7 @@ export function PricingPage() {
             </Card>
 
             <Card className="relative flex h-full min-h-[460px] flex-col border-t-[3px] border-t-violet-500 bg-violet-50/30 shadow-apple-hover">
-              <Badge className="absolute -top-3 right-6 rounded-none bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-600 hover:to-indigo-600">
+              <Badge className="absolute -top-3 right-6 bg-primary text-primary-foreground">
                 Most popular
               </Badge>
               <CardHeader>
@@ -205,7 +206,7 @@ export function PricingPage() {
                   <InfinityIcon className="h-5 w-5" />
                 </div>
                 <CardTitle className="text-2xl">Unlimited</CardTitle>
-                <CardDescription>For ongoing CAS scans on the same account.</CardDescription>
+                <CardDescription>For practices running reviews across many clients.</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col justify-between gap-8">
                 <div>
@@ -217,8 +218,8 @@ export function PricingPage() {
                     Rs 2,000 plus 18% GST, billed monthly via Razorpay.
                   </p>
                   <div className="mt-8 space-y-4 text-sm">
-                    <Feature highlight>Unlimited CAS report analysis</Feature>
-                    <Feature highlight>Available whenever you sign in</Feature>
+                    <Feature highlight>Unlimited client portfolios</Feature>
+                    <Feature highlight>Full workspace on every review</Feature>
                     <Feature highlight>Easy renewal and cancellation</Feature>
                   </div>
                 </div>
