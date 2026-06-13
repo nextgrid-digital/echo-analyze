@@ -219,5 +219,15 @@ export interface AnalysisResponse {
   success: boolean
   holdings: Holding[]
   summary?: AnalysisSummary | null
+  investment_events?: InvestmentEvent[]
   error?: string | null
+}
+
+export type InvestmentEventType = "purchase" | "sip" | "redemption" | "dividend" | "other"
+
+export interface InvestmentEvent {
+  date: string
+  type: InvestmentEventType
+  amount: number
+  scheme_name?: string | null
 }

@@ -42,6 +42,6 @@ describe("AuthPanel", () => {
     expect(googleButton).toBeEnabled()
 
     fireEvent.click(googleButton)
-    await waitFor(() => expect(signInWithGoogle).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(signInWithGoogle).toHaveBeenCalledWith("/dashboard"))
   })
 })

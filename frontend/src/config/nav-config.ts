@@ -1,4 +1,4 @@
-export type NavIcon = "home" | "clients" | "logo"
+export type NavIcon = "home" | "clients" | "opportunities" | "logo"
 
 export interface NavItem {
   title: string
@@ -25,6 +25,11 @@ export const navGroups: NavGroup[] = [
         title: "Clients",
         url: "/clients",
         icon: "clients",
+      },
+      {
+        title: "Opportunities",
+        url: "/opportunities",
+        icon: "opportunities",
       },
     ],
   },

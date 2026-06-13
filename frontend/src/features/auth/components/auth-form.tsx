@@ -65,7 +65,7 @@ export function AuthForm({ mode }: AuthFormProps) {
     setLoading(true)
 
     try {
-      await signInWithGoogle()
+      await signInWithGoogle(redirectPath)
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Google sign-in failed.")
       setLoading(false)

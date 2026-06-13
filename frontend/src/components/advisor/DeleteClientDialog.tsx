@@ -34,7 +34,7 @@ export function DeleteClientDialog({
     if (!client) return
     setIsDeleting(true)
     try {
-      const deleted = deleteClient(client.pan)
+      const deleted = await deleteClient(client.pan)
       if (deleted) {
         onDeleted?.(client.pan)
         onOpenChange(false)
@@ -51,7 +51,7 @@ export function DeleteClientDialog({
           <DialogTitle>Delete client?</DialogTitle>
           <DialogDescription>
             This removes <span className="font-medium text-foreground">{client?.name}</span> and their
-            stored CAS analysis from this browser. Advisor notes for this client are also deleted.
+            stored portfolio analysis from your account. Advisor notes for this client are also deleted.
             This cannot be undone.
           </DialogDescription>
         </DialogHeader>

@@ -1,0 +1,1 @@
+function r(t,n=0){if(t==null)return n;const i=Number(t);return Number.isFinite(i)?i:n}function e(t){const n=r(t);return n>=1e5?`Rs ${(n/1e5).toFixed(2)} Lakhs`:`Rs ${n.toLocaleString("en-IN")}`}function o(t){return`${r(t).toFixed(1)}%`}function u(t){return r(t).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})}export{u as a,o as f,e as t};

@@ -52,6 +52,14 @@ const PrivacyPage = lazy(() =>
 const NotFoundPage = lazy(() =>
   import("@/pages/NotFoundPage").then((module) => ({ default: module.NotFoundPage }))
 )
+const ClientReviewPage = lazy(() =>
+  import("@/pages/ClientReviewPage").then((module) => ({ default: module.ClientReviewPage }))
+)
+const OpportunitiesPage = lazy(() =>
+  import("@/pages/advisor/OpportunitiesPage").then((module) => ({
+    default: module.OpportunitiesPage,
+  }))
+)
 
 function App() {
   const { loading, user, isAdmin } = useAuth()
@@ -78,7 +86,10 @@ function App() {
       }
     >
       <Routes>
-        <Route path="/" element={<LandingPage />} />
+        <Route
+          path="/"
+          element={user ? <Navigate to="/dashboard" replace /> : <LandingPage />}
+        />
         <Route path="/sign-in" element={<SignInPage />} />
         <Route path="/sign-up" element={<SignUpPage />} />
         <Route path="/upload" element={<UploadPage />} />
@@ -91,6 +102,8 @@ function App() {
         <Route path="/dashboard/report" element={authRequired(<ReportPage />)} />
         <Route path="/clients" element={authRequired(<ClientsPage />)} />
         <Route path="/clients/:pan" element={authRequired(<ClientWorkspacePage />)} />
+        <Route path="/opportunities" element={authRequired(<OpportunitiesPage />)} />
+        <Route path="/review/:shareId" element={<ClientReviewPage />} />
         <Route
           path="/admin"
           element={

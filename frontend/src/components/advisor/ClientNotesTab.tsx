@@ -29,6 +29,7 @@ export function ClientNotesTab({ clientPan }: ClientNotesTabProps) {
   const [notes, setNotes] = useState("")
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
   const [isDirty, setIsDirty] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -36,6 +37,7 @@ export function ClientNotesTab({ clientPan }: ClientNotesTabProps) {
       setNotes("")
       setLastSavedAt(null)
       setIsDirty(false)
+      setSaveError(null)
       return
     }
 
@@ -43,14 +45,22 @@ export function ClientNotesTab({ clientPan }: ClientNotesTabProps) {
     setNotes(stored)
     setLastSavedAt(stored ? new Date() : null)
     setIsDirty(false)
+    setSaveError(null)
   }, [clientPan])
 
   const persistNotes = useCallback(
-    (value: string) => {
+    async (value: string) => {
       if (!clientPan) return
-      setClientNotes(clientPan, value)
-      setLastSavedAt(new Date())
-      setIsDirty(false)
+      try {
+        await setClientNotes(clientPan, value)
+        setLastSavedAt(new Date())
+        setIsDirty(false)
+        setSaveError(null)
+      } catch (error) {
+        setSaveError(
+          error instanceof Error ? error.message : "Could not save notes. Try again later."
+        )
+      }
     },
     [clientPan]
   )
@@ -58,13 +68,14 @@ export function ClientNotesTab({ clientPan }: ClientNotesTabProps) {
   const handleChange = (value: string) => {
     setNotes(value)
     setIsDirty(true)
+    setSaveError(null)
 
     if (debounceRef.current) {
       clearTimeout(debounceRef.current)
     }
 
     debounceRef.current = setTimeout(() => {
-      persistNotes(value)
+      void persistNotes(value)
     }, 500)
   }
 
@@ -80,7 +91,7 @@ export function ClientNotesTab({ clientPan }: ClientNotesTabProps) {
     if (debounceRef.current) {
       clearTimeout(debounceRef.current)
     }
-    persistNotes(notes)
+    void persistNotes(notes)
   }
 
   return (
@@ -89,7 +100,7 @@ export function ClientNotesTab({ clientPan }: ClientNotesTabProps) {
         <CardHeader>
           <CardTitle className="text-base">Advisor Notes</CardTitle>
           <CardDescription>
-            Private notes for this client meeting. Saved locally in your browser.
+            Private notes for this client meeting. Synced to your Echo account.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -108,11 +119,13 @@ export function ClientNotesTab({ clientPan }: ClientNotesTabProps) {
         </CardContent>
         <CardFooter className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">
-            {isDirty
-              ? "Saving..."
-              : lastSavedAt
-                ? `Last saved ${formatSavedAt(lastSavedAt)}`
-                : "No notes saved yet"}
+            {saveError
+              ? saveError
+              : isDirty
+                ? "Saving..."
+                : lastSavedAt
+                  ? `Last saved ${formatSavedAt(lastSavedAt)}`
+                  : "No notes saved yet"}
           </p>
           <Button
             type="button"

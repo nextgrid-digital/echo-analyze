@@ -1,1 +1,0 @@
-import{j as t,a}from"./index-CTJ0a7ez.js";function c({className:s,size:o=32,...r}){return t.jsx("img",{src:"/echo-logo.svg",alt:"ECHO",width:o,height:o,className:a("shrink-0 rounded-md",s),...r})}export{c as E};

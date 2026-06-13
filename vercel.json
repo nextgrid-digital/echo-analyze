@@ -75,6 +75,34 @@
       "continue": true
     },
     {
+      "src": "^/clients/(.*)$",
+      "headers": {
+        "Cache-Control": "no-store, max-age=0"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/review$",
+      "headers": {
+        "Cache-Control": "no-store, max-age=0"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/review/(.*)$",
+      "headers": {
+        "Cache-Control": "no-store, max-age=0"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/opportunities$",
+      "headers": {
+        "Cache-Control": "no-store, max-age=0"
+      },
+      "continue": true
+    },
+    {
       "src": "/api/(.*)",
       "dest": "app/Code/main.py"
     },
@@ -116,6 +144,26 @@
     },
     {
       "src": "/upload/(.*)",
+      "dest": "app/Code/main.py"
+    },
+    {
+      "src": "/clients",
+      "dest": "app/Code/main.py"
+    },
+    {
+      "src": "/clients/(.*)",
+      "dest": "app/Code/main.py"
+    },
+    {
+      "src": "/review",
+      "dest": "app/Code/main.py"
+    },
+    {
+      "src": "/review/(.*)",
+      "dest": "app/Code/main.py"
+    },
+    {
+      "src": "/opportunities",
       "dest": "app/Code/main.py"
     },
     {

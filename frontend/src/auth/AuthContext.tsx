@@ -9,6 +9,10 @@ import { apiFetch, readJson } from "@/api/client"
 import { getBillingAccess } from "@/api/billing"
 import { AuthContext, type AuthContextValue } from "@/auth/auth-context"
 import {
+  hydrateAdvisorBookFromServer,
+  resetAdvisorBookOnSignOut,
+} from "@/lib/opportunities/advisorBookStore"
+import {
   bootstrapSupabaseConfig,
   getSupabaseAuthHost,
   getSupabaseClient,
@@ -233,6 +237,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refreshBillingAccess()
   }, [refreshBillingAccess])
 
+  useEffect(() => {
+    if (!user?.id || !accessToken) {
+      resetAdvisorBookOnSignOut()
+      return
+    }
+
+    void hydrateAdvisorBookFromServer().catch(() => {
+      // Advisor pages surface load errors via useAdvisorClients.
+    })
+  }, [accessToken, user?.id])
+
   const value = useMemo<AuthContextValue>(() => {
     return {
       configured,
@@ -258,15 +273,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error(formatAuthError(error, "Authentication failed."))
         }
       },
-      async signInWithGoogle() {
+      async signInWithGoogle(redirectPath = "/dashboard") {
         if (!supabase) {
           throw new Error("Supabase is not configured.")
         }
+        const safeRedirect =
+          redirectPath.startsWith("/") && !redirectPath.startsWith("//")
+            ? redirectPath
+            : "/dashboard"
         try {
           const { error } = await supabase.auth.signInWithOAuth({
             provider: "google",
             options: {
-              redirectTo: window.location.origin,
+              redirectTo: `${window.location.origin}${safeRedirect}`,
               queryParams: {
                 access_type: "offline",
                 prompt: "select_account",

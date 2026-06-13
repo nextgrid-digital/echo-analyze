@@ -7,7 +7,7 @@ import { buildClientWorkspacePath } from "@/lib/clientWorkspace"
 
 export function ClientsPage() {
   const navigate = useNavigate()
-  const { clients, refreshClients } = useAdvisorClients()
+  const { clients, loading, error, refreshClients } = useAdvisorClients()
 
   const openClient = (pan: string) => {
     setActiveClientPan(pan)
@@ -19,8 +19,11 @@ export function ClientsPage() {
       title="Clients"
       description="Your advisor book — clients with uploaded CAS reports"
     >
+      {error ? (
+        <p className="mb-4 text-sm text-destructive">{error}</p>
+      ) : null}
       <ClientBookTable
-        clients={clients}
+        clients={loading ? [] : clients}
         onClientClick={openClient}
         onClientDeleted={refreshClients}
         uploadHref="/upload"

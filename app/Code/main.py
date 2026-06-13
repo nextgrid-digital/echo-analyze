@@ -57,6 +57,17 @@ from app.Code.benchmarks.tri_history import fetch_tri_index_history, tri_data_av
 from app.holdings import get_holdings_for_schemes, save_amfi_cache_async
 from app.overlap import compute_overlap_matrix
 from app.utils import calculate_xirr, fetch_live_nav, fetch_nav_history, save_cache_async
+from app.Code.investment_events import InvestmentEvent, extract_investment_events
+from app.Code.reviews import (
+    compare_review_snapshots,
+    create_cas_upload_snapshot,
+    disable_review_link,
+    get_public_review,
+    list_review_history,
+    list_review_links,
+    prepare_review,
+    share_review,
+)
 
 app = FastAPI()
 
@@ -1317,6 +1328,7 @@ class AnalysisResponse(BaseModel):
     success: bool
     holdings: List[Holding] = Field(default_factory=list)
     summary: Optional[AnalysisSummary] = None
+    investment_events: List[InvestmentEvent] = Field(default_factory=list)
     error: Optional[str] = None
 
 
@@ -1404,6 +1416,28 @@ class DemoRequestBody(BaseModel):
 
 class DemoRequestResponse(BaseModel):
     ok: bool = True
+
+
+class PrepareReviewBody(BaseModel):
+    client_pan: str
+    notes: str = ""
+
+
+class ShareReviewBody(BaseModel):
+    client_pan: str
+
+
+class CasUploadSnapshotBody(BaseModel):
+    client_pan: str
+    analysis: dict
+
+
+class DisableReviewLinkBody(BaseModel):
+    is_active: bool = False
+
+
+_public_review_rate_limit: Dict[str, float] = {}
+PUBLIC_REVIEW_RATE_LIMIT_SECONDS = 2.0
 
 
 class AdminAnalyticsMetrics(BaseModel):
@@ -2594,7 +2628,15 @@ async def map_casparser_to_analysis(cas_data: dict) -> AnalysisResponse:
         ),
         analysis_version=ANALYSIS_VERSION,
     )
-    return _safe_analysis_response(AnalysisResponse(success=True, holdings=holdings, summary=summary))
+    investment_events = extract_investment_events(cas_data)
+    return _safe_analysis_response(
+        AnalysisResponse(
+            success=True,
+            holdings=holdings,
+            summary=summary,
+            investment_events=investment_events,
+        )
+    )
 
 
 def parse_cas_data(_data):
@@ -3107,6 +3149,92 @@ async def demo_request(request: Request, body: DemoRequestBody):
     return DemoRequestResponse()
 
 
+def _check_public_review_rate_limit(client_ip: str) -> None:
+    now = monotonic()
+    last_request = _public_review_rate_limit.get(client_ip)
+    if last_request is not None and now - last_request < PUBLIC_REVIEW_RATE_LIMIT_SECONDS:
+        raise HTTPException(status_code=429, detail="Too many requests.")
+    _public_review_rate_limit[client_ip] = now
+
+
+@app.post("/api/reviews/prepare")
+async def reviews_prepare(request: Request, body: PrepareReviewBody):
+    user = await require_supabase_user(request)
+    result = await prepare_review(user, body.client_pan, notes=body.notes)
+    record_audit_log(
+        user_id=user.user_id,
+        username=user.username,
+        route=request.url.path,
+        action="review_prepare",
+        status="ok",
+        message=f"client_pan={body.client_pan.strip().upper()}",
+    )
+    return result
+
+
+@app.post("/api/reviews/share")
+async def reviews_share(request: Request, body: ShareReviewBody):
+    user = await require_supabase_user(request)
+    result = await share_review(user, body.client_pan)
+    record_audit_log(
+        user_id=user.user_id,
+        username=user.username,
+        route=request.url.path,
+        action="review_share",
+        status="ok",
+        message=f"share_id={result.get('share_id')}",
+    )
+    return result
+
+
+@app.post("/api/reviews/snapshot")
+async def reviews_snapshot(request: Request, body: CasUploadSnapshotBody):
+    user = await require_supabase_user(request)
+    await create_cas_upload_snapshot(user.user_id, body.client_pan, body.analysis, user.username)
+    return {"ok": True}
+
+
+@app.get("/api/reviews/public/{share_id}")
+async def reviews_public(request: Request, share_id: str):
+    _check_public_review_rate_limit(_client_ip(request))
+    return await get_public_review(share_id)
+
+
+@app.patch("/api/reviews/links/{link_id}")
+async def reviews_disable_link(request: Request, link_id: str, body: DisableReviewLinkBody):
+    user = await require_supabase_user(request)
+    if body.is_active:
+        raise HTTPException(status_code=400, detail="Only disabling links is supported.")
+    await disable_review_link(user, link_id)
+    record_audit_log(
+        user_id=user.user_id,
+        username=user.username,
+        route=request.url.path,
+        action="review_link_disabled",
+        status="ok",
+        message=f"link_id={link_id}",
+    )
+    return {"ok": True}
+
+
+@app.get("/api/reviews/history/{client_pan}")
+async def reviews_history(request: Request, client_pan: str):
+    user = await require_supabase_user(request)
+    events = await list_review_history(user, client_pan)
+    links = await list_review_links(user, client_pan)
+    return {"events": events, "links": links}
+
+
+@app.get("/api/reviews/compare")
+async def reviews_compare(
+    request: Request,
+    left_snapshot_id: str = Query(...),
+    right_snapshot_id: str = Query(...),
+):
+    user = await require_supabase_user(request)
+    return await compare_review_snapshots(user, left_snapshot_id, right_snapshot_id)
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
@@ -3212,6 +3340,21 @@ async def clients_page():
 
 @app.get("/clients/{path:path}")
 async def clients_page_nested(path: str):
+    return _serve_spa()
+
+
+@app.get("/review")
+async def review_page():
+    return _serve_spa()
+
+
+@app.get("/review/{path:path}")
+async def review_page_nested(path: str):
+    return _serve_spa()
+
+
+@app.get("/opportunities")
+async def opportunities_page():
     return _serve_spa()
 
 

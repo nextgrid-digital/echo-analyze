@@ -4,16 +4,11 @@ import { EchoLogo } from "@/components/EchoLogo"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-const NAV_LINKS = [
-  { to: "/pricing", label: "Pricing" },
-  { to: "/demo", label: "Demo" },
-] as const
-
-const AUTH_NAV_LINKS = [{ to: "/dashboard", label: "Dashboard" }] as const
+const NAV_LINKS = [{ to: "/pricing", label: "Pricing" }] as const
 
 export function SiteHeader() {
   const { pathname } = useLocation()
-  const { user, isAdmin, signOut, username } = useAuth()
+  const { user, isAdmin, signOut } = useAuth()
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/80 bg-background/90 backdrop-blur-md">
@@ -40,18 +35,6 @@ export function SiteHeader() {
           ))}
           {user ? (
             <>
-              {AUTH_NAV_LINKS.map(({ to, label }) => (
-                <Button
-                  key={to}
-                  asChild
-                  variant="ghost"
-                  size="sm"
-                  className={cn(pathname === to && "bg-accent text-accent-foreground")}
-                >
-                  <Link to={to}>{label}</Link>
-                </Button>
-              ))}
-              <span className="hidden text-sm text-muted-foreground sm:inline">{username}</span>
               {isAdmin && (
                 <Button asChild variant="outline" size="sm">
                   <Link to="/admin">Admin</Link>

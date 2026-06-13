@@ -42,6 +42,8 @@ interface ClientHeaderProps {
   onOpenNotices?: () => void
   onDeleteClient?: () => void
   onUploadCas?: MouseEventHandler<HTMLButtonElement>
+  onPrepareReview?: () => void
+  onShareReview?: () => void
   isDownloading?: boolean
 }
 
@@ -51,6 +53,8 @@ export function ClientHeader({
   onOpenNotices,
   onDeleteClient,
   onUploadCas,
+  onPrepareReview,
+  onShareReview,
   isDownloading = false,
 }: ClientHeaderProps) {
   const name = summary.investor_info?.name?.trim() || "Client"
@@ -85,6 +89,16 @@ export function ClientHeader({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {onPrepareReview ? (
+            <Button size="sm" type="button" onClick={onPrepareReview}>
+              Prepare Review
+            </Button>
+          ) : null}
+          {onShareReview ? (
+            <Button variant="secondary" size="sm" type="button" onClick={onShareReview}>
+              Share Review
+            </Button>
+          ) : null}
           <Button variant="outline" size="sm" type="button" onClick={onUploadCas}>
             <Upload className="mr-2 h-4 w-4" />
             Upload CAS

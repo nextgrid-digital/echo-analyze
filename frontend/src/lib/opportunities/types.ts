@@ -6,6 +6,7 @@ export interface AdvisorBookClient {
   email?: string | null
   phone?: string | null
   analysis: AnalysisResponse
+  notes?: string
   updatedAt: string
 }
 

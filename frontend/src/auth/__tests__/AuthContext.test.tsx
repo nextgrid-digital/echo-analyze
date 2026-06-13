@@ -213,7 +213,7 @@ describe("AuthProvider", () => {
       expect(signInWithOAuth).toHaveBeenCalledWith({
         provider: "google",
         options: {
-          redirectTo: window.location.origin,
+          redirectTo: `${window.location.origin}/dashboard`,
           queryParams: {
             access_type: "offline",
             prompt: "select_account",

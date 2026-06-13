@@ -1,32 +1,39 @@
-const STORAGE_PREFIX = "echo-advisor-notes:"
+import { updateAdvisorClientNotes } from "@/api/advisorClients"
+import { getClientByPan, updateClientNotesInCache } from "@/lib/opportunities/advisorBookStore"
+import {
+  deleteLocalClientNotes,
+  readLocalClientNotes,
+  writeLocalClientNotes,
+} from "@/lib/clientNotesLocal"
 
-function storageKey(clientPan: string): string {
-  return `${STORAGE_PREFIX}${clientPan.trim().toUpperCase()}`
-}
+export { readLocalClientNotes, clearAllLocalClientNotes } from "@/lib/clientNotesLocal"
 
 export function getClientNotes(clientPan: string): string {
   if (!clientPan.trim()) return ""
-  try {
-    return localStorage.getItem(storageKey(clientPan)) ?? ""
-  } catch {
-    return ""
+
+  const cached = getClientByPan(clientPan)?.notes
+  if (cached !== undefined) {
+    return cached
   }
+
+  return readLocalClientNotes(clientPan)
 }
 
-export function setClientNotes(clientPan: string, notes: string): void {
+export async function setClientNotes(clientPan: string, notes: string): Promise<void> {
   if (!clientPan.trim()) return
+
+  updateClientNotesInCache(clientPan, notes)
+
   try {
-    localStorage.setItem(storageKey(clientPan), notes)
+    await updateAdvisorClientNotes(clientPan, notes)
+    deleteLocalClientNotes(clientPan)
   } catch {
-    // Ignore quota or privacy errors
+    writeLocalClientNotes(clientPan, notes)
+    throw new Error("Could not save notes. Try again later.")
   }
 }
 
 export function deleteClientNotes(clientPan: string): void {
-  if (!clientPan.trim()) return
-  try {
-    localStorage.removeItem(storageKey(clientPan))
-  } catch {
-    // Ignore quota or privacy errors
-  }
+  updateClientNotesInCache(clientPan, "")
+  deleteLocalClientNotes(clientPan)
 }

@@ -13,6 +13,17 @@ vi.mock("@/auth/useAuth", () => ({
   useAuth: vi.fn(),
 }))
 
+vi.mock("@/api/reviews", () => ({
+  createCasUploadSnapshot: vi.fn(async () => undefined),
+}))
+
+vi.mock("@/api/advisorClients", () => ({
+  fetchAdvisorClients: vi.fn(async () => []),
+  upsertAdvisorClient: vi.fn(async (client: { pan: string; name: string; analysis: unknown; updatedAt: string }) => client),
+  deleteAdvisorClient: vi.fn(async () => undefined),
+  updateAdvisorClientNotes: vi.fn(async () => undefined),
+}))
+
 function mockAuth() {
   vi.mocked(useAuth).mockReturnValue({
     configured: true,

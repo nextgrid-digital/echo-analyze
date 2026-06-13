@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress"
 import { setActiveClientPan } from "@/lib/activeClient"
 import { storeLatestAnalysis } from "@/lib/analysisSession"
 import { upsertClientAnalysis } from "@/lib/opportunities/advisorBookStore"
+import { createCasUploadSnapshot } from "@/api/reviews"
 import { cn } from "@/lib/utils"
 import { ArrowRight, CheckCircle2, CreditCard, Lock, Upload, X } from "lucide-react"
 
@@ -216,13 +217,25 @@ export function CasUploadPanel({
     }
 
     storeLatestAnalysis(result)
-    const client = upsertClientAnalysis(result)
+
+    let client
+    try {
+      client = await upsertClientAnalysis(result)
+    } catch {
+      return {
+        ...item,
+        status: "error",
+        error: "Analysis completed but could not save the client. Try again later.",
+      }
+    }
+
     const pan = client?.pan ?? result.summary.investor_info?.pan?.trim() ?? undefined
     const clientName = client?.name ?? result.summary.investor_info?.name?.trim()
 
     if (pan) {
       setActiveClientPan(pan)
       onClientStored?.(pan)
+      void createCasUploadSnapshot(pan, result)
     }
 
     return {

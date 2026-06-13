@@ -13,8 +13,10 @@ Application runtime code stays in `app/Code/supabase_auth.py` and `frontend/src/
 - Admin detection through Supabase app metadata, using `role = "admin"` by default.
 - RLS policies that let users read their own profile, update only their display username, and let admins read profiles.
 - Service-role-only billing RPCs for quota consumption, refunds, subscription updates, and webhook idempotency.
+- Per-user advisor client books in `public.advisor_clients` (parsed analysis JSON + advisor notes, synced across devices).
+- Advisor review platform tables: `review_snapshots`, `review_links`, `meeting_briefs`, `client_review_events`.
 
-The app does not store CAS files, parsed CAS reports, or uploaded filenames. Admin analytics show usernames only.
+The app does not store raw CAS files or uploaded filenames. Parsed portfolio analysis for the advisor client book is stored in Supabase per authenticated user. Admin analytics show usernames only.
 
 ## Apply The Migration
 
@@ -29,6 +31,8 @@ Then apply `migrations/20260601000000_report_limits_and_razorpay.sql` and
 `migrations/20260604000000_harden_profile_billing_permissions.sql` as well.
 If the Razorpay billing migration was already applied before webhook retry hardening,
 also apply `migrations/20260604001000_harden_razorpay_webhook_idempotency.sql`.
+Apply `migrations/20260610000000_advisor_clients.sql` for cross-device advisor client sync.
+Apply `migrations/20260611000000_advisor_review_platform.sql` for review links, meeting briefs, and review history.
 
 ## Enable Google Sign-In
 

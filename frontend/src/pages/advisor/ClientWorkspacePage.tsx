@@ -4,7 +4,8 @@ import { AdvisorShellPage } from "@/components/advisor/AdvisorShellPage"
 import { ClientCasUploadDialog } from "@/components/advisor/ClientCasUploadDialog"
 import { ClientHeader } from "@/components/advisor/ClientHeader"
 import { ClientWorkspaceTabs } from "@/components/advisor/ClientWorkspaceTabs"
-import { DeleteClientDialog } from "@/components/advisor/DeleteClientDialog"
+import { PrepareReviewDialog } from "@/components/advisor/PrepareReviewDialog"
+import { ShareReviewDialog } from "@/components/advisor/ShareReviewDialog"
 import { WarningRail } from "@/components/dashboard/WarningRail"
 import {
   Dialog,
@@ -21,11 +22,13 @@ export function ClientWorkspacePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const tabParam = searchParams.get("tab")
-  const validTabs = new Set(["overview", "holdings", "performance", "risk", "notes"])
+  const validTabs = new Set(["overview", "holdings", "performance", "risk", "notes", "reviews"])
   const defaultTab = tabParam && validTabs.has(tabParam) ? tabParam : "overview"
   const [noticesOpen, setNoticesOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [prepareOpen, setPrepareOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
   const workspaceRef = useRef<HTMLDivElement>(null)
 
@@ -119,6 +122,20 @@ export function ClientWorkspacePage() {
         onSuccess={handleUploadSuccess}
       />
 
+      <ShareReviewDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        clientPan={clientPan ?? ""}
+        clientName={summary.investor_info?.name?.trim() || "Client"}
+      />
+
+      <PrepareReviewDialog
+        open={prepareOpen}
+        onOpenChange={setPrepareOpen}
+        clientPan={clientPan ?? ""}
+        clientName={summary.investor_info?.name?.trim() || "Client"}
+      />
+
       <DeleteClientDialog
         client={
           clientPan
@@ -139,6 +156,8 @@ export function ClientWorkspacePage() {
         onOpenNotices={() => setNoticesOpen(true)}
         onDeleteClient={() => setDeleteOpen(true)}
         onUploadCas={() => setUploadOpen(true)}
+        onPrepareReview={() => setPrepareOpen(true)}
+        onShareReview={() => setShareOpen(true)}
         isDownloading={isDownloading}
       />
 

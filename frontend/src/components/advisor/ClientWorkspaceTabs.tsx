@@ -1,6 +1,7 @@
 import { HoldingsTable } from "@/components/dashboard/HoldingsTable"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ClientNotesTab } from "./ClientNotesTab"
+import { ClientReviewHistoryTab } from "./ClientReviewHistoryTab"
 import { ClientOverview } from "./ClientOverview"
 import { ClientPerformanceTab } from "./ClientPerformanceTab"
 import { ClientRiskTab } from "./ClientRiskTab"
@@ -13,7 +14,7 @@ interface ClientWorkspaceTabsProps {
   clientPan?: string
 }
 
-const VALID_TABS = new Set(["overview", "holdings", "performance", "risk", "notes"])
+const VALID_TABS = new Set(["overview", "holdings", "performance", "risk", "notes", "reviews"])
 
 export function ClientWorkspaceTabs({
   summary,
@@ -31,6 +32,7 @@ export function ClientWorkspaceTabs({
         <TabsTrigger value="performance">Performance</TabsTrigger>
         <TabsTrigger value="risk">Risk &amp; Allocation</TabsTrigger>
         <TabsTrigger value="notes">Notes</TabsTrigger>
+        <TabsTrigger value="reviews">Reviews</TabsTrigger>
       </TabsList>
 
       <TabsContent value="overview">
@@ -55,6 +57,10 @@ export function ClientWorkspaceTabs({
 
       <TabsContent value="notes" className="space-y-6">
         <ClientNotesTab clientPan={clientPan} />
+      </TabsContent>
+
+      <TabsContent value="reviews" className="space-y-6">
+        <ClientReviewHistoryTab clientPan={clientPan} />
       </TabsContent>
     </Tabs>
   )

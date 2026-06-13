@@ -21,6 +21,7 @@ import { navGroups, type NavIcon } from "@/config/nav-config"
 const iconMap: Record<NavIcon, ComponentType<{ className?: string }>> = {
   home: Icons.dashboard,
   clients: Icons.teams,
+  opportunities: Icons.sparkles,
   logo: Icons.logo,
 }
 
@@ -88,7 +89,8 @@ export function AppSidebar() {
                   (item.url === "/dashboard" &&
                     pathname.startsWith("/dashboard") &&
                     pathname !== "/dashboard/report") ||
-                  (item.url === "/clients" && pathname.startsWith("/clients/"))
+                  (item.url === "/clients" && pathname.startsWith("/clients/")) ||
+                  (item.url === "/opportunities" && pathname.startsWith("/opportunities"))
 
                 return (
                   <SidebarMenuItem key={item.title}>
