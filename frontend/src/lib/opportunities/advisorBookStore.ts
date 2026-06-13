@@ -58,6 +58,17 @@ function clearLocalBook(): void {
   window.localStorage.removeItem(STORAGE_KEY)
 }
 
+function persistClientLocally(client: AdvisorBookClient): void {
+  if (typeof window === "undefined") return
+  try {
+    const book = readLocalBook()
+    book.clients[client.pan] = client
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(book))
+  } catch {
+    // Ignore quota or privacy errors; memory cache still holds the client.
+  }
+}
+
 function getClientPan(analysis: AnalysisResponse): string {
   return analysis.summary?.investor_info?.pan?.trim() || "UNKNOWN"
 }
@@ -188,7 +199,14 @@ export async function upsertClientAnalysis(
     updatedAt: new Date().toISOString(),
   }
 
-  const saved = await upsertAdvisorClient(client)
+  let saved = client
+  try {
+    saved = await upsertAdvisorClient(client)
+  } catch {
+    persistClientLocally(client)
+    saved = client
+  }
+
   writeMemoryClient(saved)
   hydrated = true
   deleteLocalClientNotes(pan)

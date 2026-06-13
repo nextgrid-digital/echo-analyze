@@ -218,19 +218,18 @@ export function CasUploadPanel({
 
     storeLatestAnalysis(result)
 
-    let client
-    try {
-      client = await upsertClientAnalysis(result)
-    } catch {
+    const client = await upsertClientAnalysis(result)
+
+    const pan = client?.pan ?? result.summary.investor_info?.pan?.trim() ?? undefined
+    const clientName = client?.name ?? result.summary.investor_info?.name?.trim()
+
+    if (!client) {
       return {
         ...item,
         status: "error",
         error: "Analysis completed but could not save the client. Try again later.",
       }
     }
-
-    const pan = client?.pan ?? result.summary.investor_info?.pan?.trim() ?? undefined
-    const clientName = client?.name ?? result.summary.investor_info?.name?.trim()
 
     if (pan) {
       setActiveClientPan(pan)
@@ -354,10 +353,13 @@ export function CasUploadPanel({
   }
 
   return (
-    <section className={className} aria-disabled={isLocked}>
+    <section
+      className={cn(embedded && "w-full min-w-0 overflow-x-hidden", className)}
+      aria-disabled={isLocked}
+    >
       <Card
         className={cn(
-          "cursor-pointer border-2 border-dashed py-0 shadow-none transition-all duration-200",
+          "w-full cursor-pointer border-2 border-dashed py-0 shadow-none transition-all duration-200",
           embedded ? "mb-4" : "mb-6",
           isLocked || loading
             ? "cursor-not-allowed opacity-75"
@@ -470,11 +472,11 @@ export function CasUploadPanel({
           {queue.map((item) => (
             <div
               key={item.id}
-              className="rounded-lg border bg-card p-4"
+              className="min-w-0 overflow-hidden rounded-lg border bg-card p-4"
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0 flex-1 overflow-hidden">
                   <p className="truncate text-sm font-medium">{item.file.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {(item.file.size / (1024 * 1024)).toFixed(2)} MB
@@ -552,7 +554,7 @@ export function CasUploadPanel({
         </Alert>
       )}
 
-      <div className="flex flex-col justify-center gap-4 sm:flex-row">
+      <div className="flex flex-wrap justify-center gap-3">
         {user && billingAccess && !billingAccess.has_unlimited_reports && !isQuotaLocked && (
           <Button asChild variant="outline" className="min-h-12 px-8">
             <Link to="/pricing">

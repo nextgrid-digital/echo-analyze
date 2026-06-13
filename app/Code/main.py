@@ -58,6 +58,7 @@ from app.holdings import get_holdings_for_schemes, save_amfi_cache_async
 from app.overlap import compute_overlap_matrix
 from app.utils import calculate_xirr, fetch_live_nav, fetch_nav_history, save_cache_async
 from app.Code.investment_events import InvestmentEvent, extract_investment_events
+from app.Code.advisor_clients import list_advisor_clients_for_user, upsert_advisor_client_for_user
 from app.Code.reviews import (
     compare_review_snapshots,
     create_cas_upload_snapshot,
@@ -1434,6 +1435,16 @@ class CasUploadSnapshotBody(BaseModel):
 
 class DisableReviewLinkBody(BaseModel):
     is_active: bool = False
+
+
+class UpsertAdvisorClientBody(BaseModel):
+    client_pan: str
+    client_name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    analysis: dict
+    notes: str = ""
+    updated_at: Optional[str] = None
 
 
 _public_review_rate_limit: Dict[str, float] = {}
@@ -3155,6 +3166,37 @@ def _check_public_review_rate_limit(client_ip: str) -> None:
     if last_request is not None and now - last_request < PUBLIC_REVIEW_RATE_LIMIT_SECONDS:
         raise HTTPException(status_code=429, detail="Too many requests.")
     _public_review_rate_limit[client_ip] = now
+
+
+@app.get("/api/advisor/clients")
+async def advisor_clients_list(request: Request):
+    user = await require_supabase_user(request)
+    rows = await list_advisor_clients_for_user(user.user_id)
+    return {"clients": rows}
+
+
+@app.post("/api/advisor/clients")
+async def advisor_clients_upsert(request: Request, body: UpsertAdvisorClientBody):
+    user = await require_supabase_user(request)
+    row = await upsert_advisor_client_for_user(
+        user,
+        client_pan=body.client_pan,
+        client_name=body.client_name,
+        email=body.email,
+        phone=body.phone,
+        analysis=body.analysis,
+        notes=body.notes,
+        updated_at=body.updated_at,
+    )
+    record_audit_log(
+        user_id=user.user_id,
+        username=user.username,
+        route=request.url.path,
+        action="advisor_client_upsert",
+        status="ok",
+        message=f"client_pan={body.client_pan.strip().upper()}",
+    )
+    return row
 
 
 @app.post("/api/reviews/prepare")

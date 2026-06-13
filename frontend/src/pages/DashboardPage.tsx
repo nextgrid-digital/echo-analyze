@@ -205,17 +205,22 @@ export function DashboardPage() {
       </div>
 
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-h-[90vh] max-w-2xl gap-0 overflow-y-auto p-0 sm:max-w-2xl">
+          <DialogHeader className="border-b border-border px-4 py-4 sm:px-6">
             <DialogTitle>Upload CAS</DialogTitle>
           </DialogHeader>
-          <CasUploadPanel
-            onClientStored={refreshClients}
-            onAnalysisComplete={(pan) => {
-              setUploadOpen(false)
-              openClient(pan)
-            }}
-          />
+          <div className="p-4 sm:p-6">
+            {uploadOpen ? (
+              <CasUploadPanel
+                embedded
+                onClientStored={refreshClients}
+                onAnalysisComplete={(pan) => {
+                  setUploadOpen(false)
+                  openClient(pan)
+                }}
+              />
+            ) : null}
+          </div>
         </DialogContent>
       </Dialog>
     </AdvisorShellPage>

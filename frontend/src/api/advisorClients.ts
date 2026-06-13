@@ -1,3 +1,4 @@
+import { apiFetch, readJson } from "@/api/client"
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase"
 import type { AdvisorBookClient } from "@/lib/opportunities/types"
 import type { AnalysisResponse } from "@/types/api"
@@ -40,6 +41,10 @@ async function requireUserId(): Promise<string> {
   }
 
   const supabase = getSupabaseClient()
+  if (!supabase) {
+    throw new Error("Supabase client unavailable.")
+  }
+
   const { data, error } = await supabase.auth.getUser()
   if (error) {
     throw new Error(error.message)
@@ -50,12 +55,49 @@ async function requireUserId(): Promise<string> {
   return data.user.id
 }
 
-export async function fetchAdvisorClients(): Promise<AdvisorBookClient[]> {
+async function fetchAdvisorClientsViaApi(): Promise<AdvisorBookClient[]> {
+  const response = await apiFetch("/api/advisor/clients")
+  const payload = await readJson<{ clients?: AdvisorClientRow[]; detail?: string }>(response)
+  if (!response.ok || !payload?.clients) {
+    throw new Error(payload?.detail ?? "Could not load advisor clients.")
+  }
+
+  return payload.clients
+    .filter((row): row is AdvisorClientRow => isAnalysisResponse(row.analysis_json))
+    .map((row) => mapAdvisorClientRow(row))
+}
+
+async function upsertAdvisorClientViaApi(client: AdvisorBookClient): Promise<AdvisorBookClient> {
+  const response = await apiFetch("/api/advisor/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_pan: client.pan,
+      client_name: client.name,
+      email: client.email ?? null,
+      phone: client.phone ?? null,
+      analysis: client.analysis,
+      notes: client.notes ?? "",
+      updated_at: client.updatedAt,
+    }),
+  })
+  const payload = await readJson<AdvisorClientRow & { detail?: string }>(response)
+  if (!response.ok || !payload || !isAnalysisResponse(payload.analysis_json)) {
+    throw new Error(payload?.detail ?? "Could not save client.")
+  }
+  return mapAdvisorClientRow(payload)
+}
+
+async function fetchAdvisorClientsDirect(): Promise<AdvisorBookClient[]> {
   if (!isSupabaseConfigured()) {
     return []
   }
 
   const supabase = getSupabaseClient()
+  if (!supabase) {
+    return []
+  }
+
   const { data: userData, error: userError } = await supabase.auth.getUser()
   if (userError) {
     throw new Error(userError.message)
@@ -80,9 +122,12 @@ export async function fetchAdvisorClients(): Promise<AdvisorBookClient[]> {
     .map((row) => mapAdvisorClientRow(row as AdvisorClientRow))
 }
 
-export async function upsertAdvisorClient(client: AdvisorBookClient): Promise<AdvisorBookClient> {
+async function upsertAdvisorClientDirect(client: AdvisorBookClient): Promise<AdvisorBookClient> {
   const userId = await requireUserId()
   const supabase = getSupabaseClient()
+  if (!supabase) {
+    throw new Error("Supabase client unavailable.")
+  }
 
   const { data, error } = await supabase
     .from("advisor_clients")
@@ -114,9 +159,28 @@ export async function upsertAdvisorClient(client: AdvisorBookClient): Promise<Ad
   return mapAdvisorClientRow(data as AdvisorClientRow)
 }
 
+export async function fetchAdvisorClients(): Promise<AdvisorBookClient[]> {
+  try {
+    return await fetchAdvisorClientsViaApi()
+  } catch {
+    return fetchAdvisorClientsDirect()
+  }
+}
+
+export async function upsertAdvisorClient(client: AdvisorBookClient): Promise<AdvisorBookClient> {
+  try {
+    return await upsertAdvisorClientViaApi(client)
+  } catch {
+    return upsertAdvisorClientDirect(client)
+  }
+}
+
 export async function deleteAdvisorClient(pan: string): Promise<void> {
   const userId = await requireUserId()
   const supabase = getSupabaseClient()
+  if (!supabase) {
+    throw new Error("Supabase client unavailable.")
+  }
   const normalized = pan.trim().toUpperCase()
 
   const { data: rows, error: lookupError } = await supabase
@@ -149,6 +213,9 @@ export async function deleteAdvisorClient(pan: string): Promise<void> {
 export async function updateAdvisorClientNotes(pan: string, notes: string): Promise<void> {
   const userId = await requireUserId()
   const supabase = getSupabaseClient()
+  if (!supabase) {
+    throw new Error("Supabase client unavailable.")
+  }
   const normalized = pan.trim().toUpperCase()
 
   const { data: rows, error: lookupError } = await supabase

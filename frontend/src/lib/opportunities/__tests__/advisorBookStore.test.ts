@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { upsertAdvisorClient } from "@/api/advisorClients"
 import { SAMPLE_ANALYSIS } from "@/test/fixtures/analysis"
 import { getActiveClientPan } from "@/lib/activeClient"
 import { getClientNotes, readLocalClientNotes } from "@/lib/clientNotes"
@@ -112,6 +113,17 @@ describe("advisorBookStore", () => {
 
   it("returns false when deleting an unknown client", async () => {
     expect(await deleteClient("MISSING1234Z")).toBe(false)
+  })
+
+  it("falls back to local storage when Supabase upsert fails", async () => {
+    vi.mocked(upsertAdvisorClient).mockRejectedValueOnce(
+      new Error('relation "advisor_clients" does not exist')
+    )
+
+    await upsertClientAnalysis(SAMPLE_ANALYSIS)
+
+    expect(getClientByPan("ABCDE1234F")?.name).toBe("Priya Sharma")
+    expect(window.localStorage.getItem("echo-advisor-book")).toContain("ABCDE1234F")
   })
 
   it("clears advisor book state", () => {
